@@ -27,6 +27,7 @@ CLOCK_TOPIC = '/world/dronehacks/clock'
 TOF_SYNC_NS = 15_000_000
 TILT_WAIT_NS = MAX_TILT_BRACKET_USEC*1000
 TILT_WAIT_WALL_S = .3
+SURVEY_NORMAL_RADIUS_PX = 2
 
 
 @dataclass(frozen=True)
@@ -227,6 +228,7 @@ class RGBDOdometry:
         transform, diagnostics = register_depth(frame, reference, initial, self.depth_gates,
                                                  survey=survey, downward_range=downward_range,
                                                  inertial_tilt=inertial_tilt)
+        diagnostics['depth_normal_radius_px'] = frame.normal_radius_px
         pose = transform if survey else self.world_from_optical @ transform
         try:
             self._check_motion(pose, dt)
@@ -276,19 +278,27 @@ class RGBDOdometry:
                 raise TrackingFailure('capture_gap')
             diagnostics, survey_failure = None, None
             if self.survey is not None:
+                # Only the survey uses the wider measured normal. Its target
+                # normals come from static geometry; keep frame fallback and
+                # its observability based on the original image derivative.
+                survey_frame = DepthFrame(depth, self.intrinsics, self.depth_gates,
+                                          normal_radius_px=SURVEY_NORMAL_RADIUS_PX)
                 try:
-                    diagnostics = self._update_depth(frame, self.survey, self.world_from_optical, dt, True,
-                                                     downward_range=downward_range, inertial_tilt=inertial_tilt)
+                    diagnostics = self._update_depth(survey_frame, self.survey, self.world_from_optical, dt,
+                                                     True, downward_range=downward_range,
+                                                     inertial_tilt=inertial_tilt)
                 except TrackingFailure as error:
                     survey_failure = str(error)
-                    attempts['survey'] = {'reason': survey_failure, **error.details}
+                    attempts['survey'] = {'reason': survey_failure,
+                                          'depth_normal_radius_px': survey_frame.normal_radius_px, **error.details}
             if self.previous is not None and diagnostics is None:
                 old_gray, old_depth, old_frame = self.previous
                 try:
                     diagnostics = self._update_depth(frame, old_frame, np.eye(4), dt, False)
                 except TrackingFailure as error:
                     depth_failure = str(error)
-                    attempts['frame_depth'] = {'reason': depth_failure, **error.details}
+                    attempts['frame_depth'] = {'reason': depth_failure,
+                                               'depth_normal_radius_px': frame.normal_radius_px, **error.details}
                 if diagnostics is None:
                     try:
                         old_features = self._features(old_gray, old_depth)

@@ -1,6 +1,7 @@
 """Camera-only localization against analytic, textureless depth scenes."""
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 try:
     import cv2
@@ -76,6 +77,73 @@ class DepthOdometryTests(unittest.TestCase):
         found, quality = register_depth(frame, survey, self.world_from_camera, survey=True)
         np.testing.assert_allclose(found, pose, atol=.005)
         self.assertGreater(quality['depth_overlap'], .9)
+
+    def test_shallow_noisy_depth_recovers_survey_with_raw_centers(self):
+        cv2.setRNGSeed(7)
+        self.planes = ((0, 2.12), (1, -.65), (2, 0.))
+        estimator = RGBDOdometry((0., 0., .23), intrinsics=self.k, survey=self.survey())
+        pose = estimator.world_from_optical.copy()
+        depth = self.render(pose)
+        depth += np.random.default_rng(1337).normal(0., .01, depth.shape).astype(np.float32)
+        before = depth.copy()
+        with self.assertRaisesRegex(TrackingFailure, 'insufficient_depth_overlap'):
+            register_depth(DepthFrame(depth, self.k, DepthGates()), estimator.survey, pose, survey=True)
+        record = estimator.estimate(self.rgb, depth, 100_000)
+        self.assertTrue(record['valid'], record)
+        self.assertEqual(record['source'], 'depth_survey')
+        self.assertEqual(record['depth_normal_radius_px'], 2)
+        self.assertGreater(record['depth_overlap'], .55)
+        np.testing.assert_allclose(record['position_enu'], (0., 0., .23), atol=.012)
+        np.testing.assert_array_equal(depth, before)
+
+    def test_wide_survey_normals_keep_holes_and_depth_steps_out_of_support(self):
+        depth = np.full(self.rgb.shape[:2], .7, dtype=np.float32)
+        depth[15:45, 192:] = .95
+        depth[85:115, 192] = np.nan
+        depth[155:185, 192] = .95
+        wide = DepthFrame(depth, self.k, DepthGates(), normal_radius_px=2)
+        u, v = np.array([191, 191, 191, 184]), np.array([30, 100, 170, 220])
+        points, normals = wide._surface_at(u, v)
+        np.testing.assert_array_equal(np.isfinite(normals).all(axis=1), [False, False, False, True])
+        np.testing.assert_array_equal(points[:, 2], depth[v, u])
+
+        projected = self.rays[1:3, 1] * .7
+        projected[1] = self.rays[2, 2] * .7
+        ids, _, _ = wide.correspond(projected, np.tile([0., 0., 1.], (2, 1)), .08)
+        np.testing.assert_array_equal(ids, [1])
+        for invalid in (0, 3, 1.5, True):
+            with self.assertRaisesRegex(ValueError, 'normal radius'):
+                DepthFrame(depth, self.k, DepthGates(), normal_radius_px=invalid)
+
+    def test_wide_source_cannot_make_an_exact_survey_plane_observable(self):
+        plane = np.full(self.rgb.shape[:2], 2., dtype=np.float32)
+        measurement = plane + np.random.default_rng(7).normal(0., .01, plane.shape).astype(np.float32)
+        exact = DepthFrame(plane, self.k, DepthGates())
+        surveyed = DepthSurvey(exact.sample_points, exact.sample_normals, floor_z=-10.)
+        wide = DepthFrame(measurement, self.k, DepthGates(), normal_radius_px=2)
+        with self.assertRaisesRegex(TrackingFailure, 'unobservable_depth_geometry'):
+            register_depth(wide, surveyed, np.eye(4), survey=True)
+
+    def test_noisy_plane_cannot_gain_rank_from_wider_relative_normals(self):
+        rng = np.random.default_rng(741)
+        old, new = [(2.+rng.normal(0., .01, self.rgb.shape[:2])).astype(np.float32) for _ in range(2)]
+        # This fixture would falsely pass if the survey radius leaked into
+        # the relative target normals, which do not come from surveyed planes.
+        wide_frames = [DepthFrame(image, self.k, DepthGates(), normal_radius_px=2) for image in (new, old)]
+        _, wrong = register_depth(*wide_frames, np.eye(4))
+        self.assertGreater(wrong['depth_observability'], .004)
+
+        estimator = RGBDOdometry((0., 0., 1.), intrinsics=self.k, survey=self.survey())
+        textured = rng.integers(0, 256, self.rgb.shape, dtype=np.uint8)
+        self.assertTrue(estimator.estimate(textured, old, 100_000)['valid'])
+        self.assertEqual(estimator.previous[2].normal_radius_px, 1)
+        with patch.object(estimator, '_rgb_motion', side_effect=TrackingFailure('insufficient_inliers')):
+            record = estimator.estimate(self.rgb, new, 150_000)
+        self.assertFalse(record['valid'])
+        self.assertEqual(record['rejected_fits']['survey']['depth_normal_radius_px'], 2)
+        relative = record['rejected_fits']['frame_depth']
+        self.assertEqual(relative['depth_normal_radius_px'], 1)
+        self.assertEqual(relative['reason'], 'insufficient_depth_overlap')
 
     def test_tof_recovers_the_missing_vertical_axis_only(self):
         survey = self.survey()

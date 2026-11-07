@@ -114,10 +114,13 @@ class SurveySurface:
 class DepthFrame:
     """Optical-Z points and local surface normals, evaluated at queried pixels."""
 
-    def __init__(self, depth, intrinsics, gates, stride=6):
+    def __init__(self, depth, intrinsics, gates, stride=6, *, normal_radius_px=1):
+        if type(normal_radius_px) is not int or normal_radius_px not in (1, 2):
+            raise ValueError('normal radius must be one or two pixels')
         depth = np.asarray(depth, dtype=np.float32)
         if depth.ndim != 2 or min(depth.shape) < 8:
             raise TrackingFailure('invalid_depth_shape')
+        self.normal_radius_px = normal_radius_px
         self.fx, self.fy = intrinsics[0, 0], intrinsics[1, 1]
         self.cx, self.cy = intrinsics[0, 2], intrinsics[1, 2]
         # Finite optical-Z depth, in metres. Clipped returns have no surface.
@@ -130,21 +133,29 @@ class DepthFrame:
         self.sample_normals = normals[good].astype(np.float64)
 
     def _surface_at(self, u, v):
+        radius = self.normal_radius_px
         center = self.depth[v, u]
-        left, right = self.depth[v, u-1], self.depth[v, u+1]
-        top, bottom = self.depth[v-1, u], self.depth[v+1, u]
+        left, right = self.depth[v, u-radius], self.depth[v, u+radius]
+        top, bottom = self.depth[v-radius, u], self.depth[v+radius, u]
         x = (u.astype(np.float32)-self.cx)/self.fx
         y = (v.astype(np.float32)-self.cy)/self.fy
         dz_x, dz_y = right-left, bottom-top
         # Central differences of back-projected neighboring 3D points.
-        dx = np.column_stack((x*dz_x+(right+left)/self.fx, y*dz_x, dz_x))
-        dy = np.column_stack((x*dz_y, y*dz_y+(bottom+top)/self.fy, dz_y))
+        dx = np.column_stack((x*dz_x+(right+left)*radius/self.fx, y*dz_x, dz_x))
+        dy = np.column_stack((x*dz_y, y*dz_y+(bottom+top)*radius/self.fy, dz_y))
         normals = np.cross(dx, dy)
         norm = np.linalg.norm(normals, axis=1)
         # Perspective changes depth even on a plane near the horizon. Reject
         # abrupt asymmetric jumps, which are usually surface discontinuities.
         curvature = np.maximum(np.abs(right+left-2*center), np.abs(bottom+top-2*center))
-        valid = (norm > 1e-8) & (curvature < .014 + .018 * center)
+        curvature_limit = .014 + .018 * center
+        valid = (norm > 1e-8) & (curvature < curvature_limit)
+        if radius == 2:
+            # Reject a hole or depth jump at intermediate pixels that the
+            # outer derivative could skip, using the same curvature test.
+            short_x = np.abs(self.depth[v, u-1]+self.depth[v, u+1]-2*center)
+            short_y = np.abs(self.depth[v-1, u]+self.depth[v+1, u]-2*center)
+            valid &= np.maximum(short_x, short_y) < curvature_limit
         normals /= np.where(valid, norm, np.nan)[:, None]
         return np.column_stack((x*center, y*center, center)), normals
 
@@ -154,7 +165,8 @@ class DepthFrame:
         u = np.rint(self.fx * p[:, 0] / p[:, 2] + self.cx).astype(int)
         v = np.rint(self.fy * p[:, 1] / p[:, 2] + self.cy).astype(int)
         h, w = self.depth.shape
-        inside = (1 <= u) & (u < w-1) & (1 <= v) & (v < h-1)
+        radius = self.normal_radius_px
+        inside = (radius <= u) & (u < w-radius) & (radius <= v) & (v < h-radius)
         ids = visible[inside]
         target, target_normal = self._surface_at(u[inside], v[inside])
         close = np.sum((target - points[ids])**2, axis=1) < max_distance**2
