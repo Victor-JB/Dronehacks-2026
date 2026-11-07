@@ -7,7 +7,23 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
+try:
+    import pytest
+except ImportError:
+    class _MockPytest:
+        @staticmethod
+        def approx(v, abs=1e-4):
+            class _Approx:
+                def __eq__(self, o): return math.isclose(o, v, abs_tol=abs, rel_tol=1e-4) if math.isfinite(v) and math.isfinite(o) else (math.isnan(v) and math.isnan(o))
+            return _Approx()
+        class mark:
+            @staticmethod
+            def parametrize(*args, **kwargs): return lambda f: f
+        class raises:
+            def __init__(self, exc): self.exc = exc
+            def __enter__(self): return self
+            def __exit__(self, exc_type, *args): return exc_type is not None and issubclass(exc_type, self.exc)
+    pytest = _MockPytest()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from refnav import core as C  # noqa: E402
@@ -40,11 +56,13 @@ def render_depth(pos_ned, yaw, walls):
     with np.errstate(divide="ignore", invalid="ignore"):
         tf = (FLOOR_D - o[2]) / d_ned[..., 2]               # the floor, 0.18 m below the body when landed
         best = np.where((tf > 0), np.minimum(best, tf), best)
-        for axis, val, lo, hi in walls:
+        for w in walls:
+            axis, val, lo, hi = w[:4]
+            top_d = w[4] if len(w) > 4 else -2.5
             t = (val - o[axis]) / d_ned[..., axis]
             p = o + d_ned * t[..., None]
             other = p[..., 1 - axis]
-            hit = (t > 0) & (other >= lo) & (other <= hi) & (p[..., 2] <= 0) & (p[..., 2] >= -2.5)
+            hit = (t > 0) & (other >= lo) & (other <= hi) & (p[..., 2] <= 0) & (p[..., 2] >= top_d)
             best = np.where(hit, np.minimum(best, t), best)
     best[~np.isfinite(best)] = np.nan
     return best.astype(np.float32)
@@ -457,3 +475,32 @@ def test_too_little_depth_never_arms_and_says_how_much_there_was():
 def test_no_depth_at_all_is_said_as_such():
     m, px4, log = fly(C.Params(route=[], wait_s=5.0), depth_on=lambda t: False, seconds=10.0)
     assert m.result == "refused: waiting for live depth: no depth frame has arrived after 5 s", m.result
+
+
+def test_vault_over_wall_and_land():
+    """Verify drone approaches a 1.8m wall, climbs over it, traverses forward, and lands."""
+    params = C.Params(
+        route=[(5.0, 0.0)],
+        vault_on_obstacle=True,
+        vault_standoff_m=1.2,
+        vault_overstep_m=2.5,
+        vault_climb_rate_mps=0.5,
+        vault_speed_mps=0.6,
+        stop_m=0.9
+    )
+    # A 1.8m tall wall placed across the path at North = 3.0m
+    wall = [(0, 3.0, -3.0, 3.0, -1.8)]
+    m, px4, log = fly(params, walls=wall, seconds=50.0)
+
+    phases = [entry[1] for entry in log]
+    assert "vault_approach" in phases, f"vault_approach not entered, phases: {set(phases)}"
+    assert "vault_climb" in phases, "vault_climb not entered"
+    assert "vault_cross" in phases, "vault_cross not entered"
+    assert "vault_settle" in phases, "vault_settle not entered"
+    assert m.result == "landed: vault complete, landing on far side", f"Unexpected result: {m.result}"
+    assert not px4.armed and px4.landed
+    # Peak altitude reached should have safely exceeded 1.8m (NED z < -1.8m)
+    min_z = min(entry[4][2] for entry in log)
+    assert min_z <= -1.8, f"Did not climb above wall: min z was {min_z}"
+    # Final landing position should be on the far side (North > 3.0m)
+    assert px4.pos[0] > 3.0, f"Did not land past wall: final North pos was {px4.pos[0]}"

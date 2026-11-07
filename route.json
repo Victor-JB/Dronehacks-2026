@@ -23,6 +23,9 @@
     [-1.697, -0.472]
   ],
   "params": {
-    "explore": false
+    "explore": false,
+    "vault_on_obstacle": true,
+    "vault_standoff_m": 1.2,
+    "vault_overstep_m": 2.5
   }
 }
