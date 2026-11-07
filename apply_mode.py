@@ -9,7 +9,11 @@ if chosen is None:
     sys.exit(f"No such mode: {mode}")
 
 params = {**cfg["global_params"], **chosen.get("params_override", {})}
-route = [[leg["forward_m"], leg["left_m"]] for leg in chosen.get("route", [])]
+route = chosen.get("route", [])
+
+if not route and "box_size_m" in chosen:
+    s = chosen["box_size_m"]
+    route = [[s, 0], [0, s], [-s, 0], [0, -s]]   # forward, left, back, right -> returns to start
 
 with open("route.json", "w") as f:
     json.dump({"route": route, "params": params}, f, indent=2)
