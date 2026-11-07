@@ -1,35 +1,47 @@
 # dronehacks-sim
 
-A local Gazebo Harmonic simulation of the DroneHacks course and its 15-waypoint window route. The project is public at [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim); the simulator and browser viewer run on your machine, not on that GitHub page.
+A local Gazebo Harmonic simulation of the DroneHacks course. It includes an experimental PX4 SITL path that uses camera-localized mapped fiducials for navigation, plus a separate Gazebo ground-truth controller for comparison. The project is public at [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim); the simulation and viewer run on your machine.
 
-## Run on macOS
+## PX4 camera demo (recommended path)
 
-Install Docker CLI with Compose and [Colima](https://github.com/abiosoft/colima), then clone this repository. In one terminal, start the simulation:
+Install Docker CLI with Compose and [Colima](https://github.com/abiosoft/colima). From this directory, build and start the dedicated PX4 simulation once:
 
 ```sh
-./runtime/run-mac.sh
+./runtime/run-px4.sh
 ```
 
-This creates or starts the dedicated ARM64 Colima profile `dronehacks-sim` (4 CPUs, 6 GiB memory, 16 GiB disk), builds the image, and starts Gazebo. In another terminal, start the local route status page:
+In another terminal, start the local viewer:
 
 ```sh
 ./web/run.sh
 ```
 
-Open the status page at [http://localhost:8081](http://localhost:8081). Open the Gazebo desktop at [http://localhost:8080/vnc.html?autoconnect=1&resize=scale](http://localhost:8080/vnc.html?autoconnect=1&resize=scale). These addresses are local to the Mac running the simulation.
-
-To reset and replay the mission, run `./runtime/replay.sh`; it recreates only the simulation container. To stop the containers, run `docker --context colima-dronehacks-sim compose down`. To stop the VM as well, run `colima stop --profile dronehacks-sim`.
-
-For the optional faster window profile, replay with:
+Open the viewer at [http://localhost:8081](http://localhost:8081). To reset the PX4 simulation and run the full course in the background:
 
 ```sh
-SIM_COURSE=mission/course-window-fast.json SIM_SPEED_SCALE=1 ./runtime/replay.sh
+./runtime/replay-px4.sh course
 ```
 
-## What is simulated
+The replay helper also accepts `hover`. Follow progress with `tail -f artifacts/px4/mission.log`. Each replay recreates the simulation container, so use the helper for the next run instead of starting another mission with `docker exec` against an active run.
 
-The container uses Ubuntu 24.04 (Noble) with Gazebo Harmonic 8.15, DART 7.9 physics, Ogre2 rendering, and Mesa software rendering. It loads the Open Robotics X3 v4 quadrotor with Gazebo multicopter velocity-control and four-motor plugins. The existing course controller follows the imported course using Gazebo ground-truth odometry and simulator time. The browser page reports simulator telemetry; it is not a browser-rendered simulation.
+To check camera-loss handling in a headless hover:
 
-In GUI runs, the default profile completed all 15 waypoints to the landing handoff in 61.780 simulated seconds, with zero obstacle contacts and 0.0905 m of clearance at the padded window check. The optional tuned window profile completed the same route in 47.736 simulated seconds, with zero obstacle contacts and 0.0906 m clearance. These are simulator ground-truth results, not evidence of hardware reliability. Setting speed scale to 1 on the default route failed the conservative window-clearance check; that attempt is not a passing result. See [docs/results.json](docs/results.json) for run details, [docs/browser.md](docs/browser.md) for viewer details, and [mission/PROVENANCE.md](mission/PROVENANCE.md) for course and controller provenance.
+```sh
+SIM_GUI=0 ./runtime/replay-px4.sh hover --blackout-after 18
+```
 
-This uses simulator ground truth, not PX4 SITL. It does not validate camera or visual-inertial odometry, and the simulated vehicle dynamics are not a claim about real aircraft performance. Isaac Sim, Pegasus, PX4, and ROS 2 are not required. Linux Docker Compose may work with Docker installed, but this setup has only been tested on Apple Silicon macOS with Colima.
+See [docs/px4-camera.md](docs/px4-camera.md) for the navigation architecture, verified results, and limitations. See [docs/vision.md](docs/vision.md) for camera calibration and marker-map details.
+
+## PX4 demo status and limits
+
+Verified runs include a hover-height acquisition in 30.040 simulated seconds and a GUI run completing all 15 waypoints in 94.696 simulated seconds at 640×480 camera resolution. The camera-loss check stopped forwarding pose measurements at 18 simulated seconds while the vehicle was climbing at about 0.5 m; the route aborted 0.568 simulated seconds later, and PX4 reported landing and disarming. These runs confirm external-vision position, height, and yaw fusion with GNSS, barometer, range, and optical-flow fusion inactive. Waypoint completion uses PX4 estimated position; collisions and swept clearance were not scored. The native 480×360 camera run also completed all 15 waypoints in 96.376 simulated seconds. See [docs/px4-results.json](docs/px4-results.json) for the recorded runs.
+
+This is a camera-loop baseline, not a complete sim-to-real validation. It adds a downward-facing monocular camera and surveyed AprilTag markers to the Gazebo course. The physical aircraft uses a forward-facing OAK-D-S2 stereo camera with cuVSLAM visual-inertial odometry on Jetson. The stock x500 is not the physical airframe. These runs do not validate the real camera stack, real flight, collision safety, or course clearance.
+
+The camera runs at 30 Hz of simulation time. A 650-response MAVLink time-sync warmup at 50 Hz completes before arming. Software rendering may advance simulation slower than wall time, so use simulation timestamps when comparing camera and vehicle data. The Python course-control core is shared, but this SITL path uses MAVLink and PX4 position feedback; the physical cuVSLAM path uses a ROS 2 bridge.
+
+## Gazebo ground-truth comparison mode
+
+The older non-PX4 demo uses the Open Robotics X3 v4 quadrotor and follows the course from Gazebo ground-truth odometry. To run it, start the simulation with `./runtime/run-mac.sh`, then launch the same viewer with `./web/run.sh`. It also uses [http://localhost:8081](http://localhost:8081), with the Gazebo desktop at [http://localhost:8080/vnc.html?autoconnect=1&resize=scale](http://localhost:8080/vnc.html?autoconnect=1&resize=scale).
+
+That separate baseline completed all 15 waypoints in 61.780 simulated seconds with zero obstacle contacts and 0.0905 m clearance at the padded window check. The optional tuned window profile completed in 47.736 simulated seconds with zero contacts and 0.0906 m clearance. These ground-truth results are not directly comparable to PX4 camera runs: vehicle models, navigation sources, and scoring differ. Setting speed scale to 1 on the default ground-truth route failed the conservative window-clearance check. See [docs/results.json](docs/results.json) for details. Isaac Sim and ROS 2 are not required for this comparison demo. Linux Docker Compose may work, but the setup has been tested on Apple Silicon macOS with Colima.

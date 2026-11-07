@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DroneHacks · Gazebo</title>
+  <title>DroneHacks · Mission Viewer</title>
   <style>
     :root{color-scheme:dark;--bg:#101416;--panel:#191f21;--muted:#9ba9a7;--line:#303a39;--mint:#7de0bd;--amber:#f4c66b;--red:#ff867e}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#ecf2ef;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif}
@@ -18,29 +18,39 @@
     .metric{padding:11px;background:#121719;border-radius:7px}.metric label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px}.metric b{font-size:14px;font-variant-numeric:tabular-nums}
     .labels{display:flex;flex-wrap:wrap;gap:6px}.tag{font-size:10px;letter-spacing:.06em;padding:5px 7px;border:1px solid #3a5149;border-radius:5px;color:var(--mint)}
     .route{padding:10px;background:#121719;border-radius:7px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}.notice{font-size:12px;color:var(--muted)}
+    .camera{display:none;width:100%;max-height:55vh;object-fit:contain;background:#080a0b}.px4 .camera{display:block}.px4 .gt-only{display:none}.px4 .px4-only{display:block}.px4-only{display:none}
+    .camera-wait{display:none;padding:28px;text-align:center;color:var(--muted);background:#080a0b}.px4 .camera-wait{display:block}
     @media(max-width:900px){main{grid-template-columns:1fr;padding:10px}.panel{order:-1}.grid{grid-template-columns:repeat(3,1fr)}iframe{height:60vh;min-height:360px}}
   </style>
 </head>
 <body>
-<header><div><strong>DRONEHACKS <span style="color:var(--mint)">/</span> GAZEBO</strong><br><small>Local simulation monitor</small></div><a id="full" href="http://127.0.0.1:8080/vnc.html?autoconnect=1&amp;resize=scale" target="_blank" rel="noreferrer">Open Gazebo full window ↗</a></header>
+<header><div><strong>DRONEHACKS <span style="color:var(--mint)">/</span> <span id="heading">GAZEBO</span></strong><br><small>Local simulation monitor</small></div><a id="full" href="http://127.0.0.1:8080/vnc.html?autoconnect=1&amp;resize=scale" target="_blank" rel="noreferrer">Open Gazebo full window ↗</a></header>
 <main>
-  <section class="viewport"><div class="viewport-head"><b>Gazebo Harmonic · live GUI</b><span class="muted">noVNC</span></div><iframe id="gazebo" title="Actual Gazebo simulator" src="http://127.0.0.1:8080/vnc.html?autoconnect=1&amp;resize=scale"></iframe></section>
+  <section class="viewport"><div class="viewport-head"><b id="viewtitle">Gazebo Harmonic · live GUI</b><span class="muted" id="viewmode">noVNC</span></div><iframe id="gazebo" title="Actual Gazebo simulator" src="http://127.0.0.1:8080/vnc.html?autoconnect=1&amp;resize=scale"></iframe><img id="camera" class="camera" alt="Annotated Gazebo camera with mapped fiducials"><div id="camerawait" class="camera-wait">Waiting for annotated camera image…</div></section>
   <aside class="panel"><span id="pill" class="pill"><i class="dot"></i><span id="status">Waiting</span></span><h1 id="phase">Waiting for telemetry</h1><div class="notice" id="age">No valid sample yet</div>
     <h2>Simulation state</h2><div class="grid">
       <div class="metric"><label>Sim time</label><b id="simtime">—</b></div><div class="metric"><label>Elapsed sim</label><b id="elapsed">—</b></div>
       <div class="metric"><label>Waypoint</label><b id="waypoint">—</b></div><div class="metric"><label>Speed</label><b id="speed">—</b></div>
       <div class="metric"><label>Position x / y / z</label><b id="position">—</b></div><div class="metric"><label>Mission</label><b id="result">—</b></div>
     </div>
-    <h2>Ground truth source</h2><div class="labels"><span class="tag">REAL GAZEBO PHYSICS</span><span class="tag">GROUND-TRUTH SIM STATE</span><span class="tag">NOT PX4</span><span class="tag">NOT A REAL DRONE</span></div>
+    <h2 id="sourceheading">Ground truth source</h2><div class="labels" id="labels"><span class="tag">REAL GAZEBO PHYSICS</span><span class="tag">GROUND-TRUTH SIM STATE</span><span class="tag">NOT PX4</span><span class="tag">NOT A REAL DRONE</span></div>
+    <h2 class="px4-only">Camera localization</h2><div class="grid px4-only">
+      <div class="metric"><label>Fiducial tags</label><b id="tagcount">—</b></div><div class="metric"><label>Reprojection error</label><b id="reprojection">—</b></div>
+      <div class="metric"><label>Vision valid</label><b id="visionvalid">—</b></div><div class="metric"><label>Vision age</label><b id="visionage">—</b></div>
+      <div class="metric"><label>PX4 offboard</label><b id="offboard">—</b></div><div class="metric"><label>Armed</label><b id="armed">—</b></div>
+      <div class="metric"><label>Navigation source</label><b id="navsource">—</b></div>
+    </div>
     <h2>Route</h2><div class="route" id="route">Route version unavailable until telemetry metadata provides it.</div>
     <h2>Run summary</h2><div class="notice" id="summary">No run summary yet.</div>
   </aside>
 </main>
 <script>
 const el=id=>document.getElementById(id), num=(v,d=2)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
-function render(s){const sample=s.sample, summary=s.summary;el('pill').className='pill '+s.status;el('status').textContent=s.status==='live'?'Live':s.status==='stale'?'Stale':'Waiting';el('age').textContent=s.file_age_s==null?'Telemetry file not found':`Telemetry file updated ${num(s.file_age_s,1)}s ago`;
- if(sample){el('phase').textContent=sample.phase||'In progress';el('simtime').textContent=num(sample.sim_time)+' s';el('elapsed').textContent=num(summary?.elapsed_sim_s??sample.elapsed_sim_s)+' s';el('waypoint').textContent=`${sample.waypoint_index??'—'} / ${sample.waypoint_count??'—'}`;const v=sample.velocity||[];el('speed').textContent=v.length>=3?`${num(Math.hypot(+v[0],+v[1],+v[2]))} m/s`:'—';const p=sample.position||[];el('position').textContent=p.length>=3?`${num(p[0])}, ${num(p[1])}, ${num(p[2])} m`:'—';el('result').textContent=sample.fault?`FAULT: ${sample.fault}`:summary?.result|| (sample.done?'Done':'Running');}
- const m=s.metadata||{};el('route').textContent=m.route_version?`Route version: ${m.route_version}`:m.waypoints?`${m.world||'Gazebo'} · ${m.vehicle||'vehicle'} · ${m.waypoint_count??m.waypoints.length} waypoints${m.run_id?` · run ${m.run_id}`:''}`:'Route version unavailable until telemetry metadata provides it.';
+el('camera').onerror=()=>{el('camera').style.display='none';el('camerawait').style.display='block'};
+function render(s){const sample=s.sample, summary=s.summary, px4=s.mode==='px4', m=s.metadata||{};document.body.classList.toggle('px4',px4);el('heading').textContent=px4?'PX4 CAMERA':'GAZEBO';el('viewtitle').textContent=px4?'PX4 flight + annotated camera':'Gazebo Harmonic · live GUI';el('viewmode').textContent=px4?'Gazebo + camera':'noVNC';el('gazebo').style.display='block';el('camera').style.display=px4?'block':'none';el('camerawait').style.display=px4&&!s.camera_url?'block':'none';el('sourceheading').textContent=px4?'Navigation source':'Ground truth source';el('labels').innerHTML=(s.labels||[]).map(x=>`<span class="tag">${x}</span>`).join('');if(px4&&s.camera_url){const url=s.camera_url+'?t='+encodeURIComponent(s.vision?.sim_usec??Date.now());if(el('camera').dataset.url!==url){el('camera').src=url;el('camera').dataset.url=url}}else if(px4){el('camera').removeAttribute('src')}el('pill').className='pill '+s.status;el('status').textContent=s.status==='live'?'Live':s.status==='stale'?'Stale':'Waiting';el('age').textContent=s.file_age_s==null?'Telemetry file not found':`Telemetry file updated ${num(s.file_age_s,1)}s ago`;
+ if(sample){el('phase').textContent=summary?.fault?'FAULT':(sample.phase||'In progress');el('simtime').textContent=num(sample.sim_time)+' s';el('elapsed').textContent=num(summary?.elapsed_sim_s??sample.elapsed_sim_s)+' s';el('waypoint').textContent=`${sample.waypoint_index??'—'} / ${sample.waypoint_count??'—'}`;const v=sample.velocity||[];el('speed').textContent=v.length>=3?`${num(Math.hypot(+v[0],+v[1],+v[2]))} m/s`:'—';const p=sample.position||[];el('position').textContent=p.length>=3?`${num(p[0])}, ${num(p[1])}, ${num(p[2])} m`:'—';el('result').textContent=(summary?.fault||sample.fault)?`FAULT: ${summary?.fault||sample.fault}`:summary?.result|| (sample.done?'Done':'Running');}
+ el('route').textContent=m.route_version?`Route version: ${m.route_version}`:m.waypoints?`${m.world||'Gazebo'} · ${m.vehicle||'vehicle'} · ${m.waypoint_count??m.waypoints.length} waypoints${m.run_id?` · run ${m.run_id}`:''}`:'Route version unavailable until telemetry metadata provides it.';
+ if(px4){const v=s.vision||{};el('tagcount').textContent=v.tag_count??'—';el('reprojection').textContent=v.reprojection_error_px==null?'—':`${num(v.reprojection_error_px)} px`;el('visionvalid').textContent=(s.vision_wall_age_s??99)>3?'Stale':(v.valid&&sample?.vision_valid&&!summary?.fault?'Valid':'Invalid');el('visionage').textContent=s.vision_age_s==null?'Waiting':`${num(s.vision_age_s)} s`;el('offboard').textContent=sample?.px4_offboard==null?'—':String(sample.px4_offboard);el('armed').textContent=sample?.px4_armed==null?'—':String(sample.px4_armed);el('navsource').textContent=sample?.navigation_source??m.navigation_source??'—';}
  el('summary').textContent=summary?JSON.stringify(summary):'No run summary yet.';
 }
 async function poll(){try{const r=await fetch('/api/state',{cache:'no-store'});render(await r.json())}catch(e){el('status').textContent='Viewer error'}}poll();setInterval(poll,500);
