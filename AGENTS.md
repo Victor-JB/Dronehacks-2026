@@ -47,3 +47,7 @@ Read `CODEX_HANDOFF.md`, `AUTONOMY_STATUS.md`, `README.md`, `STRATEGY.md`, the f
 ## Read-only compatibility audit authorization (2026-11-07)
 
 The user explicitly superseded the earlier SSH stop boundary for read-only inspection of skybeta-02. Read-only SSH/ROS graph and sensor observations are authorized. Installing, deploying files, changing system/PX4 configuration, starting autonomy or publishing physical command topics (including zeros) remain prohibited. Never save credentials. Local fixes/tests and normal pushes to saketh/autonomy are authorized. The stationary entrypoint must remain hard-locked to DryRunBackend regardless of parameter overrides.
+
+## Staged stationary integration gate (2026-11-07)
+
+Current authorization is Phase 1 local preparation only. Follow STATIONARY_DEPLOYMENT_PLAN.md. Stop for explicit phase-specific user approval before any remote write, deployment, build, service change or autonomy launch. A Phase 2 approval covers only the reviewed separate network-none/private-IPC synthetic sandbox, not live sensing; Phases 3 and 4 need separate approval. Do not treat domain77 alone as physical isolation. No physical commands (including zero), arming/disarming/mode changes or system upgrades are authorized. Preserve all existing running services/workspaces and record actual execution separately from proposed commands.
