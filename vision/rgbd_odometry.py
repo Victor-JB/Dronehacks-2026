@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 import struct
 from threading import Lock
+import time
 
 import cv2
 import numpy as np
@@ -24,6 +25,8 @@ from .rgbd_scene import (COLOR_TOPIC, DEPTH_TOPIC, RGBD_BODY_FROM_OPTICAL,
 
 CLOCK_TOPIC = '/world/dronehacks/clock'
 TOF_SYNC_NS = 15_000_000
+TILT_WAIT_NS = MAX_TILT_BRACKET_USEC*1000
+TILT_WAIT_WALL_S = .3
 
 
 @dataclass(frozen=True)
@@ -337,13 +340,14 @@ class CapturePairs:
         while len(target) > self.capacity:
             del target[min(target)]
 
-    def take(self, through_ns=None):
+    def take(self, through_ns=None, *, ready=None):
         common = self.color.keys() & self.depth.keys()
         if through_ns is not None:
             common = {stamp for stamp in common if stamp <= through_ns}
-        if not common:
+        stamp = next((stamp for stamp in sorted(common, reverse=True)
+                      if ready is None or ready(stamp)), None)
+        if stamp is None:
             return None
-        stamp = max(common)
         result = stamp, self.color[stamp], self.depth[stamp]
         self.last = stamp
         for target in (self.color, self.depth):
@@ -419,6 +423,7 @@ class Vision:
         self._clock_usec = None
         self._ranges = {}
         self._tilts = TiltHistory() if use_px4_tilt else None
+        self._tilt_wait_started = {}
         self._rejected_frame_dir = Path(rejected_frame_dir) if rejected_frame_dir is not None else None
         self._rejected_frame = None
         optical_from_body = np.asarray(RGBD_BODY_FROM_OPTICAL).T
@@ -473,6 +478,31 @@ class Vision:
         if self._tilts is not None:
             self._tilts.record(stamp_usec, roll, pitch)
 
+    def _take_capture(self, clock_ns, now_wall):
+        """Consume the latest pair eligible for range and optional tilt alignment."""
+        through_ns = clock_ns - TOF_SYNC_NS
+        if self._tilts is None:
+            return self._pairs.take(through_ns), None, 'disabled'
+
+        tilt = None
+
+        def ready(stamp_ns):
+            nonlocal tilt
+            tilt = self._tilts.at(stamp_ns//1000)
+            if tilt is not None:
+                return True
+            started = self._tilt_wait_started.setdefault(stamp_ns, now_wall)
+            return clock_ns-stamp_ns >= TILT_WAIT_NS or now_wall-started >= TILT_WAIT_WALL_S
+
+        pair = self._pairs.take(through_ns, ready=ready)
+        self._tilt_wait_started = {
+            stamp: started for stamp, started in self._tilt_wait_started.items()
+            if stamp in self._pairs.color and stamp in self._pairs.depth
+        }
+        if pair is None:
+            return None, None, 'waiting_for_bracket'
+        return pair, tilt, 'capture_aligned' if tilt is not None else 'missing_after_deadline'
+
     def poll(self):
         with self._lock:
             now = self._clock_usec
@@ -481,7 +511,7 @@ class Vision:
             clock_ns = now*1000 + 999
             # Leave time for the independently delivered ToF sample. After
             # this deadline, the RGBD pair can still support a camera-only fit.
-            pair = self._pairs.take(clock_ns - TOF_SYNC_NS)
+            pair, tilt, tilt_pairing = self._take_capture(clock_ns, time.monotonic())
             if pair is None:
                 return None
             stamp_ns, color, depth = pair
@@ -502,9 +532,11 @@ class Vision:
         if should_remember:
             previous_pose = self.estimator.world_from_optical
             previous_usec = self.estimator.last_usec
-        tilt = self._tilts.at(stamp_ns//1000) if self._tilts is not None else None
         record = self.estimator.estimate(rgb, z, stamp_ns//1000, now, downward_range=downward_range,
                                          inertial_tilt=tilt)
+        record['px4_tilt_pairing_status'] = tilt_pairing
+        if tilt_pairing == 'missing_after_deadline' and not record.get('valid') and record.get('reason'):
+            record['reason'] += ';px4_tilt_bracket_missing_after_deadline'
         if should_remember and self.estimator.lost is not None:
             self._rejected_frame = {
                 'rgb': rgb, 'depth_z_m': z,
@@ -521,6 +553,7 @@ class Vision:
                     'tof_range_std_m': downward_range.std_m if downward_range is not None else None,
                     'tof_origin_optical_m': self._tof_origin.tolist(),
                     'tof_ray_optical': self._tof_direction.tolist(),
+                    'px4_tilt_pairing_status': tilt_pairing,
                     'px4_tilt_prior': {
                         'capture_usec': tilt.capture_usec, 'bracket_usec': tilt.bracket_usec,
                         'up_optical': tilt.up_optical.tolist(), 'std_rad': tilt.std_rad,

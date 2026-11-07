@@ -4,6 +4,7 @@ import tempfile
 from threading import Lock
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -181,6 +182,80 @@ class MotionTests(unittest.TestCase):
         self.assertIsNone(history.at(210_000))
         history.record(300_000, 0., 0.)
         self.assertIsNone(history.at(260_000))
+
+    def tilt_adapter(self):
+        class Estimator:
+            lost = None
+
+            def estimate(self, rgb, z, stamp, now, *, downward_range, inertial_tilt):
+                if inertial_tilt is not None:
+                    return {'valid': True, 'sim_usec': stamp, 'reason': None}
+                self.lost = 'unobservable_depth_geometry'
+                return {'valid': False, 'sim_usec': stamp, 'reason': 'tracking_lost:' + self.lost}
+
+        adapter = Vision.__new__(Vision)
+        adapter.estimator = Estimator()
+        adapter._lock, adapter._pairs = Lock(), CapturePairs()
+        adapter._tilts = TiltHistory()
+        adapter._tilt_wait_started = {}
+        adapter._ranges = {}
+        adapter._rejected_frame_dir = None
+        adapter._rejected_frame = None
+        adapter._formats = (1, 2)
+        return adapter
+
+    def push_pair(self, adapter, capture_usec):
+        for kind, pixel_format, stride in (('color', 1, 3), ('depth', 2, 4)):
+            adapter._pairs.push(kind, capture_usec*1000, SimpleNamespace(
+                width=RGBD_WIDTH, height=RGBD_HEIGHT, pixel_format_type=pixel_format,
+                step=RGBD_WIDTH*stride, data=bytes(RGBD_WIDTH*RGBD_HEIGHT*stride)))
+
+    def test_early_camera_capture_waits_for_real_right_side_tilt_and_is_used_once(self):
+        adapter = self.tilt_adapter()
+        self.push_pair(adapter, 39_100_000)
+        adapter.record_attitude(39_088_000, .01, .01)
+        adapter._clock_usec = 39_116_000
+        with patch('vision.rgbd_odometry.time.monotonic', return_value=10.):
+            self.assertIsNone(adapter.poll())
+            self.assertIsNone(adapter.estimator.lost)
+            adapter.record_attitude(39_124_000, .02, .02)
+            adapter._clock_usec = 39_126_000
+            record = adapter.poll()
+            self.assertTrue(record['valid'])
+            self.assertEqual(record['sim_usec'], 39_100_000)
+            self.assertEqual(record['px4_tilt_pairing_status'], 'capture_aligned')
+            # Later attitude alone cannot produce another camera observation.
+            adapter.record_attitude(39_156_000, .02, .02)
+            adapter._clock_usec = 39_157_000
+            self.assertIsNone(adapter.poll())
+
+    def test_missing_tilt_releases_capture_at_sim_or_wall_deadline(self):
+        for clock_usec, wall in ((160_000, 10.1), (116_000, 10.301)):
+            with self.subTest(clock_usec=clock_usec, wall=wall):
+                adapter = self.tilt_adapter()
+                self.push_pair(adapter, 100_000)
+                adapter.record_attitude(88_000, 0., 0.)
+                adapter._clock_usec = 116_000
+                with patch('vision.rgbd_odometry.time.monotonic', return_value=10.):
+                    self.assertIsNone(adapter.poll())
+                adapter._clock_usec = clock_usec
+                with patch('vision.rgbd_odometry.time.monotonic', return_value=wall):
+                    record = adapter.poll()
+                    self.assertFalse(record['valid'])
+                    self.assertEqual(record['sim_usec'], 100_000)
+                    self.assertEqual(record['px4_tilt_pairing_status'], 'missing_after_deadline')
+                    self.assertIn('px4_tilt_bracket_missing_after_deadline', record['reason'])
+                    adapter.record_attitude(124_000, 0., 0.)
+                    self.assertIsNone(adapter.poll())
+
+    def test_newer_waiting_capture_cannot_starve_an_expired_older_pair(self):
+        adapter = self.tilt_adapter()
+        self.push_pair(adapter, 100_000)
+        self.push_pair(adapter, 150_000)
+        adapter._clock_usec = 167_000
+        with patch('vision.rgbd_odometry.time.monotonic', return_value=10.):
+            self.assertEqual(adapter.poll()['sim_usec'], 100_000)
+            self.assertIsNone(adapter.poll())
 
     def test_opt_in_rejection_saves_first_raw_pair_only(self):
         class Estimator:

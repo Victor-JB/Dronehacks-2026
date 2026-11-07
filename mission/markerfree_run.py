@@ -554,6 +554,7 @@ def run(args):
                           vision_backend=(frame or {}).get('source'),
                           vision_position_std_m=(frame or {}).get('position_std_m'),
                           px4_tilt_prior_status=(frame or {}).get('px4_tilt_prior_status'),
+                          px4_tilt_pairing_status=(frame or {}).get('px4_tilt_pairing_status'),
                           px4_tilt_std_rad=(frame or {}).get('px4_tilt_std_rad'),
                           px4_tilt_capture_usec=(frame or {}).get('px4_tilt_capture_usec'),
                           px4_tilt_bracket_usec=(frame or {}).get('px4_tilt_bracket_usec'),
@@ -562,6 +563,7 @@ def run(args):
                           px4_gps_fusion=link.params.get('EKF2_GPS_CTRL'),
                           estimator_flags=getattr(link.estimator, 'flags', None),
                           policy_capture_usec=reply.capture_usec if reply else None,
+                          policy_actions_received=learned.actions if learned else 0,
                           policy_latency_wall_s=reply.latency_s if reply else None,
                           policy_velocity_flu=reply.velocity_flu if reply else None,
                           policy_depth_coverage=learned.current_coverage if learned else None)
