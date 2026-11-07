@@ -78,3 +78,37 @@ thin to trust. Now 26 legs, tightest point ~33cm raw clearance (leg 17, near the
 **`DRONE_RADIUS_M=0.25` in `local_sim/sim.py` is still a placeholder**, replace with the real
 airframe span once the kit's in hand and recheck leg 17 specifically. Full writeup in
 `local_sim/README.md`.
+
+## Flight visualizations
+
+Two separate HTML replays -- don't confuse them, they show different things:
+
+1. **`diagrams/sim-flight.html`** -- the `local_sim` replay. Colored by an INDEPENDENT
+   ground-truth clearance check against the real course geometry (not what any sensor believed).
+   Synthetic/kinematic, no camera/VIO involved. Regenerate after any route/params change:
+   ```bash
+   cd local_sim && python3 export_flight.py ../route.json ../diagrams/sim-flight.html
+   ```
+2. **`diagrams/real-flight.html`** -- a replay of an ACTUAL FlyX Lab run: real PX4 trajectory,
+   real `refnav.core.Mission` phase/decisions, real depth-camera (and RGB, if available) frames.
+   Two steps, because the recording has to happen in the cloud sim (no ROS/PX4 on this laptop):
+   - In the FlyX Lab companion terminal, alongside a **team-approved** mission run (never run
+     flight code just to record it -- see root `CLAUDE.md`):
+     ```bash
+     python3 -m refnav.node --ros-args -p route_file:=route.json -p use_sim_time:=true   # as usual
+     python3 onboard/record_flight.py --ros-args -p use_sim_time:=true -p out_dir:=recordings/run1   # 2nd terminal
+     ```
+     `record_flight.py` is a pure observer: it publishes nothing and sends no commands, only
+     subscribes (same topics `refnav.node` already proves work). **Unverified end to end** -- no
+     ROS/PX4 available on this laptop to test it against a live run; only the offline half
+     (`tools/build_real_flight_viz.py`) has been tested, against a synthetic manifest. Watch its
+     log output on first use.
+   - Download the `recordings/run1/` folder back to this repo, then on this laptop:
+     ```bash
+     python3 tools/build_real_flight_viz.py recordings/run1/manifest.json diagrams/real-flight.html
+     ```
+
+We explicitly are NOT building a local 3D physics/VIO/rendered-camera engine -- that's literally
+what FlyX Lab already is (Gazebo + PX4 SITL + cuVSLAM), and cuVSLAM is CUDA-only, hard-blocked on
+this Mac. `real-flight.html` gets the same visualization value by visualizing an actual cloud run
+instead of re-simulating one.
