@@ -1,0 +1,4 @@
+# written by the sim at runtime
+.onboard/
+__pycache__/
+*.pyc
