@@ -1,0 +1,27 @@
+{
+  "active_mode": 1,
+  "global_params": {
+    "height_m": 1.2,
+    "speed_mps": 0.6,
+    "stop_m": 0.9,
+    "yaw_rate_dps": 45.0,
+    "arrive_m": 0.3
+  },
+  "modes": {
+    "1": {
+      "name": "vio_explore",
+      "route": [],
+      "params_override": { "explore": true }
+    },
+    "2": {
+      "name": "hardcode_maze",
+      "params_override": { "explore": false },
+      "route": []
+    },
+    "3": {
+      "name": "hover_test",
+      "params_override": { "explore": false, "hover_s": 5.0 },
+      "route": []
+    }
+  }
+}
