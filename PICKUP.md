@@ -4,7 +4,12 @@ Where the drone work stands and what to do next. How the system works: `SYSTEM.m
 
 ## 1. Next biggest fix: depth makes VIO too slow for PX4
 
-**Status: blocking.** With the depth team image on, PX4 cannot hold a position, so the drone cannot
+**Status: fix 2.2 applied, not yet verified on the probe.** `skybeta_overrides/oakd_vslam.yaml` now runs
+the eyes at 960x600 with depth on (Tanooj, merged from `jetson`). Rebuild the team image, then run the
+probe in §1 ("The rule from now on"): accept only p50 <= ~100 ms, left camera at 30 Hz and
+`xy_valid: true`. Meanwhile `modes.json` modes 1-2 fly without depth (`require_depth: false`).
+
+Originally: with the depth team image on, PX4 could not hold a position, so the drone could not
 fly autonomously.
 
 ### What happens
@@ -99,4 +104,4 @@ PX4's limit, and a position estimate that old makes hover sluggish and unstable.
 - No `fly.sh` session is running: all five windows were stopped one by one for the measurements and
   the empty session closed. `fly.sh start` works again.
 - Last bag: `~/team_ws/bags/20261106-232603/`.
-- Code everywhere (laptop, GitHub `jetson`, drone) is the same commit.
+- (2026-11-06) The drone ran the same commit as GitHub. The branch it flew, `jetson`, is now `main`.

@@ -1,8 +1,7 @@
 # dronehacks_nav — `main`, the code the drone flies
 
 `main` is the team's mission as it runs on the skybeta drone (`skybeta-02`, Jetson Orin Nano,
-PX4 v1.16.2). The simulator lives on `victor/sim`. `jetson` is the old name of this branch and
-is kept equal to `main`. **`SYSTEM.md` explains how the whole system works**; this
+PX4 v1.16.2). The simulator lives on `victor/sim`. **`SYSTEM.md` explains how the whole system works**; this
 file is the quick start.
 
 > **Before flying, read `PICKUP.md`:** with depth on, VIO reaches PX4 ~290 ms late and PX4 has no
@@ -17,7 +16,8 @@ file is the quick start.
 | `dronehacks_nav/mapping.py`, `map_node.py` | Voxel occupancy map from depth + pose: `/map/occupied`, `/map/image` |
 | `dronehacks_nav/camera_web.py` | Camera, depth and map as a web page on port 8080 |
 | `launch/mission.launch.py` | `skybeta_flight_interface` + the mission node |
-| `config/drone.yaml`, `route.json` | Mission parameters and route |
+| `config/drone.yaml` | ROS parameters of the mission node |
+| `modes.json`, `apply_mode.py`, `route.json` | What to fly: pick a mode in `modes.json`, run `python3 apply_mode.py`, which writes `route.json` |
 | `scripts/fly.sh` | Start/stop a flight session on the drone |
 | `skybeta_overrides/` | Team image that turns on the OAK's stereo depth |
 | `tests/` | `python3 -m pytest -q tests`: mission, frames, motion check, map; no ROS needed |
@@ -46,12 +46,10 @@ on the OAK's own stereo depth, `/oak/stereo/image_raw`.
 
 ## Deploying
 
-The drone holds a clone at `~/team_ws/src/dronehacks`, checked out on `jetson`
-(kept equal to `main`). From the laptop:
+The drone holds a clone at `~/team_ws/src/dronehacks`, checked out on `main`. From the laptop:
 
 ```sh
-git branch -f jetson main    # or: git merge --ff-only main, in a jetson checkout
-git push drone jetson        # updates the drone's working tree in place
+git push drone main          # updates the drone's working tree in place
 ```
 
 Then, on the drone, the stack rebuilds the team workspace when it starts, or by

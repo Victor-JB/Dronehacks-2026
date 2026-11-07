@@ -1,7 +1,6 @@
 # DroneHacks — `main` branch (real drone)
 
-This branch runs on the physical skybeta drone (`jetson` is its old name, kept
-equal to it). Read `README.md` first, and on the drone
+This branch runs on the physical skybeta drone. Read `README.md` first, and on the drone
 `~/skybeta/docs/competitor_guide.md` and `~/skybeta/CLAUDE.md`. The simulator
 lives on `victor/sim` and flies this branch's code (`SYSTEM.md` §10).
 

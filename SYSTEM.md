@@ -18,7 +18,7 @@ first real runs are: bench with props off, then low and tethered.
 |---|---|---|---|
 | PX4 flight controller (EKF2, position control, failsafes) | organisers | Pixhawk | no |
 | skybeta stack: OAK-D driver, cuVSLAM, VIO -> PX4 bridge, uXRCE agent, `skybeta_flight_interface` | organisers | Docker image `skybeta:0.3.2`, `~/skybeta` | no (one exception: the camera config, §5) |
-| **Our code**: mission, motion check, map, camera page, flight session script | us | `~/team_ws/src/dronehacks` (this repo, branch `jetson` = `main`) | yes |
+| **Our code**: mission, motion check, map, camera page, flight session script | us | `~/team_ws/src/dronehacks` (this repo, branch `main`) | yes |
 
 The contract between us and the organisers' stack is a handful of ROS topics. We **never** publish
 on `/fmu/in/*`, never arm, never change PX4's mode and never land: the safety pilot does all of that
@@ -30,7 +30,7 @@ on RC, and `skybeta_flight_interface` turns our setpoints into PX4 commands insi
 ```mermaid
 flowchart LR
   subgraph OAK["OAK-D-S2 camera"]
-    eyes["left + right mono<br/>1024x640 @ 30 Hz"]
+    eyes["left + right mono<br/>960x600 @ 30 Hz"]
     sd["on-device stereo depth<br/>320x200 @ 30 Hz (team image)"]
   end
 
@@ -146,8 +146,23 @@ pilot's Position switch can hand over; gives up after `arm_wait_s` 120 s) -> `cl
   over. It does not use `/skybeta/hold`, which holds the last (unreached) setpoint and is cancelled
   by the next one.
 
-**Current route:** `route.json` is a **takeoff, 5 s hover at 1.0 m, land** test (the pilot lands). The course
-route is `route-course.json`: copy it over `route.json` to fly it. It is 14 legs from the launch mark through the maze, Gate A,
+**What to fly: `modes.json`.** One file holds every flight the team uses; `active_mode` picks one,
+and `python3 apply_mode.py` writes it to `route.json` (what the launch file reads). Commit both, then
+deploy. A mode is `global_params` plus its own `params_override` and `route` (or `box_size_m` for a
+square that returns to the start).
+
+| Mode | What it flies | Depth |
+|---|---|---|
+| 1 `hover_test` (active) | takeoff, 5 s hover at 1.2 m; the pilot lands | not required |
+| 2 `box_test_no_depth` | a 1 m square | not required |
+| 3 `box_test_with_depth` | a 1 m square, stopping for obstacles | required |
+| 4 `hardcode_maze` | 26-leg A* route from the CAD, launch to Gate B | required |
+| 5 `course_scan` | the full course fitted to the point scan (below) | required |
+
+`require_depth: false` is a blind fallback (Tanooj, `config-modes-switcher`): no depth gate and no
+obstacle stop, only PX4's position. Use it only with a route already verified.
+
+**Mode 5, `course_scan`:** 14 legs from the launch mark through the maze, Gate A,
 the tunnel, the chicane and the window to the pad, at **1.15 m** and 0.4 m/s. The waypoints are fitted to
 the **2026-11-06 point scan** of the real course (`sim/scan/fit_route_to_scan.py` on `victor/sim-course-scan`),
 not the CAD: in the real course m2, m3 and a1 sit 0.3-0.8 m from their CAD positions, and the CAD route
@@ -227,7 +242,7 @@ VIO drift smears the map (doubled walls); fly slowly over texture.
 
 ## 8. Settings
 
-`config/drone.yaml` (ROS parameters of the mission node) and `route.json` (route and refnav
+`config/drone.yaml` (ROS parameters of the mission node) and `route.json`, written from `modes.json` (route and refnav
 parameters). Main knobs:
 
 | Parameter | Value | Meaning |
@@ -252,7 +267,8 @@ argument; tighten it there, do not loosen it without asking the organisers.
 | `dronehacks_nav/motion_check.py` | commanded motion vs odometry, VIO vs rangefinder |
 | `dronehacks_nav/mapping.py`, `map_node.py` | voxel map and its node |
 | `dronehacks_nav/camera_web.py` | camera/depth/map web page |
-| `launch/mission.launch.py`, `config/drone.yaml`, `route.json` | what runs and with which settings |
+| `launch/mission.launch.py`, `config/drone.yaml` | what runs and with which settings |
+| `modes.json`, `apply_mode.py`, `route.json` | the flight modes; `apply_mode.py` writes the active one to `route.json` |
 | `scripts/fly.sh` | the flight session |
 | `skybeta_overrides/` | team image: depth-enabled camera config |
 | `package.xml`, `setup.py`, `setup.cfg`, `resource/` | the repo root is the ROS 2 package `dronehacks_nav` |
@@ -268,7 +284,6 @@ On the drone, `~/team_ws/build`, `install` and `log` are colcon output. Their sy
 |---|---|
 | `main` | **what the drone flies** (this tree). All mission work lands here |
 | `victor/sim` | the Gazebo/PX4 sim and its tools. No drone code of its own |
-| `jetson` | old name of `main`, kept equal to it (the drone's checkout is on `jetson`) |
 
 **Testing a change in the sim, then flying it.** For the course as scanned, merge `victor/sim-course-scan` into `victor/sim` first (its walls come from the point scan). The sim does not keep a copy of the mission: it
 flies this branch's code on the drone's own stack (skybeta flight interface, PX4 v1.16.2 SITL with
@@ -282,8 +297,7 @@ So what passes in the sim is the same commit that goes to the drone; nothing is 
 The sim's VIO is Gazebo's true pose (no drift, no latency), so a sim pass is necessary, not
 sufficient.
 
-**Deploying:** commit on `main`, fast-forward `jetson` (`git branch -f jetson main`, or
-`git merge --ff-only main` in a `jetson` checkout), then `git push drone jetson`. The `drone`
+**Deploying:** commit on `main`, then `git push drone main`. The `drone`
 remote is `dronehacks@skybeta-02.local:team_ws/src/dronehacks`; the drone's checkout updates in
 place (`receive.denyCurrentBranch updateInstead`) and builds on the next `fly.sh start`. The drone
 cannot `git pull`: the GitHub repo is private and the drone has no credentials.
