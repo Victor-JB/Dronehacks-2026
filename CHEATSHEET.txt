@@ -1,0 +1,23 @@
+DRONE CHEATSHEET  (on the drone: ssh dronehacks@skybeta-02.local)
+
+1. Choose whose code the drone runs, then restart the stack
+     sudoedit /etc/skybeta/drone.env
+         ours:  COMPETITOR_PKG=dronehacks_nav   COMPETITOR_LAUNCH=mission.launch.py
+         his:   COMPETITOR_PKG=test_files       COMPETITOR_LAUNCH=my_mission.launch.py
+     docker rm -f skybeta-stack        # ON THE GROUND, STILL: rebuilds + relaunches in ~10 s
+
+2. Ship new code (on the Mac, in the repo), then restart the stack as in 1
+     git push origin main && git push drone main
+     (rejected? git fetch origin, merge, push again. Never --force)
+
+3. Live view + recording (on the drone)
+     ~/team_ws/src/dronehacks/scripts/fly.sh start    # prints the live-view link with ?key=
+     ~/team_ws/src/dronehacks/scripts/fly.sh stop     # closes the bag
+
+4. Is it running?
+     docker ps                                     # skybeta-stack "Up"
+     grep COMPETITOR /etc/skybeta/drone.env        # which package
+     docker exec skybeta-stack tmux capture-pane -p -t skybeta:competitor | tail -30   # its log
+
+5. Change what ours flies (on the Mac): modes.json "active_mode", then
+     python3 apply_mode.py && git commit -am "mode N" && then 2
