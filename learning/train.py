@@ -22,6 +22,7 @@ from .sim import (DEFAULT_CAMERA_FORWARD_M, DT, HFOV_DEG, HEIGHT, MAX_DEPTH, WID
                   Course, Flight, direct_velocity, teacher)
 from .transfer import (CAMERA_FORWARD_M, DEFAULT_LOOKAHEAD_M, InfeasibleScenario, TransferCourse,
                        X500_SDF)
+from .transfer_delay import DelayCourse, TRAIN_PROFILE as DELAY_PROFILE
 
 # Seeds for training are drawn below 1e9; these two banks are disjoint from
 # training and from each other. Only validation selects the best checkpoint.
@@ -33,6 +34,7 @@ HOLDOUT = [(2_000_071_000 + i, difficulty, stress) for i, (difficulty, stress) i
 ACTORS = ("depth_policy", "same_policy_blank_depth", "blind_waypoint", "geometry_teacher")
 METHOD = "DAgger-style supervised imitation of a geometry-aware velocity teacher"
 DEFAULT_SEED = 41
+TRANSFER_COURSES = {'x500-transfer': TransferCourse, DELAY_PROFILE: DelayCourse}
 
 
 def case_banks(seed, warm_start):
@@ -223,8 +225,8 @@ class Experiment:
         torch.manual_seed(args.seed)
         torch.set_num_threads(args.threads)
         self.profile = getattr(args, "profile", "legacy")
-        if self.profile == "x500-transfer":
-            self.course = TransferCourse(heading_lookahead_m=args.heading_lookahead)
+        if self.profile in TRANSFER_COURSES:
+            self.course = TRANSFER_COURSES[self.profile](heading_lookahead_m=args.heading_lookahead)
             transfer_profile = self.course.profile_metadata()
         else:
             self.course = Course(args.camera_forward, args.heading_lookahead)
@@ -287,8 +289,10 @@ class Experiment:
               ("c1_chicane_wall", "c2b_chicane_wall", "c2a_chicane_wall_window")),
             *(Path(__file__).with_name(name) for name in ("sim.py", "policy.py", "train.py")),
         ]
-        if self.profile == "x500-transfer":
+        if self.profile in TRANSFER_COURSES:
             sources.extend([Path(__file__).with_name("transfer.py"), root/"mission/airframe.py", X500_SDF])
+        if self.profile == DELAY_PROFILE:
+            sources.append(Path(__file__).with_name("transfer_delay.py"))
         atomic_json(self.output / "metadata.json", {
             **self.profile_contract,
             "method": METHOD, "seed": self.args.seed, "max_seconds": self.args.max_seconds,
@@ -301,7 +305,7 @@ class Experiment:
             "train_endpoint": "hover over launch through final landing-approach waypoint; no takeoff or touchdown",
             "validation_cases": self.validation_cases, "held_out_cases": self.holdout_cases,
             "case_fields": ["seed", "state_difficulty_geometry_capped_at_0.25"
-                            if self.profile == "x500-transfer" else "geometry_and_state_difficulty",
+                            if self.profile in TRANSFER_COURSES else "geometry_and_state_difficulty",
                             "sensor_noise_multiplier"],
             "best_checkpoint_selection": "validation cases only; final held-out cases never select weights",
             "depth": self.depth_spec(),
@@ -441,7 +445,7 @@ class Experiment:
         last_validation = self.start - self.args.eval_interval
         # On a five-hour run, reserve a small tail for separately seeded
         # post-selection evaluation. Short diagnostic runs still train first.
-        reserve = min(200. if self.profile == "x500-transfer" else 22., self.args.max_seconds * .30)
+        reserve = min(200. if self.profile in TRANSFER_COURSES else 22., self.args.max_seconds * .30)
         training_cutoff = self.deadline - reserve
         while not self.interrupted(cutoff=training_cutoff):
             self.collect(training_cutoff)
@@ -504,17 +508,17 @@ def main():
     parser.add_argument("--seed", type=int, help="run seed (default 41, or 42 with a warm start)")
     parser.add_argument("--init-checkpoint", type=Path,
                         help="load compatible model weights into a fresh run with a new optimizer and replay")
-    parser.add_argument("--profile", choices=("legacy", "x500-transfer"), default="legacy")
+    parser.add_argument("--profile", choices=("legacy", *TRANSFER_COURSES), default="legacy")
     parser.add_argument("--camera-forward", type=float,
-                        help="forward camera offset in metres (legacy: .08, x500-transfer: .34)")
+                        help="forward camera offset in metres (legacy: .08, x500 profiles: .34)")
     parser.add_argument("--heading-lookahead", type=float,
-                        help="turn toward next leg within this distance (legacy: 0, x500-transfer: 1.8)")
+                        help="turn toward next leg within this distance (legacy: 0, x500 profiles: 1.8)")
     parser.add_argument("--eval-interval", type=float, default=120, help="seconds between validation rounds")
     args = parser.parse_args()
     if args.camera_forward is None:
-        args.camera_forward = CAMERA_FORWARD_M if args.profile == "x500-transfer" else DEFAULT_CAMERA_FORWARD_M
+        args.camera_forward = CAMERA_FORWARD_M if args.profile in TRANSFER_COURSES else DEFAULT_CAMERA_FORWARD_M
     if args.heading_lookahead is None:
-        args.heading_lookahead = DEFAULT_LOOKAHEAD_M if args.profile == "x500-transfer" else 0.
+        args.heading_lookahead = DEFAULT_LOOKAHEAD_M if args.profile in TRANSFER_COURSES else 0.
     if args.seed is None:
         args.seed = DEFAULT_SEED + int(args.init_checkpoint is not None)
     if (not np.isfinite(args.max_seconds) or not 0 < args.max_seconds <= 18_000
@@ -525,8 +529,8 @@ def main():
         parser.error("PyTorch MPS is unavailable; use --device cpu")
     if not 0 <= args.camera_forward < 1:
         parser.error("--camera-forward must be in [0, 1) metres")
-    if args.profile == "x500-transfer" and args.camera_forward != CAMERA_FORWARD_M:
-        parser.error("x500-transfer uses the fixed .34 m camera mount")
+    if args.profile in TRANSFER_COURSES and args.camera_forward != CAMERA_FORWARD_M:
+        parser.error("x500 profiles use the fixed .34 m camera mount")
     if not math.isfinite(args.heading_lookahead) or not (args.heading_lookahead == 0 or args.heading_lookahead > .3):
         parser.error("--heading-lookahead must be zero (disabled) or greater than 0.3 metres")
     args.output.mkdir(parents=True, exist_ok=True)
