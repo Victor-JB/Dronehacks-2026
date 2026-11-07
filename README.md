@@ -1,8 +1,8 @@
-# dronehacks_nav — the `jetson` branch
+# dronehacks_nav — `main`, the code the drone flies
 
-This branch is the team's mission pruned to run on the skybeta drone
-(`skybeta-02`, Jetson Orin Nano, PX4 v1.16.2). The simulator project lives on
-`main`; keep it there. **`SYSTEM.md` explains how the whole system works**; this
+`main` is the team's mission as it runs on the skybeta drone (`skybeta-02`, Jetson Orin Nano,
+PX4 v1.16.2). The simulator lives on `victor/sim`. `jetson` is the old name of this branch and
+is kept equal to `main`. **`SYSTEM.md` explains how the whole system works**; this
 file is the quick start.
 
 > **Before flying, read `PICKUP.md`:** with depth on, VIO reaches PX4 ~290 ms late and PX4 has no
@@ -10,7 +10,7 @@ file is the quick start.
 
 | Path | What it is |
 |---|---|
-| `refnav/core.py`, `refnav/depth.py` | The mission's flight logic and depth processing. **Kept byte-identical to `main`**, so mission work merges either way |
+| `refnav/core.py`, `refnav/depth.py` | The mission's flight logic and depth processing. The mission logic; the sim flies this exact file (below) |
 | `dronehacks_nav/skybeta_node.py` | The ROS shell for the drone: cuVSLAM odometry + `/skybeta/state` in, `/skybeta/setpoint/pose` out |
 | `dronehacks_nav/frames.py` | ENU/FLU (skybeta) ↔ NED/FRD (refnav.core) conversions |
 | `dronehacks_nav/motion_check.py` | Freeze if commanded motion does not show up in odometry, or VIO height disagrees with the rangefinder |
@@ -46,10 +46,11 @@ on the OAK's own stereo depth, `/oak/stereo/image_raw`.
 
 ## Deploying
 
-The drone holds a clone at `~/team_ws/src/dronehacks`, checked out on `jetson`.
-From the laptop:
+The drone holds a clone at `~/team_ws/src/dronehacks`, checked out on `jetson`
+(kept equal to `main`). From the laptop:
 
 ```sh
+git branch -f jetson main    # or: git merge --ff-only main, in a jetson checkout
 git push drone jetson        # updates the drone's working tree in place
 ```
 

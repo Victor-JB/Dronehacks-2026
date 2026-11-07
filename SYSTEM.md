@@ -1,6 +1,6 @@
-# How the drone system works (`jetson` branch)
+# How the drone system works (`main` branch)
 
-Current state of the team's code on the skybeta drone `skybeta-02` (Jetson Orin Nano, OAK-D-S2,
+Current state of the team's code (`main`) on the skybeta drone `skybeta-02` (Jetson Orin Nano, OAK-D-S2,
 Pixhawk 6C on PX4 v1.16.2). For a quick start read `README.md`; this file is the full picture.
 
 **Status:** everything below builds on the drone and passes its tests (56). Nothing has flown. The
@@ -18,7 +18,7 @@ first real runs are: bench with props off, then low and tethered.
 |---|---|---|---|
 | PX4 flight controller (EKF2, position control, failsafes) | organisers | Pixhawk | no |
 | skybeta stack: OAK-D driver, cuVSLAM, VIO -> PX4 bridge, uXRCE agent, `skybeta_flight_interface` | organisers | Docker image `skybeta:0.3.2`, `~/skybeta` | no (one exception: the camera config, §5) |
-| **Our code**: mission, motion check, map, camera page, flight session script | us | `~/team_ws/src/dronehacks` (this repo, branch `jetson`) | yes |
+| **Our code**: mission, motion check, map, camera page, flight session script | us | `~/team_ws/src/dronehacks` (this repo, branch `jetson` = `main`) | yes |
 
 The contract between us and the organisers' stack is a handful of ROS topics. We **never** publish
 on `/fmu/in/*`, never arm, never change PX4's mode and never land: the safety pilot does all of that
@@ -111,8 +111,8 @@ anything. (Backup of the original file: `/etc/skybeta/drone.env.bak-before-drone
 `launch/mission.launch.py` starts `skybeta_flight_interface` (exactly as the organisers' example
 does, `auto_offboard_on_arm:=true`) and our node `dronehacks_nav/skybeta_node.py`.
 
-The flight decisions are made by **`refnav/core.py`**, the same state machine as the simulator
-branch (`main`), kept byte-identical so mission work merges both ways. `skybeta_node.py` is only
+The flight decisions are made by **`refnav/core.py`**, the file the sim also flies
+(`fly-sim-drone.sh --code main` on `victor/sim`, §10). `skybeta_node.py` is only
 the adapter around it:
 
 | refnav.core expects | skybeta_node gives it |
@@ -219,7 +219,7 @@ parameters). Main knobs:
 The envelope (`max_altitude_m` 3.0, `min_altitude_m` 0.3, `max_speed_mps` 1.5) is a launch
 argument; tighten it there, do not loosen it without asking the organisers.
 
-## 9. Repository layout (`jetson`)
+## 9. Repository layout (`main`)
 
 | Path | Role |
 |---|---|
@@ -239,16 +239,33 @@ argument; tighten it there, do not loosen it without asking the organisers.
 On the drone, `~/team_ws/build`, `install` and `log` are colcon output. Their symlinks point at
 `/root/team_ws/...` and only resolve inside the container; that is expected.
 
-## 10. Git and deploying
+## 10. Git, testing in the sim, deploying
 
-- `main`: the simulator project. `jetson`: this branch. `jetson` tracks `origin/jetson` on GitHub.
-- Deploy from the laptop: commit, then `git push drone jetson`. The `drone` remote is
-  `dronehacks@skybeta-02.local:team_ws/src/dronehacks`; the drone's checkout updates in place
-  (`receive.denyCurrentBranch updateInstead`). It builds on the next `fly.sh start`.
-- The drone cannot `git pull`: the GitHub repo is private and the drone has no credentials.
-- Bring mission changes from the sim with `git merge main`. Files this branch deleted
-  (`refnav/node.py`, `onboard/`, `main.py`, ...) stay deleted; port interface changes into
-  `skybeta_node.py`.
+| Branch | Holds |
+|---|---|
+| `main` | **what the drone flies** (this tree). All mission work lands here |
+| `victor/sim` | the Gazebo/PX4 sim and its tools. No drone code of its own |
+| `jetson` | old name of `main`, kept equal to it (the drone's checkout is on `jetson`) |
+
+**Testing a change in the sim, then flying it.** The sim does not keep a copy of the mission: it
+flies this branch's code on the drone's own stack (skybeta flight interface, PX4 v1.16.2 SITL with
+the drone's parameters, the same `mission.launch.py`). From a `victor/sim` checkout:
+
+```sh
+./fly-sim-drone.sh --code main            # or a feature branch / commit
+```
+
+So what passes in the sim is the same commit that goes to the drone; nothing is ported by hand.
+`controllers/` on `victor/sim` is a scratchpad for trying algorithms on the sim's own runner;
+an idea that works there is rewritten into `refnav/core.py` here and tested with the line above.
+The sim's VIO is Gazebo's true pose (no drift, no latency), so a sim pass is necessary, not
+sufficient.
+
+**Deploying:** commit on `main`, fast-forward `jetson` (`git branch -f jetson main`, or
+`git merge --ff-only main` in a `jetson` checkout), then `git push drone jetson`. The `drone`
+remote is `dronehacks@skybeta-02.local:team_ws/src/dronehacks`; the drone's checkout updates in
+place (`receive.denyCurrentBranch updateInstead`) and builds on the next `fly.sh start`. The drone
+cannot `git pull`: the GitHub repo is private and the drone has no credentials.
 
 ## 11. Known gaps
 
