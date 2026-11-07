@@ -11,7 +11,8 @@ from learning.sim import Scene
 from mission.airframe import load_x500_envelope, quaternion_xyzw_from_rpy
 from tools.score_markerfree import (ARMED_EVENT, HOVER_EVENT, TOUCHDOWN_EVENT, Truth,
                                     _contacts, _multipart_scene, _multipart_window,
-                                    _position_alignment, _proxy_collisions, _window, score_run)
+                                    _position_alignment, _proxy_collisions, _truth_waypoints,
+                                    _window, score_run)
 
 
 WINDOW = dict(center=[10., 10., .8], normal_toward_entry=[1., 0., 0.],
@@ -24,6 +25,27 @@ def truth_row(stamp, position):
 
 
 class ScoreTests(unittest.TestCase):
+    def test_truth_waypoint_has_separate_verification_radius(self):
+        parts = [[(1., np.array([-.1, .07, 1.])), (1.1, np.array([.1, .07, 1.]))]]
+        waypoint = dict(position=[0., 0., 1.], phase='MAZE', arrival_radius=.06)
+        metadata = dict(waypoints=[waypoint], course_limits={'arrival_radius': .08})
+        self.assertEqual(_truth_waypoints(parts, metadata)['reached'], 0)
+        waypoint['verification_radius'] = .08
+        score = _truth_waypoints(parts, metadata)
+        self.assertEqual(score['reached'], 1)
+        self.assertEqual(score['arrivals'][0]['arrival_radius_m'], .06)
+        self.assertEqual(score['arrivals'][0]['verification_radius_m'], .08)
+
+    def test_truth_waypoint_rejects_invalid_radius_metadata(self):
+        for arrival, verification in ((.06, .201), (.08, .06), (0., .08),
+                                      (.06, float('nan')), (.06, None)):
+            with self.subTest(arrival=arrival, verification=verification):
+                metadata = dict(course_limits={'arrival_radius': .08}, waypoints=[
+                    dict(position=[0., 0., 1.], phase='MAZE',
+                         arrival_radius=arrival, verification_radius=verification)])
+                with self.assertRaisesRegex(ValueError, 'verification_radius <= 0.2 m'):
+                    _truth_waypoints([], metadata)
+
     def test_exact_timestamp_alignment_rejects_large_truth_gaps(self):
         truth = Truth([truth_row(1, [0, 0, 0]), truth_row(1.1, [1, 0, 0]),
                        truth_row(1.7, [7, 0, 0])], .12)

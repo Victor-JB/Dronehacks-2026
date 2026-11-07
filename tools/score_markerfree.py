@@ -303,9 +303,19 @@ def _proxy_collisions(parts, transit_start, landing_start, course):
 
 def _truth_waypoints(parts, metadata):
     plan = metadata['waypoints']
-    default = float(metadata['course_limits']['arrival_radius'])
+    default = metadata['course_limits']['arrival_radius']
     goals = [_vector(item['position'], 3) for item in plan]
-    radii = [float(item.get('arrival_radius', default)) for item in plan]
+    radii = []
+    for index, item in enumerate(plan):
+        error = f'waypoint {index} requires 0 < arrival_radius <= verification_radius <= 0.2 m'
+        try:
+            arrival = float(item.get('arrival_radius', default))
+            verification = float(item.get('verification_radius', arrival))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(error) from exc
+        if not 0 < arrival <= verification <= .2:
+            raise ValueError(error)
+        radii.append((arrival, verification))
     reached = []
     index = 0
     for part in parts:
@@ -316,7 +326,8 @@ def _truth_waypoints(parts, metadata):
             while index < len(goals):
                 offset = a-goals[index]
                 projection = float(offset @ delta)
-                c = float(offset @ offset) - radii[index]**2
+                arrival, verification = radii[index]
+                c = float(offset @ offset) - verification**2
                 if length2*fraction**2 + 2*projection*fraction + c > 1e-12:
                     discriminant = projection**2 - length2*c
                     if length2 < 1e-15 or discriminant < 0:
@@ -325,9 +336,11 @@ def _truth_waypoints(parts, metadata):
                     if not fraction <= entry <= 1:
                         break
                     fraction = entry
-                reached.append({'index': index, 'phase': plan[index]['phase'],
-                                'arrival_radius_m': radii[index],
-                                'sim_time_s': ta+fraction*(tb-ta)})
+                visit = {'index': index, 'phase': plan[index]['phase'],
+                         'arrival_radius_m': arrival, 'sim_time_s': ta+fraction*(tb-ta)}
+                if 'verification_radius' in plan[index]:
+                    visit['verification_radius_m'] = verification
+                reached.append(visit)
                 index += 1
     return {'reached': index, 'required': len(plan), 'arrivals': reached}
 

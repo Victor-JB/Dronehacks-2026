@@ -11,14 +11,16 @@ def route_yaw(position, target, following, phase, lookahead=1.2):
     """
     dx, dy = target[0] - position[0], target[1] - position[1]
     distance = math.hypot(dx, dy)
-    if distance < .03:
-        return None
     if phase == 'WINDOW_ALIGN' and following is not None and lookahead > .3:
-        # Look through the opening while strafing to its entry point. Facing
-        # the nearby boundary net here hides the opening and loses position.
-        nx, ny = following[0] - target[0], following[1] - target[1]
+        # Keep the opening centered while approaching its entry point. The
+        # entry/exit midpoint is the surveyed opening center in the XY plane.
+        # This bearing naturally becomes the crossing axis at the entry point.
+        nx = (following[0] + target[0])/2 - position[0]
+        ny = (following[1] + target[1])/2 - position[1]
         if math.hypot(nx, ny) > .03:
             return math.atan2(ny, nx)
+    if distance < .03:
+        return None
     if following is not None and lookahead > .3 and not (
             phase.startswith('WINDOW') or phase in ('TAKEOFF', 'TUNNEL')):
         nx, ny = following[0] - target[0], following[1] - target[1]

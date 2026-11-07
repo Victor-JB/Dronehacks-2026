@@ -1,9 +1,12 @@
 import hashlib
 import importlib.util
+import json
 import math
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -82,3 +85,37 @@ class WarmStartTests(unittest.TestCase):
         self.assertEqual(len(set.union(*sets)), sum(map(len, sets)))
         self.assertGreater(min(sets[0] | sets[1]), 1_000_000_000)
         self.assertEqual((validation, holdout), case_banks(42, True))
+
+    def test_transfer_checkpoint_and_metadata_bind_same_route_and_heading(self):
+        import torch
+        from learning.train import Experiment
+
+        args = SimpleNamespace(profile='x500-transfer', camera_forward=.34, heading_lookahead=1.8,
+                               max_seconds=200., threads=1, seed=44, device='cpu', init_checkpoint=None)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            experiment = Experiment(args, output)
+            experiment.metadata()
+            experiment.checkpoint('latest.pt')
+            metadata = json.loads((output/'metadata.json').read_text())
+            checkpoint = torch.load(output/'latest.pt', map_location='cpu', weights_only=True)
+        for field in ('profile', 'route_sha256', 'heading_sha256', 'transfer_profile'):
+            self.assertEqual(checkpoint[field], metadata[field])
+        self.assertEqual(checkpoint['profile'], 'x500-transfer')
+        self.assertEqual(checkpoint['transfer_profile']['name'], 'x500-transfer-v1')
+        self.assertIsNone(metadata['sphere_radius_m'])
+
+    def test_infeasible_evaluation_case_stays_in_reported_denominator(self):
+        from learning.train import ACTORS, evaluate
+        from learning.transfer import InfeasibleScenario
+
+        error = InfeasibleScenario(99, .25, {'obstacle': 'blocked'})
+        with patch('learning.train.make_flight', side_effect=error) as make_flight:
+            result = evaluate(None, None, [(99, .9, 1.7)], lambda: False)
+        self.assertEqual(make_flight.call_count, 1)
+        self.assertEqual(result['infeasible_scenarios'][0]['seed'], 99)
+        self.assertIsNone(result['paired_mean_depth_vs_blank_action_delta_mps'])
+        for actor in ACTORS:
+            self.assertEqual(result['summary'][actor]['episodes'], 1)
+            self.assertEqual(result['summary'][actor]['evaluated_episodes'], 0)
+            self.assertFalse(result['episodes'][actor][0]['success'])

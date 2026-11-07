@@ -181,6 +181,32 @@ def validate_heading_lookahead(value):
     return value
 
 
+def validate_transfer_contract(contract, course_path, heading_path, model_path, *, speed_scale, lookahead):
+    """Reject a stale route/model contract before allowing an x500 policy flight."""
+    if contract.get('profile') != 'x500-transfer':
+        raise PolicyError('policy_checkpoint_transfer_profile_required')
+    profile = contract.get('transfer_profile')
+    if not isinstance(profile, dict) or profile.get('name') != 'x500-transfer-v1':
+        raise PolicyError('policy_checkpoint_transfer_profile_invalid')
+    for label, path, expected in (
+            ('route', course_path, contract.get('route_sha256')),
+            ('heading', heading_path, contract.get('heading_sha256')),
+            ('airframe', model_path, profile.get('x500_sdf_sha256'))):
+        if hashlib.sha256(Path(path).read_bytes()).hexdigest() != expected:
+            raise PolicyError('policy_checkpoint_'+label+'_mismatch')
+    if (profile.get('route_sha256') != contract.get('route_sha256')
+            or profile.get('speed_scale') != speed_scale
+            or profile.get('heading_lookahead_m') != lookahead
+            or profile.get('velocity_setpoint_slew_mps2') != .8
+            or profile.get('actor_step_s') != .16):
+        raise PolicyError('policy_checkpoint_control_profile_mismatch')
+    plan = json.loads(Path(course_path).read_text())
+    radii = [w.get('arrival_radius', plan['limits']['arrival_radius']) for w in plan['waypoints'][1:]]
+    if profile.get('estimated_waypoint_arrival_radii_m') != radii:
+        raise PolicyError('policy_checkpoint_waypoint_tolerance_mismatch')
+    return profile
+
+
 @dataclass(frozen=True)
 class Reply:
     capture_usec: int
@@ -205,6 +231,8 @@ class PolicyClient:
         self.session = None
         self.camera_forward_m = None
         self.heading_lookahead = None
+        self.navigation_contract = None
+        self.contract_verified = False
         self.pending = None
         self.seq = 0
         self.last_capture = -1
@@ -220,6 +248,8 @@ class PolicyClient:
             raise PolicyError('policy_service_or_checkpoint_mismatch')
         self.camera_forward_m = validate_camera_forward(service.get('camera_forward_m'))
         self.heading_lookahead = validate_heading_lookahead(service.get('heading_lookahead_m'))
+        self.navigation_contract = {key: service.get(key) for key in
+                                    ('profile', 'route_sha256', 'heading_sha256', 'transfer_profile')}
         self.session = service['session']
         return True
 
@@ -287,7 +317,9 @@ def serve(checkpoint, exchange):
         fixed = dict(version=VERSION, session=uuid4().hex, checkpoint_sha256=sha256)
         ready = exchange/'service.json'
         write_json(ready, dict(**fixed, checkpoint=checkpoint.name, training_steps=payload.get('steps'),
-                               camera_forward_m=camera_forward_m, heading_lookahead_m=heading_lookahead))
+                               camera_forward_m=camera_forward_m, heading_lookahead_m=heading_lookahead,
+                               **{key: payload.get(key) for key in
+                                  ('profile', 'route_sha256', 'heading_sha256', 'transfer_profile')}))
         print(f'DepthPolicy ready on CPU, SHA256 {sha256}', flush=True)
         previous = None
         try:

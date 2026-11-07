@@ -14,7 +14,9 @@
         0.95
       ],
       "phase": "TAKEOFF",
-      "speed": 0.315
+      "speed": 0.315,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -23,7 +25,9 @@
         0.95
       ],
       "phase": "FIRST_CORRIDOR",
-      "speed": 0.49500000000000005
+      "speed": 0.49500000000000005,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -32,7 +36,9 @@
         0.95
       ],
       "phase": "MAZE",
-      "speed": 0.49500000000000005
+      "speed": 0.49500000000000005,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -41,7 +47,9 @@
         0.95
       ],
       "phase": "MAZE",
-      "speed": 0.49500000000000005
+      "speed": 0.49500000000000005,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -50,7 +58,9 @@
         0.95
       ],
       "phase": "MAZE",
-      "speed": 0.49500000000000005
+      "speed": 0.49500000000000005,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -59,7 +69,9 @@
         0.95
       ],
       "phase": "MAZE",
-      "speed": 0.49500000000000005
+      "speed": 0.49500000000000005,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -68,7 +80,9 @@
         0.95
       ],
       "phase": "GATE_A",
-      "speed": 0.49500000000000005
+      "speed": 0.49500000000000005,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -77,7 +91,9 @@
         0.95
       ],
       "phase": "TUNNEL_ALIGN",
-      "speed": 0.75
+      "speed": 0.75,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -86,7 +102,9 @@
         0.95
       ],
       "phase": "TUNNEL_ALIGN",
-      "speed": 0.5
+      "speed": 0.5,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -95,7 +113,9 @@
         0.95
       ],
       "phase": "TUNNEL",
-      "speed": 0.85
+      "speed": 0.85,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -104,7 +124,9 @@
         0.95
       ],
       "phase": "CHICANE",
-      "speed": 0.7
+      "speed": 0.7,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -113,7 +135,9 @@
         0.95
       ],
       "phase": "WINDOW_APPROACH",
-      "speed": 0.39
+      "speed": 0.39,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -122,7 +146,9 @@
         0.9
       ],
       "phase": "WINDOW_ALIGN",
-      "speed": 0.20475000000000002
+      "speed": 0.20475000000000002,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -131,7 +157,9 @@
         0.9
       ],
       "phase": "WINDOW_CROSS",
-      "speed": 0.29250000000000004
+      "speed": 0.29250000000000004,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     },
     {
       "position": [
@@ -140,7 +168,9 @@
         0.7
       ],
       "phase": "LANDING_APPROACH",
-      "speed": 0.65
+      "speed": 0.65,
+      "arrival_radius": 0.06,
+      "verification_radius": 0.08
     }
   ],
   "limits": {
@@ -196,5 +226,6 @@
     "thickness": 0.1016,
     "source": "Inner aperture vertices of C2a chicane wall (window) in supplied OBJ; not field-calibrated"
   },
-  "maze_centerline_note": "Corridor midlines from m1/m2/m3 and barrier/net CAD faces: north y=2.58445, south y=.97155, internal x=-1.3716 and -.254. Assumes unchanged nominal CAD."
+  "maze_centerline_note": "Corridor midlines from m1/m2/m3 and barrier/net CAD faces: north y=2.58445, south y=.97155, internal x=-1.3716 and -.254. Assumes unchanged nominal CAD.",
+  "waypoint_tolerance_note": "Controller transitions inside 60 mm estimated distance; independent route verification requires 80 mm true distance. The 20 mm reserve covers part of the measured estimator error; these are internal route checks, not official competition scoring."
 }

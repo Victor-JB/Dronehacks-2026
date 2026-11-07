@@ -12,7 +12,8 @@ import time
 from uuid import uuid4
 
 from learning.inference import (CAMERA_HEIGHT, CAMERA_WIDTH, PolicyClient, PolicyError,
-                                action_to_enu, policy_depth, policy_state, write_json)
+                                action_to_enu, policy_depth, policy_state, write_json,
+                                validate_transfer_contract)
 from learning.sim import DT as POLICY_STEP
 from .core import CourseController, ZERO, limited, norm, sub, vector, wrap
 from .heading import route_yaw
@@ -360,6 +361,13 @@ def run(args):
                                  and norm(sub(position_enu, launch['position_enu'])) <= .25
                                  and norm(velocity_enu) <= .18)
                 if learned and sensors_ready and not learned.preflight_verified and client.connect():
+                    if not client.contract_verified:
+                        profile = validate_transfer_contract(
+                            client.navigation_contract, args.course, ROOT/'mission/heading.py',
+                            ROOT/'models/flight_x500_base/model.sdf', speed_scale=args.speed_scale,
+                            lookahead=args.heading_lookahead)
+                        client.contract_verified = True
+                        log.event('Learned policy navigation contract verified', transfer_profile=profile)
                     learned.camera_shift_m = policy_camera_shift(RGBD_TRANSLATION[0], client.camera_forward_m,
                                                                  args.policy_depth_mode)
                     if (args.policy_depth_mode == 'raw' and client.heading_lookahead is not None
