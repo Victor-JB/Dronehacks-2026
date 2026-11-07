@@ -120,6 +120,28 @@
         [-2.867, -1.575],
         [-1.857, -0.322]
       ]
+    },
+    "7": {
+      "name": "wall_vault",
+      "_comment": "Climb out of any gap beneath the wall ahead, lock onto the wall face, approach to standoff, climb until above the top edge of the wall, fly forward over it, descend on the far side, and land.",
+      "params_override": {
+        "explore": false,
+        "require_depth": true,
+        "height_m": 0.6,
+        "hover_s": 0.0,
+        "vault_only": true,
+        "vault_detect_max_m": 3.5,
+        "vault_standoff_m": 1.1,
+        "vault_climb_margin_m": 0.45,
+        "vault_overstep_m": 1.2,
+        "vault_max_alt_m": 2.8,
+        "vault_descend_alt_m": 0.6,
+        "vault_climb_rate_mps": 0.4,
+        "vault_speed_mps": 0.5,
+        "corridor_half_m": 0.4,
+        "band_m": 0.35
+      },
+      "route": []
     }
   }
 }
