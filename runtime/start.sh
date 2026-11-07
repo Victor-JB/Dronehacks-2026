@@ -42,7 +42,10 @@ start gz sim "${args[@]}" "${SIM_WORLD:-worlds/course.sdf}"
 services=("${pids[@]}")
 if [[ ${SIM_MISSION:-1} == 1 ]]; then
     mkdir -p artifacts/gazebo
-    start python3 -m mission.run --output /workspace/artifacts/gazebo/telemetry.jsonl
+    start python3 -m mission.run \
+        --course="${SIM_COURSE:-mission/course.json}" \
+        --speed-scale="${SIM_SPEED_SCALE:-0.65}" \
+        --output /workspace/artifacts/gazebo/telemetry.jsonl
 fi
 
 wait -n "${services[@]}"

@@ -11,3 +11,9 @@ window report. It consumes Gazebo ground-truth odometry and simulator time,
 rotates velocity requests into the measured full body orientation, and
 publishes Twist commands for the Gazebo motor controller. The final route
 state is a position hold at the landing handoff, 0.70 m above the course floor.
+
+`course-window-fast.json` keeps the same waypoint positions and limits as
+`course.json`. It applies a 0.65 speed multiplier only to the three
+`WINDOW_APPROACH`, `WINDOW_ALIGN`, and `WINDOW_CROSS` waypoints. Use this
+profile with a global speed scale of 1.0 to preserve the original speed
+elsewhere. The default uses the original route with a global scale of 0.65.

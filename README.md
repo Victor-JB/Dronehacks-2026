@@ -20,10 +20,16 @@ Open the status page at [http://localhost:8081](http://localhost:8081). Open the
 
 To reset and replay the mission, run `./runtime/replay.sh`; it recreates only the simulation container. To stop the containers, run `docker --context colima-dronehacks-sim compose down`. To stop the VM as well, run `colima stop --profile dronehacks-sim`.
 
+For the optional faster window profile, replay with:
+
+```sh
+SIM_COURSE=mission/course-window-fast.json SIM_SPEED_SCALE=1 ./runtime/replay.sh
+```
+
 ## What is simulated
 
 The container uses Ubuntu 24.04 (Noble) with Gazebo Harmonic 8.15, DART 7.9 physics, Ogre2 rendering, and Mesa software rendering. It loads the Open Robotics X3 v4 quadrotor with Gazebo multicopter velocity-control and four-motor plugins. The existing course controller follows the imported course using Gazebo ground-truth odometry and simulator time. The browser page reports simulator telemetry; it is not a browser-rendered simulation.
 
-The validated nominal-speed run completed all 15 waypoints in about 61.8 simulated seconds, with zero obstacle contacts and about 9.0 cm of clearance at the padded window check. A 1.0-speed attempt failed that conservative window-clearance check, so it is not presented as a passing faster run. See [docs/browser.md](docs/browser.md) for viewer details and [mission/PROVENANCE.md](mission/PROVENANCE.md) for course and controller provenance.
+In GUI runs, the default profile completed all 15 waypoints to the landing handoff in 61.780 simulated seconds, with zero obstacle contacts and 0.0905 m of clearance at the padded window check. The optional tuned window profile completed the same route in 47.736 simulated seconds, with zero obstacle contacts and 0.0906 m clearance. These are simulator ground-truth results, not evidence of hardware reliability. Setting speed scale to 1 on the default route failed the conservative window-clearance check; that attempt is not a passing result. See [docs/results.json](docs/results.json) for run details, [docs/browser.md](docs/browser.md) for viewer details, and [mission/PROVENANCE.md](mission/PROVENANCE.md) for course and controller provenance.
 
 This uses simulator ground truth, not PX4 SITL. It does not validate camera or visual-inertial odometry, and the simulated vehicle dynamics are not a claim about real aircraft performance. Isaac Sim, Pegasus, PX4, and ROS 2 are not required. Linux Docker Compose may work with Docker installed, but this setup has only been tested on Apple Silicon macOS with Colima.
