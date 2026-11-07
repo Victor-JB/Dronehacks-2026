@@ -24,6 +24,8 @@ setup(
     description='refnav mission on the skybeta drone.',
     license='Apache-2.0',
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'mission = dronehacks_nav.skybeta_node:main',
+        ],
     },
 )
