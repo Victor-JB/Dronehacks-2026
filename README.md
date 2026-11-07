@@ -2,7 +2,7 @@
 
 Gazebo Harmonic and PX4 SITL for the DroneHacks window route. The current branch uses forward RGB-D registration against the supplied course survey, downward ToF, and PX4 EKF2. It has no artificial AprilTags and does not use simulator pose for navigation. A separate observer records truth and contacts for offline scoring. The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim).
 
-Course-08 completed the marker-free waypoint baseline: 15/15 waypoints, PX4 landing and disarm after 83.000 simulated seconds, and independent truth scoring of the modeled multipart x500 envelope through the window and onto the pad. The conservative CAD-proxy score reports 0.106299 m minimum window aperture clearance with 15 mm inflation and 0.313969 m horizontal landing-pad envelope clearance. The navigation-source audit found no truth-topic publisher and no artificial landmark models; truth was recorded only for offline scoring. Contact-topic coverage was partial, so this does not establish zero physical collisions. This is a baseline controller run, not a learned-policy result or real-aircraft validation.
+Course-08 completed the marker-free waypoint baseline: 15/15 waypoints, PX4 landing and disarm after 83.000 simulated seconds, and independent truth scoring of the modeled multipart x500 envelope through the window and onto the pad. The conservative CAD-proxy score reports 0.106299 m minimum window aperture clearance with 15 mm inflation and 0.313969 m horizontal landing-pad envelope clearance. The navigation-source audit found no truth-topic publisher and no artificial landmark models; truth was recorded only for offline scoring. Contact-topic coverage was partial, so this does not establish zero physical collisions. Course-09 repeated the same baseline in 82.000 simulated seconds, with 15/15 independently verified waypoints and 0.109574 m minimum window clearance. These are baseline controller runs, not learned-policy results or real-aircraft validation.
 
 ![Course-08 baseline window-crossing still](docs/media/window-baseline.png)
 
@@ -21,13 +21,13 @@ Open [http://127.0.0.1:8083](http://127.0.0.1:8083). Starting the simulator does
 
 ## Bounded Mac learning run
 
-The [learning experiment](learning/README.md) trains a small depth policy with supervised imitation and student rollouts. The `x500-transfer` profile uses the centered route, multipart x500 envelope, 0.34 m forward camera, and a velocity-response range measured against PX4. Training uses analytic depth and dynamics; it does not run Gazebo or establish real-camera transfer.
+The [learning experiment](learning/README.md) trains a small depth policy with supervised imitation and student rollouts. The `x500-transfer` profile uses the centered route, multipart x500 envelope, 0.34 m forward camera, and a velocity-response range measured against PX4. The newer `x500-transfer-delay` profile also samples queued command delay and horizontal response gain. Training uses analytic depth and dynamics; it does not run Gazebo or establish real-camera transfer. Learned Gazebo flights now use an explicitly logged [boundary braking guard](docs/policy-braking.md).
 
 With a native Python environment containing NumPy and PyTorch:
 
 ```sh
 python3 runtime/train_overnight.py --python /path/to/venv/bin/python --seconds 18000 -- \
-  --profile x500-transfer --device mps --seed 44 --eval-interval 300
+  --profile x500-transfer-delay --device mps --threads 1 --seed 45 --eval-interval 300
 ```
 
 Use the remaining wall-time budget when resuming an interrupted experiment. The supervisor prevents duplicate jobs, caps runtime, and keeps the Mac awake. Results, source hashes and checkpoints stay in `artifacts/learning/`. Keep the Mac plugged in with its lid open. To stop and save:
