@@ -1,0 +1,59 @@
+"""Minimal Wavefront OBJ loader (numpy only).
+
+Loads an OBJ file into named groups of triangles. Works on the official
+DroneHacks course export (one ``g <name>`` per piece) and on any OBJ that
+uses ``g``/``o`` statements. Faces with more than three vertices are
+fan-triangulated. Texture/normal indices are ignored.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Dict, List
+
+import numpy as np
+
+
+@dataclass
+class MeshGroup:
+    name: str
+    triangles: np.ndarray  # (N, 3, 3) float, metres
+    materials: List[str] = field(default_factory=list)
+
+    @property
+    def bbox(self) -> np.ndarray:
+        pts = self.triangles.reshape(-1, 3)
+        return np.stack([pts.min(axis=0), pts.max(axis=0)])
+
+    @property
+    def vertices(self) -> np.ndarray:
+        return np.unique(self.triangles.reshape(-1, 3), axis=0)
+
+
+def load_obj(path: str, scale: float = 1.0) -> Dict[str, MeshGroup]:
+    verts: List[List[float]] = []
+    faces: Dict[str, List[List[int]]] = {}
+    mats: Dict[str, List[str]] = {}
+    current = "default"
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if line.startswith("v "):
+                p = line.split()
+                verts.append([float(p[1]), float(p[2]), float(p[3])])
+            elif line.startswith("g "):
+                current = line[2:].strip() or "default"
+            elif line.startswith("usemtl"):
+                mats.setdefault(current, []).append(line.split(maxsplit=1)[1].strip())
+            elif line.startswith("f "):
+                idx = []
+                for tok in line.split()[1:]:
+                    i = int(tok.split("/")[0])
+                    idx.append(i - 1 if i > 0 else len(verts) + i)
+                lst = faces.setdefault(current, [])
+                for k in range(1, len(idx) - 1):
+                    lst.append([idx[0], idx[k], idx[k + 1]])
+    v = np.asarray(verts, dtype=float) * scale
+    groups: Dict[str, MeshGroup] = {}
+    for name, fl in faces.items():
+        tri = v[np.asarray(fl, dtype=int)]
+        groups[name] = MeshGroup(name=name, triangles=tri, materials=mats.get(name, []))
+    return groups

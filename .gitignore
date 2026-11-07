@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+tools/sil/variants/
+build/
+install/
+log/

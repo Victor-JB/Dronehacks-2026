@@ -1,0 +1,250 @@
+"""Path smoothing (corner fillets) and time-optimal speed profiling.
+
+The speed profile is the classic forward/backward pass used in
+time-optimal path parameterisation for a point mass:
+    v(s) <= v_lim(s)    (cap, curvature a_lat/kappa, per-point limits)
+    |dv/dt| <= a_max    (forward pass accel, backward pass decel)
+This is exact for the convex "velocity limit curve + acceleration bound"
+problem and needs no solver (cf. TOPP-RA for the general case).
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from typing import Callable, Optional, Sequence
+
+import numpy as np
+
+
+SHARP_KAPPA = 1e3      # curvature assigned to a corner that could not be rounded (forces a stop)
+
+
+def _unit_clothoid_pair(theta: float, n: int = 400):
+    """Symmetric clothoid pair (Euler spirals, curvature 0 -> max -> 0) turning left by theta, for
+    half-length L = 1. Returns (xy (n,2) from the in-tangent point, curvature per unit length (n,),
+    tangent length T1 from the in-tangent point to the corner vertex)."""
+    s = np.linspace(0.0, 2.0, n)
+    psi = np.where(s <= 1.0, 0.5 * theta * s ** 2, theta - 0.5 * theta * (2.0 - s) ** 2)
+    k = np.where(s <= 1.0, theta * s, theta * (2.0 - s))
+    ds = s[1] - s[0]
+    c, sn = np.cos(psi), np.sin(psi)
+    x = np.concatenate([[0.0], np.cumsum(0.5 * (c[1:] + c[:-1]) * ds)])
+    y = np.concatenate([[0.0], np.cumsum(0.5 * (sn[1:] + sn[:-1]) * ds)])
+    F = np.array([x[-1], y[-1]])
+    t = -F[1] / math.sin(theta)                 # out-tangent line back to the x axis = the vertex
+    vx = F[0] + t * math.cos(theta)
+    return np.stack([x, y], 1), k, float(vx)
+
+
+def _corner(b2, u, v, theta, size, kind, ds):
+    """Corner curve at vertex b2 between unit directions u (in) and v (out).
+    kind 'arc': size = radius. kind 'clothoid': size = half-length L of the clothoid pair.
+    Returns (pts (k,2), kappa (k,), tangent length T, min radius)."""
+    left = (u[0] * v[1] - u[1] * v[0]) >= 0
+    nl = np.array([-u[1], u[0]])
+    if kind == "arc":
+        r = size
+        T = r * math.tan(theta / 2)
+        p_in = b2 - u * T
+        centre = p_in + (nl if left else -nl) * r
+        a0 = math.atan2(*(p_in - centre)[::-1])
+        a1 = math.atan2(*((b2 + v * T) - centre)[::-1])
+        da = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
+        k = max(2, int(abs(da) * r / ds) + 1)
+        angs = a0 + np.linspace(0, 1, k) * da
+        pts = np.stack([centre[0] + r * np.cos(angs), centre[1] + r * np.sin(angs)], 1)
+        return pts, np.full(k, 1.0 / r), T, r     # curvature jumps 0 -> 1/r at the tangent points
+    L = size
+    xy, ku, T1 = _corner.cache.get(round(theta, 6)) or _corner.cache.setdefault(round(theta, 6), _unit_clothoid_pair(theta))
+    T = T1 * L
+    m = max(3, int(2 * L / ds) + 1)
+    idx = np.linspace(0, len(xy) - 1, m)
+    xs = np.interp(idx, np.arange(len(xy)), xy[:, 0]) * L
+    ys = np.interp(idx, np.arange(len(xy)), xy[:, 1]) * L
+    kap = np.interp(idx, np.arange(len(xy)), ku) / L
+    sgn = 1.0 if left else -1.0
+    pts = b2[None, :] + (xs - T)[:, None] * u[None, :] + (sgn * ys)[:, None] * nl[None, :]
+    return pts, kap, T, L / theta
+
+
+_corner.cache = {}
+
+
+def fillet_path(pts: np.ndarray, r_max: float, clearance_ok: Optional[Callable[[np.ndarray], bool]] = None,
+                ds: float = 0.03, min_r: float = 0.05, transition: str = "arc",
+                max_tangent: Optional[Sequence[float]] = None, return_kappa: bool = False):
+    """Round each interior corner of a polyline (N,2|3) in xy.
+
+    transition 'arc'      : inscribed circular arc of radius <= r_max (curvature jumps at the ends;
+                            the classic waypoint "fillet", cf. Beard & McLain, Small Unmanned Aircraft, ch. 11)
+    transition 'clothoid' : symmetric clothoid pair (Euler spirals) whose apex radius is <= r_max -- curvature
+                            and hence lateral acceleration change continuously (G2 path; cf. continuous-curvature
+                            paths, Fraichard & Scheuer, IEEE T-RO 2004)
+    Each segment is shared between its two corners; max_tangent[i] optionally caps how much of the
+    path around vertex i may be curved (e.g. to keep a straight run through a window). If the curve is
+    not clear (clearance_ok), it is shrunk by 0.7x until it is, or the sharp vertex is kept.
+    z (if present) is interpolated along the original segments. With return_kappa, also returns the
+    exact curvature at every output point (straights 0, kept sharp vertices SHARP_KAPPA).
+    """
+    pts = np.asarray(pts, float)
+    if len(pts) < 3:
+        out = _densify(pts, ds)
+        return (out, np.zeros(len(out))) if return_kappa else out
+    out = [pts[0]]
+    kap_out = [0.0]
+    prev_cut = pts[0]
+
+    def add_straight(a, b):
+        seg = _densify(np.vstack([a, b]), ds)
+        out.extend(seg[1:]); kap_out.extend([0.0] * (len(seg) - 1))
+
+    for i in range(1, len(pts) - 1):
+        a, b, c = pts[i - 1], pts[i], pts[i + 1]
+        u = (b - a)[:2]; v = (c - b)[:2]
+        lu, lv = np.linalg.norm(u), np.linalg.norm(v)
+        cosang = float(np.clip((u @ v) / (lu * lv), -1, 1)) if lu > 1e-6 and lv > 1e-6 else 1.0
+        theta = math.acos(cosang)  # turning angle
+        if lu < 1e-6 or lv < 1e-6 or theta < 1e-3 or r_max <= 0:
+            # vertical segment, straight continuation or no rounding: keep the vertex
+            add_straight(prev_cut, b)
+            prev_cut = b
+            continue
+        u = u / lu; v = v / lv
+        T_avail = 0.5 * min(lu, lv) * 0.98
+        if max_tangent is not None and max_tangent[i] is not None:
+            T_avail = min(T_avail, float(max_tangent[i]))
+        kind = transition if (transition == "arc" or theta < math.radians(170)) else "arc"
+        if kind == "arc":
+            size = min(r_max, T_avail / math.tan(theta / 2))
+            size_min = min_r
+        else:
+            T1 = _corner(np.zeros(2), np.array([1.0, 0.0]), np.array([math.cos(theta), math.sin(theta)]),
+                         theta, 1.0, "clothoid", ds)[2]
+            size = min(r_max * theta, T_avail / T1)            # apex radius L/theta <= r_max
+            size_min = min_r * theta
+        curve = None
+        while size >= size_min:
+            cpts, ckap, T, _ = _corner(b[:2], u, v, theta, size, kind, ds)
+            if clearance_ok is None or all(clearance_ok(p) for p in cpts):
+                curve = (cpts, ckap)
+                break
+            size *= 0.7
+        if curve is None:
+            add_straight(prev_cut, b)
+            kap_out[-1] = SHARP_KAPPA
+            prev_cut = b
+            continue
+        cpts, ckap = curve
+        if pts.shape[1] == 3:
+            cpts = np.hstack([cpts, np.full((len(cpts), 1), b[2])])
+        add_straight(prev_cut, cpts[0])
+        out.extend(cpts[1:]); kap_out.extend(list(ckap[1:]))
+        prev_cut = cpts[-1]
+    add_straight(prev_cut, pts[-1])
+    out = np.array(out)
+    return (out, np.array(kap_out)) if return_kappa else out
+
+
+def _densify(pts: np.ndarray, ds: float) -> np.ndarray:
+    out = [pts[0]]
+    for a, b in zip(pts[:-1], pts[1:]):
+        n = max(1, int(math.ceil(np.linalg.norm(b - a) / ds)))
+        for k in range(1, n + 1):
+            out.append(a + (b - a) * k / n)
+    return np.array(out)
+
+
+@dataclass
+class Trajectory:
+    p: np.ndarray       # (N,3) positions
+    s: np.ndarray       # (N,) arc length
+    v: np.ndarray       # (N,) speed along path
+    t: np.ndarray       # (N,) time stamps
+    yaw: np.ndarray     # (N,) heading of travel (rad, ENU, CCW from +x)
+
+    @property
+    def duration(self) -> float:
+        return float(self.t[-1])
+
+    @property
+    def length(self) -> float:
+        return float(self.s[-1])
+
+    def sample(self, t: float):
+        """Return position, velocity vector, acceleration vector, yaw at time t."""
+        t = float(np.clip(t, 0.0, self.t[-1]))
+        k = int(np.clip(np.searchsorted(self.t, t) - 1, 0, len(self.t) - 2))
+        dt = self.t[k + 1] - self.t[k]
+        a = 0.0 if dt <= 0 else (t - self.t[k]) / dt
+        p = (1 - a) * self.p[k] + a * self.p[k + 1]
+        seg = self.p[k + 1] - self.p[k]
+        L = np.linalg.norm(seg)
+        tang = seg / L if L > 1e-9 else np.zeros(3)
+        spd = (1 - a) * self.v[k] + a * self.v[k + 1]
+        acc_t = 0.0 if dt <= 0 else (self.v[k + 1] - self.v[k]) / dt
+        return p, tang * spd, tang * acc_t, float(self.yaw[k])
+
+    def nearest_index(self, p: np.ndarray) -> int:
+        return int(np.argmin(np.linalg.norm(self.p - p, axis=1)))
+
+
+def time_parameterize(path: np.ndarray, v_max: float, a_max: float, a_lat: float,
+                      v_limit_fn: Optional[Callable[[np.ndarray], float]] = None,
+                      v_start: float = 0.0, v_end: float = 0.0, kappa: Optional[np.ndarray] = None,
+                      a_total: Optional[float] = None) -> Trajectory:
+    """Forward/backward time-optimal speed profile for a point mass on a fixed path.
+
+    kappa   : exact path curvature per point (e.g. from fillet_path(..., return_kappa=True)); if None it is
+              estimated from heading changes (which under-estimates the peak on short curves).
+    a_total : if set, the COMBINED acceleration sqrt(a_along^2 + a_lateral^2) <= a_total (friction-circle /
+              g-g constraint, as in racing-line speed profiles); otherwise along-track a_max and lateral a_lat
+              are limited separately.
+    """
+    p = np.asarray(path, float)
+    if p.shape[1] == 2:
+        p = np.hstack([p, np.zeros((len(p), 1))])
+    d = np.linalg.norm(np.diff(p, axis=0), axis=1)
+    keep = np.concatenate([[True], d > 1e-6])
+    p = p[keep]
+    d = np.linalg.norm(np.diff(p, axis=0), axis=1)
+    s = np.concatenate([[0.0], np.cumsum(d)])
+    n = len(p)
+    hd = np.arctan2(np.diff(p[:, 1]), np.diff(p[:, 0])) if n > 1 else np.zeros(0)
+    if kappa is not None:
+        kappa = np.abs(np.asarray(kappa, float))[keep]
+    else:
+        # discrete curvature from heading change over a +-k window
+        kappa = np.zeros(n)
+        for i in range(1, n - 1):
+            lo, hi = max(0, i - 3), min(n - 2, i + 2)
+            dh = (hd[hi] - hd[lo] + math.pi) % (2 * math.pi) - math.pi
+            span = s[hi + 1] - s[lo]
+            kappa[i] = abs(dh) / max(span, 1e-6)
+    a_lat_eff = a_lat if a_total is None else min(a_lat, 0.95 * a_total)
+    vlim = np.full(n, v_max)
+    with np.errstate(divide="ignore"):
+        vlim = np.minimum(vlim, np.sqrt(a_lat_eff / np.maximum(kappa, 1e-9)))
+    if v_limit_fn is not None:
+        vlim = np.minimum(vlim, np.array([v_limit_fn(q) for q in p]))
+    vlim[0] = min(vlim[0], v_start)
+    vlim[-1] = min(vlim[-1], v_end)
+    v = vlim.copy()
+
+    def a_along(vv, k):
+        if a_total is None:
+            return a_max
+        lat = vv * vv * k
+        return min(a_max, math.sqrt(max(a_total ** 2 - lat ** 2, (0.15 * a_total) ** 2)))
+
+    for i in range(1, n):               # forward (acceleration)
+        k = max(kappa[i - 1], kappa[i])
+        v[i] = min(v[i], math.sqrt(v[i - 1] ** 2 + 2 * a_along(v[i - 1], k) * d[i - 1]))
+    for i in range(n - 2, -1, -1):      # backward (deceleration)
+        k = max(kappa[i], kappa[i + 1])
+        v[i] = min(v[i], math.sqrt(v[i + 1] ** 2 + 2 * a_along(v[i + 1], k) * d[i]))
+    t = np.zeros(n)
+    for i in range(1, n):
+        vm = 0.5 * (v[i] + v[i - 1])
+        t[i] = t[i - 1] + (d[i - 1] / vm if vm > 1e-6 else 0.0)
+    yaw = np.concatenate([hd, hd[-1:]]) if n > 1 else np.zeros(n)
+    return Trajectory(p=p, s=s, v=v, t=t, yaw=yaw)
