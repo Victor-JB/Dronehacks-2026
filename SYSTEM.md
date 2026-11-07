@@ -112,7 +112,7 @@ anything. (Backup of the original file: `/etc/skybeta/drone.env.bak-before-drone
 does, `auto_offboard_on_arm:=true`) and our node `dronehacks_nav/skybeta_node.py`.
 
 The flight decisions are made by **`refnav/core.py`**, the file the sim also flies
-(`./fly-sim.sh` on `victor/sim`, §10). `skybeta_node.py` is only
+(`./fly-sim.sh` on `sim`, §10). `skybeta_node.py` is only
 the adapter around it:
 
 | refnav.core expects | skybeta_node gives it |
@@ -165,7 +165,7 @@ obstacle stop, only PX4's position. Use it only with a route already verified.
 
 **Mode 6, `course_scan`:** 14 legs from the launch mark through the maze, Gate A,
 the tunnel, the chicane and the window to the pad, at **1.15 m** and 0.4 m/s. The waypoints are fitted to
-the **2026-11-06 point scan** of the real course (`sim/scan/fit_route_to_scan.py` on `victor/sim-course-scan`),
+the **2026-11-06 point scan** of the real course (`sim/scan/fit_route_to_scan.py` on `sim`),
 not the CAD: in the real course m2, m3 and a1 sit 0.3-0.8 m from their CAD positions, and the CAD route
 would hit walls on legs 3-7. The window opening is 0.88-1.52 m high (CAD: 0.30-1.22), hence 1.15 m.
 **Take off on the launch mark facing the course's +Y**: the route is in the takeoff frame, so a heading
@@ -284,19 +284,22 @@ On the drone, `~/team_ws/build`, `install` and `log` are colcon output. Their sy
 | Branch | Holds |
 |---|---|
 | `main` | **what the drone flies** (this tree). All mission work lands here |
-| `victor/sim` | the Gazebo/PX4 sim and its tools. No drone code of its own |
+| `sim` | the Gazebo/PX4 sim of the real (scanned) course. No flight code of its own |
 
-**Testing a change in the sim, then flying it.** For the course as scanned, merge `victor/sim-course-scan` into `victor/sim` first (its walls come from the point scan). The sim does not keep a copy of the mission: it
-flies this branch's code on the drone's own stack (skybeta flight interface, PX4 v1.16.2 SITL with
-the drone's parameters, the same `mission.launch.py`). From a `victor/sim` checkout:
+**A new policy, from the sim to the drone.** The sim does not keep a copy of the mission: it flies a
+branch of `main` on the drone's own stack (skybeta flight interface, PX4 v1.16.2 SITL with the drone's
+parameters, the same `mission.launch.py`). A policy is a branch off `main` (refnav changes, a new
+`modes.json` mode, or both). From a `sim` checkout:
 
 ```sh
-./fly-sim.sh                     # flies main; --code <branch|commit|folder> for another
+./fly-sim.sh --code policy/<name> --mode <N>   # repeat until the run ends "complete"
+./promote.sh policy/<name>                      # tests + that exact commit's completed sim run -> merged into main
+git push origin main && git push drone main
 ```
 
 So what passes in the sim is the same commit that goes to the drone; nothing is ported by hand.
 The sim's VIO is Gazebo's true pose (no drift, no latency), so a sim pass is necessary, not
-sufficient.
+sufficient. Details: the `sim` branch's README.
 
 **Deploying:** commit on `main`, then `git push drone main`. The `drone`
 remote is `dronehacks@skybeta-02.local:team_ws/src/dronehacks`; the drone's checkout updates in

@@ -90,7 +90,7 @@
     },
     "6": {
       "name": "course_scan",
-      "_comment": "Full course (maze, Gate A, tunnel, chicane, window, pad) fitted to the 2026-11-06 point scan at 1.15 m (victor/sim-course-scan: sim/scan/fit_route_to_scan.py). Legs 2-12 and 14 clear real walls by 0.33-0.54 m; the Sky Beta reaches ~0.29 m. Take off on the launch mark facing the course's +Y. Check on site first: SYSTEM.md section 4.",
+      "_comment": "Full course (maze, Gate A, tunnel, chicane, window, pad) fitted to the 2026-11-06 point scan at 1.15 m (sim branch: sim/scan/fit_route_to_scan.py). Legs 2-12 and 14 clear real walls by 0.33-0.54 m; the Sky Beta reaches ~0.29 m. Take off on the launch mark facing the course's +Y. Check on site first: SYSTEM.md section 4.",
       "params_override": {
         "explore": false,
         "height_m": 1.15,

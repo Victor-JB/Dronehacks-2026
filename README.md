@@ -1,7 +1,7 @@
 # dronehacks_nav — `main`, the code the drone flies
 
 `main` is the team's mission as it runs on the skybeta drone (`skybeta-02`, Jetson Orin Nano,
-PX4 v1.16.2). The simulator lives on `victor/sim`. **`SYSTEM.md` explains how the whole system works**; this
+PX4 v1.16.2). The simulator lives on `sim`; new policies come from it through `promote.sh` (`SYSTEM.md` §10). **`SYSTEM.md` explains how the whole system works**; this
 file is the quick start.
 
 > **Before flying, read `PICKUP.md`:** with depth on, VIO reaches PX4 ~290 ms late and PX4 has no

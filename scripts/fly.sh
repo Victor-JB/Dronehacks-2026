@@ -22,7 +22,7 @@ BAGS=/root/team_ws/bags                 # the same folder, inside the container
 FOXGLOVE_PORT=8765
 CAMERA_PORT=8080
 
-# Kept identical to the sim's fly-sim.sh (victor/sim) so drone and sim bags compare one to
+# Kept identical to the sim's fly-sim.sh (sim branch) so drone and sim bags compare one to
 # one (sim/skybeta/compare.py). Only vehicle_status is versioned (_v1) in px4_msgs release/1.16.
 BAG_TOPICS=(
   /visual_slam/tracking/odometry /visual_slam/status /visual_slam/tracking/vo_path

@@ -2,7 +2,7 @@
 
 This branch runs on the physical skybeta drone. Read `README.md` first, and on the drone
 `~/skybeta/docs/competitor_guide.md` and `~/skybeta/CLAUDE.md`. The simulator
-lives on `victor/sim` and flies this branch's code (`SYSTEM.md` §10).
+lives on `sim` and flies this branch's code (`SYSTEM.md` §10).
 
 - Talk only to skybeta's contract: subscribe `/visual_slam/tracking/odometry`,
   `/skybeta/state`, `/visual_slam/status`, and read-only `/fmu/out/*`; publish
