@@ -8,9 +8,13 @@ Read-only towards the flight stack: it subscribes, and publishes only map produc
        /map/image      sensor_msgs/Image bgr8, top-down slice of the slice_z band with the drone and its
                        trail (camera_web shows it as the "map" stream)
 
-Compute budget: depth arrives at 30 Hz but only the latest frame is kept, and it is integrated at
-integrate_hz (2) with every stride-th pixel (8: ~1000 rays at 320x200). Products are published at
-publish_hz (1). A depth frame is used only with an odometry pose within max_pose_dt_s of its stamp.
+Compute budget: depth arrives at 30 Hz; integrate_hz (2) times a second ONE frame is integrated with
+every stride-th pixel (8: ~1000 rays at 320x200). Products are published at publish_hz (1).
+
+Timing: cuVSLAM's odometry for an instant arrives ~0.5 s after the OAK's depth frame for the same
+instant, so the newest depth frame never has its pose yet. The node keeps ~2 s of depth frames and
+integrates the newest one that the odometry has caught up with (a pose within max_pose_dt_s of its
+stamp); older frames are dropped unused.
 
 Run:  ros2 run dronehacks_nav map_node
 """
@@ -65,7 +69,7 @@ class MapNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.K = None
         self.extrinsic = None           # (frame_id, R_body_opt, t_body_opt)
-        self.depth = None               # latest depth msg, consumed by the integrate timer
+        self.depths = deque(maxlen=60)  # ~2 s of depth msgs, waiting for their odometry to arrive
         self.poses = deque(maxlen=90)   # (stamp, p_world (3,), R_world_body (3,3)) ~3 s of odometry
         self.trail = deque(maxlen=600)  # (x, y) every integrated frame
         self.skipped = {}
@@ -86,7 +90,7 @@ class MapNode(Node):
             self.K = (m.k[0], m.k[4], m.k[2], m.k[5])
 
     def _on_depth(self, m):
-        self.depth = m
+        self.depths.append(m)
 
     def _on_odom(self, m):
         p, o = m.pose.pose.position, m.pose.pose.orientation
@@ -117,8 +121,24 @@ class MapNode(Node):
         return best if abs(best[0] - t) <= self.max_pose_dt else None
 
     # ------------------------------------------------------------------ work
+    def _next_depth(self):
+        """The newest buffered depth frame the odometry has caught up with; it and everything older
+        leave the buffer. None while the odometry is still behind every frame."""
+        if not self.poses:
+            return None
+        t_odom = self.poses[-1][0] + self.max_pose_dt
+        ready = [i for i, m in enumerate(self.depths) if stamp_s(m.header) <= t_odom]
+        if not ready:
+            if len(self.depths) == self.depths.maxlen:
+                self._skip(f"odometry is more than {len(self.depths)} depth frames behind")
+            return None
+        m = self.depths[ready[-1]]
+        for _ in range(ready[-1] + 1):
+            self.depths.popleft()
+        return m
+
     def _integrate(self):
-        m, self.depth = self.depth, None
+        m = self._next_depth()
         if m is None:
             return
         if self.K is None:
