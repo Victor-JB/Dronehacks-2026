@@ -2,8 +2,8 @@
 # Start / stop one flight session on the drone. Run on the drone's host shell (after ssh), not in
 # the container:
 #
-#   ~/team_ws/src/dronehacks/scripts/fly.sh start    build, then mission + bag + foxglove + camera page
-#   ~/team_ws/src/dronehacks/scripts/fly.sh stop     stop all four (bag closed cleanly). ON THE GROUND.
+#   ~/team_ws/src/dronehacks/scripts/fly.sh start    build, then mission + bag + foxglove + map + camera page
+#   ~/team_ws/src/dronehacks/scripts/fly.sh stop     stop them all (bag closed cleanly). ON THE GROUND.
 #   ~/team_ws/src/dronehacks/scripts/fly.sh status   what is running, and the mission's last lines
 #   ~/team_ws/src/dronehacks/scripts/fly.sh attach   watch it live (Ctrl-b d leaves, Ctrl-b n next window)
 #
@@ -30,8 +30,8 @@ BAG_TOPICS=(
   /fmu/out/vehicle_local_position /fmu/out/vehicle_status_v1 /fmu/out/vehicle_land_detected
   /tf /tf_static /rosout
 )
-FOXGLOVE_TOPICS="['/visual_slam/tracking/odometry','/visual_slam/tracking/vo_path','/skybeta/state','/skybeta/setpoint/pose','/refnav/status','/fmu/out/vehicle_local_position','/tf','/tf_static','/rosout']"
-WINDOWS=(mission bag foxglove camera)
+FOXGLOVE_TOPICS="['/visual_slam/tracking/odometry','/visual_slam/tracking/vo_path','/map/occupied','/skybeta/state','/skybeta/setpoint/pose','/refnav/status','/fmu/out/vehicle_local_position','/tf','/tf_static','/rosout']"
+WINDOWS=(mission bag foxglove map camera)
 
 die() { echo "[fly] $*" >&2; exit 1; }
 dx() { docker exec "${C}" "$@"; }
@@ -70,11 +70,12 @@ start() {
   window mission  "ros2 launch dronehacks_nav mission.launch.py"
   window bag      "ros2 bag record -s mcap -o ${bag} ${BAG_TOPICS[*]}"
   window foxglove "ros2 launch foxglove_bridge foxglove_bridge_launch.xml address:=127.0.0.1 port:=${FOXGLOVE_PORT} topic_whitelist:=\"${FOXGLOVE_TOPICS}\""
+  window map      "ros2 run dronehacks_nav map_node"
   window camera   "ros2 run dronehacks_nav camera_web --ros-args -p port:=${CAMERA_PORT}"
 
   cat <<EOF
 [fly] started: ${WINDOWS[*]}
-      camera + depth  http://$(host_name):${CAMERA_PORT}/
+      camera + map    http://$(host_name):${CAMERA_PORT}/   (map also in Foxglove: /map/occupied, frame odom)
       foxglove        on the laptop: ssh -N -L ${FOXGLOVE_PORT}:localhost:${FOXGLOVE_PORT} $(whoami)@$(host_name)
                       then connect Foxglove to ws://localhost:${FOXGLOVE_PORT}
       bag             ${BAGS_HOST}/$(basename "${bag}")
