@@ -1,4 +1,11 @@
-# written by the sim at runtime
-.onboard/
+# Python bytecode
 __pycache__/
 *.pyc
+
+# Local run logs and process state
+.onboard/
+
+# colcon output, if someone builds in-tree
+build/
+install/
+log/

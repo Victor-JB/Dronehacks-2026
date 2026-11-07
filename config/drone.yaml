@@ -1,0 +1,28 @@
+/**:
+  ros__parameters:
+    use_sim_time: false
+    # On-device OAK stereo depth, enabled by the team image (skybeta_overrides/):
+    # 16UC1 millimetres, 320x200 after the OAK's 2x decimation, 30 Hz.
+    depth_topic: /oak/stereo/image_raw
+    depth_info_topic: /oak/stereo/camera_info
+    # refnav's depth defaults are sized for a 1280x800 image; this one is 4x smaller
+    # per side, so pixel counts scale by 1/4 and areas by 1/16.
+    depth_stride: 4             # was 8: keeps ~4000 sampled rays per frame
+    depth_border_px: 6          # was 24
+    min_obstacle_px: 75         # was 1200 (~35 x 35 px at 1280x800 -> ~9 x 9 px here)
+    base_frame: base_link
+    status_topic: /refnav/status
+    # The pilot arms by hand: give them time after the mission reports READY.
+    # PX4 still disarms 10 s after arming without a takeoff (COM_DISARM_PRFLT).
+    arm_wait_s: 120.0
+    # The stack holds the drone still for its first minute; wait that out too.
+    wait_s: 600.0
+    # Motion check (dronehacks_nav/motion_check.py): while Offboard is ours, a setpoint more than
+    # motion_err_m away for motion_window_s must move the vehicle motion_min_progress_m toward it,
+    # and VIO's height change must match PX4's rangefinder within motion_z_mismatch_m. Otherwise
+    # the node freezes where the odometry says it is and asks the pilot to take over.
+    motion_check: true
+    motion_err_m: 0.3
+    motion_window_s: 3.0
+    motion_min_progress_m: 0.1
+    motion_z_mismatch_m: 0.3

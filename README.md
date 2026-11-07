@@ -1,38 +1,104 @@
-# takeoff_land
+# dronehacks_nav — the `jetson` branch
 
-This is a complete editable companion flight project. New lab workspaces receive
-these ordinary Python files and their configuration automatically. Copy the full
-project and declare its dependencies when preparing hardware deployment.
+This branch is the team's mission pruned to run on the skybeta drone
+(`skybeta-02`, Jetson Orin Nano, PX4 v1.16.2). The simulator project lives on
+`main`; keep it there. **`SYSTEM.md` explains how the whole system works**; this
+file is the quick start.
 
-Open **FLIGHT_CODE.md** for the source map. `main.py` starts the local `refnav/`
-package: edit `refnav/core.py` for the climb, hover, navigation and landing
-decisions, `refnav/node.py` for the ROS 2/PX4 interface, and `refnav/depth.py` for
-depth processing. Run `python3 -m pytest -q tests` for the local decision tests.
-Run **main.py** after editing helpers; reset after a previous run:
+> **Before flying, read `PICKUP.md`:** with depth on, VIO reaches PX4 ~290 ms late and PX4 has no
+> position. That is the next thing to fix.
+
+| Path | What it is |
+|---|---|
+| `refnav/core.py`, `refnav/depth.py` | The mission's flight logic and depth processing. **Kept byte-identical to `main`**, so mission work merges either way |
+| `dronehacks_nav/skybeta_node.py` | The ROS shell for the drone: cuVSLAM odometry + `/skybeta/state` in, `/skybeta/setpoint/pose` out |
+| `dronehacks_nav/frames.py` | ENU/FLU (skybeta) ↔ NED/FRD (refnav.core) conversions |
+| `dronehacks_nav/motion_check.py` | Freeze if commanded motion does not show up in odometry, or VIO height disagrees with the rangefinder |
+| `dronehacks_nav/mapping.py`, `map_node.py` | Voxel occupancy map from depth + pose: `/map/occupied`, `/map/image` |
+| `dronehacks_nav/camera_web.py` | Camera, depth and map as a web page on port 8080 |
+| `launch/mission.launch.py` | `skybeta_flight_interface` + the mission node |
+| `config/drone.yaml`, `route.json` | Mission parameters and route |
+| `scripts/fly.sh` | Start/stop a flight session on the drone |
+| `skybeta_overrides/` | Team image that turns on the OAK's stereo depth |
+| `tests/` | `python3 -m pytest -q tests`: mission, frames, motion check, map; no ROS needed |
+
+## How it flies on skybeta
+
+The drone's stack (`~/skybeta`, owned by the organisers) already runs the
+OAK-D, cuVSLAM, the vision bridge into PX4, and `skybeta_flight_interface`,
+which owns everything on `/fmu/in/*`. Read `~/skybeta/docs/competitor_guide.md`
+on the drone. In short:
+
+- **We never arm, never change mode, never land.** The safety pilot arms on
+  Altitude, then switches to Position; if this node is streaming setpoints the
+  flight interface enters Offboard and the mission takes off.
+- The node streams only once the mission is ready (`READY` in the log), so
+  arming before that leaves the pilot in Position.
+- When the mission ends or wants to land it **holds position and asks the pilot
+  to take over and land**: skybeta has no land command, and altitude is floored
+  at `min_altitude_m` (0.3 m).
+- Altitude is clamped to 0.3–3.0 m above the startup pose. **There is no
+  horizontal geofence**: size the route to the space.
+
+**Depth:** `refnav.core` refuses to fly without depth (it never translates without
+observed free space). skybeta ships no depth image, so the team image below turns
+on the OAK's own stereo depth, `/oak/stereo/image_raw`.
+
+## Deploying
+
+The drone holds a clone at `~/team_ws/src/dronehacks`, checked out on `jetson`.
+From the laptop:
 
 ```sh
-python3 main.py
+git push drone jetson        # updates the drone's working tree in place
 ```
 
-Plain Python directly starts the local ROS node, like on a real companion; it
-does not submit a lab operation. The optional workbench Run button
-snapshot your project and provide admission, recording and independent grading.
-Direct terminal programs need their own recorder, such as `ros2 bag record`.
-Use Reset simulation in the Session UI when you need a fresh simulated vehicle.
-The cloud companion also provides `python` as Python 3 when no interpreter of
-that name has already been installed. Outside the cloud, use the reviewed
-local/hardware deployment configuration. This source imports no runtime library:
-`flight.yaml`, `route.json` and `refnav/launch.py` are ordinary editable files.
-`/etc/flyx/mission.yaml` (or `DRONE_PARAMS_FILE`) may supply the deployment's ROS
-parameters. The hardware default clock is system time; simulation deployment
-selects simulated time. Both use the native topic/frame contract documented in
-`docs/NATIVE_DRONE_INTERFACE.md` in the toolkit. Physical launch is not qualified.
+Then, on the drone, the stack rebuilds the team workspace when it starts, or by
+hand inside the container:
 
-The initial algorithm is copied unchanged from the maintained reference package.
-Its earlier baseline flew on the rig on 2026-10-18 (docs/CURRENT_STATE.md); the
-workspace packaging change is separate from moving-flight qualification.
+```sh
+ssh dronehacks@skybeta-02.local
+docker exec -it skybeta-stack bash
+team_build.sh --packages-select dronehacks_nav
+```
 
-`onboard/` contains the actual editable cuVSLAM, vision bridge, health/odometry
-nodes, launch configuration and process manager. See `onboard/README.md`.
-`python3 onboard/services.py status` names the running source and log files;
-stop/start explicitly after editing perception code. Startup never arms.
+Python edits need no rebuild (`--symlink-install`); new files, launch files and
+config do (`fly.sh start` rebuilds anyway).
+
+## Flying: `scripts/fly.sh`
+
+The drone boots with `COMPETITOR_PKG=manual` in `/etc/skybeta/drone.env`: the stack
+(VIO, PX4 link) comes up by itself, and the `competitor` window only builds and
+idles. Nothing of ours runs until, on the drone:
+
+```sh
+~/team_ws/src/dronehacks/scripts/fly.sh start    # rebuild, then mission + bag + foxglove + map + camera page
+~/team_ws/src/dronehacks/scripts/fly.sh attach   # watch the mission (Ctrl-b d leaves, Ctrl-b n next window)
+~/team_ws/src/dronehacks/scripts/fly.sh stop     # on the ground: stops them all, closes the bag
+```
+
+- Camera, depth and map: `http://skybeta-02.local:8080/` in a browser (`dronehacks_nav/camera_web.py`).
+- Foxglove (pose, state, `/map/occupied`; no images): `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local`
+  on the laptop, then `ws://localhost:8765`.
+- Bags: `~/team_ws/bags/<date-time>/` (mcap; depth, odometry, state, setpoints, PX4).
+
+After `start`, wait for `READY` in the mission window; then the safety pilot arms on
+Altitude and switches to Position. `stop` while airborne kills the flight interface
+and PX4 falls back to Position under the pilot.
+
+First runs: props off, then low and tethered. Nothing on this stack has flown yet.
+
+## Depth (team image)
+
+skybeta ships the OAK with depth off. `skybeta_overrides/` holds a team image that
+swaps in a camera config with on-device stereo depth (`/oak/stereo/image_raw`,
+320x200, 30 Hz). On the drone `~/team_ws/Dockerfile` links to it; rebuild with
+`~/skybeta/host/run.sh build` after every skybeta update. To go back to the stock
+camera: `rm ~/team_ws/Dockerfile && docker rm -f skybeta-stack` (on the ground).
+
+## Keeping branches in step
+
+Mission changes made on `main` come over with `git merge main` (or
+`git cherry-pick`). Expect conflicts only on files this branch deleted
+(`refnav/node.py`, `onboard/`, …): those deletions are deliberate, so keep them
+deleted and port any interface change into `dronehacks_nav/skybeta_node.py`.
