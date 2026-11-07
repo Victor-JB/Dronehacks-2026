@@ -1,0 +1,699 @@
+{
+  "source_sha256": "52498970486fdb72ff6460d9b6297fdc128eabc089c7a25a7df6cf445990167c",
+  "coordinates": "Metres, Z up, centre of course floor at origin",
+  "groups": [
+    {
+      "group": "Tube cradle 1",
+      "name": "tube_cradle_1",
+      "mesh": "meshes/tube_cradle_1.obj",
+      "bounds": {
+        "min": [
+          1.8034,
+          -0.3048,
+          0.0
+        ],
+        "max": [
+          2.8194,
+          -0.2794,
+          0.277648
+        ]
+      },
+      "triangles": 196,
+      "collidable": true,
+      "color": "#388c93",
+      "transparency": 0.0
+    },
+    {
+      "group": "Landing pad cross",
+      "name": "landing_pad_cross",
+      "mesh": "meshes/landing_pad_cross.obj",
+      "bounds": {
+        "min": [
+          -2.14376,
+          -0.89408,
+          0.00127
+        ],
+        "max": [
+          -1.94056,
+          -0.69088,
+          0.00254
+        ]
+      },
+      "triangles": 44,
+      "collidable": false,
+      "color": "#f4df9a",
+      "transparency": 0.0
+    },
+    {
+      "group": "Net side east",
+      "name": "net_side_east",
+      "mesh": "meshes/net_side_east.obj",
+      "bounds": {
+        "min": [
+          3.048,
+          -3.048,
+          0.0
+        ],
+        "max": [
+          3.04927,
+          3.048,
+          3.048
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#85b3cb",
+      "transparency": 0.94
+    },
+    {
+      "group": "C2b chicane wall",
+      "name": "c2b_chicane_wall",
+      "mesh": "meshes/c2b_chicane_wall.obj",
+      "bounds": {
+        "min": [
+          -0.242765,
+          -1.53124,
+          0.0
+        ],
+        "max": [
+          0.204544,
+          -0.529832,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#829aab",
+      "transparency": 0.0
+    },
+    {
+      "group": "Barrier 3 (cut to 55 in)",
+      "name": "barrier_3_cut_to_55_in",
+      "mesh": "meshes/barrier_3_cut_to_55_in.obj",
+      "bounds": {
+        "min": [
+          0.1778,
+          0.4064,
+          0.0
+        ],
+        "max": [
+          1.5748,
+          0.508,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#c46440",
+      "transparency": 0.0
+    },
+    {
+      "group": "Barrier 2",
+      "name": "barrier_2",
+      "mesh": "meshes/barrier_2.obj",
+      "bounds": {
+        "min": [
+          -1.4351,
+          0.4064,
+          0.0
+        ],
+        "max": [
+          0.1778,
+          0.508,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#c46440",
+      "transparency": 0.0
+    },
+    {
+      "group": "Boulder 1",
+      "name": "boulder_1",
+      "mesh": "meshes/boulder_1.obj",
+      "bounds": {
+        "min": [
+          1.78308,
+          -2.69742,
+          -9.7984e-17
+        ],
+        "max": [
+          2.24028,
+          -2.24034,
+          0.5334
+        ]
+      },
+      "triangles": 14628,
+      "collidable": true,
+      "color": "#987958",
+      "transparency": 0.0
+    },
+    {
+      "group": "C1 chicane wall",
+      "name": "c1_chicane_wall",
+      "mesh": "meshes/c1_chicane_wall.obj",
+      "bounds": {
+        "min": [
+          0.925642,
+          -1.1459,
+          0.0
+        ],
+        "max": [
+          1.57276,
+          0.404483,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#829aab",
+      "transparency": 0.0
+    },
+    {
+      "group": "Tube oval 58 x 72 x 60",
+      "name": "tube_oval_58_x_72_x_60",
+      "mesh": "meshes/tube_oval_58_x_72_x_60.obj",
+      "bounds": {
+        "min": [
+          1.57489,
+          -0.3048,
+          0.0254
+        ],
+        "max": [
+          3.04793,
+          1.2192,
+          1.8542
+        ]
+      },
+      "triangles": 1552,
+      "collidable": true,
+      "color": "#388c93",
+      "transparency": 0.0
+    },
+    {
+      "group": "Net side north",
+      "name": "net_side_north",
+      "mesh": "meshes/net_side_north.obj",
+      "bounds": {
+        "min": [
+          -3.04927,
+          3.048,
+          0.0
+        ],
+        "max": [
+          3.04927,
+          3.04927,
+          3.048
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#85b3cb",
+      "transparency": 0.94
+    },
+    {
+      "group": "M1 maze divider",
+      "name": "m1_maze_divider",
+      "mesh": "meshes/m1_maze_divider.obj",
+      "bounds": {
+        "min": [
+          -1.9812,
+          0.508,
+          0.0
+        ],
+        "max": [
+          -1.8796,
+          2.1209,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#809bae",
+      "transparency": 0.0
+    },
+    {
+      "group": "Guideline (zone 1)",
+      "name": "guideline_zone_1",
+      "mesh": "meshes/guideline_zone_1.obj",
+      "bounds": {
+        "min": [
+          -2.54,
+          0.889,
+          0.0
+        ],
+        "max": [
+          0.3302,
+          2.60985,
+          0.00127
+        ]
+      },
+      "triangles": 52,
+      "collidable": false,
+      "color": "#e7ad5c",
+      "transparency": 0.0
+    },
+    {
+      "group": "Tube cradle 3",
+      "name": "tube_cradle_3",
+      "mesh": "meshes/tube_cradle_3.obj",
+      "bounds": {
+        "min": [
+          1.8034,
+          1.1938,
+          0.0
+        ],
+        "max": [
+          2.8194,
+          1.2192,
+          0.277648
+        ]
+      },
+      "triangles": 196,
+      "collidable": true,
+      "color": "#388c93",
+      "transparency": 0.0
+    },
+    {
+      "group": "Boulder 3",
+      "name": "boulder_3",
+      "mesh": "meshes/boulder_3.obj",
+      "bounds": {
+        "min": [
+          0.56388,
+          -2.5755,
+          -9.7984e-17
+        ],
+        "max": [
+          1.02108,
+          -2.11842,
+          0.5334
+        ]
+      },
+      "triangles": 14628,
+      "collidable": true,
+      "color": "#987958",
+      "transparency": 0.0
+    },
+    {
+      "group": "C2a chicane wall (window)",
+      "name": "c2a_chicane_wall_window",
+      "mesh": "meshes/c2a_chicane_wall_window.obj",
+      "bounds": {
+        "min": [
+          -0.794496,
+          -3.04709,
+          0.0
+        ],
+        "max": [
+          -0.147379,
+          -1.49671,
+          1.7272
+        ]
+      },
+      "triangles": 32,
+      "collidable": true,
+      "color": "#e2a343",
+      "transparency": 0.0
+    },
+    {
+      "group": "Barrier 1",
+      "name": "barrier_1",
+      "mesh": "meshes/barrier_1.obj",
+      "bounds": {
+        "min": [
+          -3.048,
+          0.4064,
+          0.0
+        ],
+        "max": [
+          -1.4351,
+          0.508,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#c46440",
+      "transparency": 0.0
+    },
+    {
+      "group": "Landing pad ring r9",
+      "name": "landing_pad_ring_r9",
+      "mesh": "meshes/landing_pad_ring_r9.obj",
+      "bounds": {
+        "min": [
+          -2.27076,
+          -1.02105,
+          0.00127
+        ],
+        "max": [
+          -1.81356,
+          -0.56391,
+          0.00254
+        ]
+      },
+      "triangles": 760,
+      "collidable": false,
+      "color": "#f4df9a",
+      "transparency": 0.0
+    },
+    {
+      "group": "Boulder 4",
+      "name": "boulder_4",
+      "mesh": "meshes/boulder_4.obj",
+      "bounds": {
+        "min": [
+          -2.78892,
+          -2.7279,
+          -9.7984e-17
+        ],
+        "max": [
+          -2.33172,
+          -2.27082,
+          0.5334
+        ]
+      },
+      "triangles": 14628,
+      "collidable": true,
+      "color": "#987958",
+      "transparency": 0.0
+    },
+    {
+      "group": "Net side south",
+      "name": "net_side_south",
+      "mesh": "meshes/net_side_south.obj",
+      "bounds": {
+        "min": [
+          -3.04927,
+          -3.04927,
+          0.0
+        ],
+        "max": [
+          3.04927,
+          -3.048,
+          3.048
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#85b3cb",
+      "transparency": 0.94
+    },
+    {
+      "group": "Boulder 5",
+      "name": "boulder_5",
+      "mesh": "meshes/boulder_5.obj",
+      "bounds": {
+        "min": [
+          -1.56972,
+          -2.60598,
+          -9.7984e-17
+        ],
+        "max": [
+          -1.11252,
+          -2.1489,
+          0.5334
+        ]
+      },
+      "triangles": 14628,
+      "collidable": true,
+      "color": "#987958",
+      "transparency": 0.0
+    },
+    {
+      "group": "Launch mark",
+      "name": "launch_mark",
+      "mesh": "meshes/launch_mark.obj",
+      "bounds": {
+        "min": [
+          -2.5908,
+          0.838312,
+          0.00127
+        ],
+        "max": [
+          -2.4384,
+          0.990488,
+          0.00254
+        ]
+      },
+      "triangles": 232,
+      "collidable": false,
+      "color": "#ffd681",
+      "transparency": 0.0
+    },
+    {
+      "group": "A1 approach wall",
+      "name": "a1_approach_wall",
+      "mesh": "meshes/a1_approach_wall.obj",
+      "bounds": {
+        "min": [
+          -1.02616,
+          -0.6223,
+          0.0
+        ],
+        "max": [
+          -0.92456,
+          0.4064,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#809bae",
+      "transparency": 0.0
+    },
+    {
+      "group": "Boulder 2",
+      "name": "boulder_2",
+      "mesh": "meshes/boulder_2.obj",
+      "bounds": {
+        "min": [
+          2.30124,
+          -1.78302,
+          -9.7984e-17
+        ],
+        "max": [
+          2.75844,
+          -1.32594,
+          0.5334
+        ]
+      },
+      "triangles": 14628,
+      "collidable": true,
+      "color": "#987958",
+      "transparency": 0.0
+    },
+    {
+      "group": "Tube cradle 2",
+      "name": "tube_cradle_2",
+      "mesh": "meshes/tube_cradle_2.obj",
+      "bounds": {
+        "min": [
+          1.8034,
+          0.4445,
+          0.0
+        ],
+        "max": [
+          2.8194,
+          0.4699,
+          0.277648
+        ]
+      },
+      "triangles": 196,
+      "collidable": true,
+      "color": "#388c93",
+      "transparency": 0.0
+    },
+    {
+      "group": "Landing pad ring r20",
+      "name": "landing_pad_ring_r20",
+      "mesh": "meshes/landing_pad_ring_r20.obj",
+      "bounds": {
+        "min": [
+          -2.55016,
+          -1.30045,
+          0.00127
+        ],
+        "max": [
+          -1.53416,
+          -0.28451,
+          0.00254
+        ]
+      },
+      "triangles": 1152,
+      "collidable": false,
+      "color": "#f4df9a",
+      "transparency": 0.0
+    },
+    {
+      "group": "M2 maze divider",
+      "name": "m2_maze_divider",
+      "mesh": "meshes/m2_maze_divider.obj",
+      "bounds": {
+        "min": [
+          -0.8636,
+          1.4351,
+          0.0
+        ],
+        "max": [
+          -0.762,
+          3.048,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#809bae",
+      "transparency": 0.0
+    },
+    {
+      "group": "Net roof",
+      "name": "net_roof",
+      "mesh": "meshes/net_roof.obj",
+      "bounds": {
+        "min": [
+          -3.04927,
+          -3.04927,
+          3.048
+        ],
+        "max": [
+          3.04927,
+          3.04927,
+          3.04927
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#85b3cb",
+      "transparency": 0.94
+    },
+    {
+      "group": "Approach ring (stage 4 line)",
+      "name": "approach_ring_stage_4_line",
+      "mesh": "meshes/approach_ring_stage_4_line.obj",
+      "bounds": {
+        "min": [
+          -3.04546,
+          -1.79578,
+          0.0
+        ],
+        "max": [
+          -1.03886,
+          0.21082,
+          0.00127
+        ]
+      },
+      "triangles": 1624,
+      "collidable": false,
+      "color": "#92d8c5",
+      "transparency": 0.0
+    },
+    {
+      "group": "Net side west",
+      "name": "net_side_west",
+      "mesh": "meshes/net_side_west.obj",
+      "bounds": {
+        "min": [
+          -3.04927,
+          -3.048,
+          0.0
+        ],
+        "max": [
+          -3.048,
+          3.048,
+          3.048
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#85b3cb",
+      "transparency": 0.94
+    },
+    {
+      "group": "Floor 20 x 20 ft",
+      "name": "floor_20_x_20_ft",
+      "mesh": "meshes/floor_20_x_20_ft.obj",
+      "bounds": {
+        "min": [
+          -3.048,
+          -3.048,
+          -0.00635
+        ],
+        "max": [
+          3.048,
+          3.048,
+          0.0
+        ]
+      },
+      "triangles": 12,
+      "collidable": false,
+      "color": "#536171",
+      "transparency": 0.0
+    },
+    {
+      "group": "M3 maze divider",
+      "name": "m3_maze_divider",
+      "mesh": "meshes/m3_maze_divider.obj",
+      "bounds": {
+        "min": [
+          0.254,
+          0.508,
+          0.0
+        ],
+        "max": [
+          0.3556,
+          2.1209,
+          1.7272
+        ]
+      },
+      "triangles": 12,
+      "collidable": true,
+      "color": "#809bae",
+      "transparency": 0.0
+    },
+    {
+      "group": "Landing pad ring r30",
+      "name": "landing_pad_ring_r30",
+      "mesh": "meshes/landing_pad_ring_r30.obj",
+      "bounds": {
+        "min": [
+          -2.80416,
+          -1.55436,
+          0.00127
+        ],
+        "max": [
+          -1.28016,
+          -0.0305987,
+          0.00254
+        ]
+      },
+      "triangles": 1416,
+      "collidable": false,
+      "color": "#f4df9a",
+      "transparency": 0.0
+    },
+    {
+      "group": "Landing pad 5 ft",
+      "name": "landing_pad_5_ft",
+      "mesh": "meshes/landing_pad_5_ft.obj",
+      "bounds": {
+        "min": [
+          -2.80416,
+          -1.55436,
+          0.0
+        ],
+        "max": [
+          -1.28016,
+          -0.0305987,
+          0.00127
+        ]
+      },
+      "triangles": 712,
+      "collidable": false,
+      "color": "#246260",
+      "transparency": 0.0
+    }
+  ]
+}

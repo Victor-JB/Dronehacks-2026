@@ -1,0 +1,549 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.9">
+  <model name="course_v3">
+    <static>true</static>
+    <link name="layout">
+      <collision name="tube_cradle_1">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_cradle_1.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="tube_cradle_1">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_cradle_1.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2196 0.5490 0.5765 1</ambient>
+          <diffuse>0.2196 0.5490 0.5765 1</diffuse>
+        </material>
+      </visual>
+      <visual name="landing_pad_cross">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/landing_pad_cross.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.9569 0.8745 0.6039 1</ambient>
+          <diffuse>0.9569 0.8745 0.6039 1</diffuse>
+        </material>
+      </visual>
+      <collision name="net_side_east">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_east.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="net_side_east">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_east.obj</uri>
+          </mesh>
+        </geometry>
+        <transparency>0.94</transparency>
+        <cast_shadows>false</cast_shadows>
+        <material>
+          <ambient>0.5216 0.7020 0.7961 1</ambient>
+          <diffuse>0.5216 0.7020 0.7961 1</diffuse>
+        </material>
+      </visual>
+      <collision name="c2b_chicane_wall">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/c2b_chicane_wall.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="c2b_chicane_wall">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/c2b_chicane_wall.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5098 0.6039 0.6706 1</ambient>
+          <diffuse>0.5098 0.6039 0.6706 1</diffuse>
+        </material>
+      </visual>
+      <collision name="barrier_3_cut_to_55_in">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/barrier_3_cut_to_55_in.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="barrier_3_cut_to_55_in">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/barrier_3_cut_to_55_in.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.7686 0.3922 0.2510 1</ambient>
+          <diffuse>0.7686 0.3922 0.2510 1</diffuse>
+        </material>
+      </visual>
+      <collision name="barrier_2">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/barrier_2.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="barrier_2">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/barrier_2.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.7686 0.3922 0.2510 1</ambient>
+          <diffuse>0.7686 0.3922 0.2510 1</diffuse>
+        </material>
+      </visual>
+      <collision name="boulder_1">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_1.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="boulder_1">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_1.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5961 0.4745 0.3451 1</ambient>
+          <diffuse>0.5961 0.4745 0.3451 1</diffuse>
+        </material>
+      </visual>
+      <collision name="c1_chicane_wall">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/c1_chicane_wall.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="c1_chicane_wall">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/c1_chicane_wall.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5098 0.6039 0.6706 1</ambient>
+          <diffuse>0.5098 0.6039 0.6706 1</diffuse>
+        </material>
+      </visual>
+      <collision name="tube_oval_58_x_72_x_60">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_oval_58_x_72_x_60.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="tube_oval_58_x_72_x_60">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_oval_58_x_72_x_60.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2196 0.5490 0.5765 1</ambient>
+          <diffuse>0.2196 0.5490 0.5765 1</diffuse>
+        </material>
+      </visual>
+      <collision name="net_side_north">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_north.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="net_side_north">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_north.obj</uri>
+          </mesh>
+        </geometry>
+        <transparency>0.94</transparency>
+        <cast_shadows>false</cast_shadows>
+        <material>
+          <ambient>0.5216 0.7020 0.7961 1</ambient>
+          <diffuse>0.5216 0.7020 0.7961 1</diffuse>
+        </material>
+      </visual>
+      <collision name="m1_maze_divider">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/m1_maze_divider.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="m1_maze_divider">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/m1_maze_divider.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5020 0.6078 0.6824 1</ambient>
+          <diffuse>0.5020 0.6078 0.6824 1</diffuse>
+        </material>
+      </visual>
+      <visual name="guideline_zone_1">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/guideline_zone_1.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.9059 0.6784 0.3608 1</ambient>
+          <diffuse>0.9059 0.6784 0.3608 1</diffuse>
+        </material>
+      </visual>
+      <collision name="tube_cradle_3">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_cradle_3.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="tube_cradle_3">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_cradle_3.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2196 0.5490 0.5765 1</ambient>
+          <diffuse>0.2196 0.5490 0.5765 1</diffuse>
+        </material>
+      </visual>
+      <collision name="boulder_3">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_3.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="boulder_3">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_3.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5961 0.4745 0.3451 1</ambient>
+          <diffuse>0.5961 0.4745 0.3451 1</diffuse>
+        </material>
+      </visual>
+      <collision name="c2a_chicane_wall_window">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/c2a_chicane_wall_window.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="c2a_chicane_wall_window">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/c2a_chicane_wall_window.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.8863 0.6392 0.2627 1</ambient>
+          <diffuse>0.8863 0.6392 0.2627 1</diffuse>
+        </material>
+      </visual>
+      <collision name="barrier_1">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/barrier_1.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="barrier_1">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/barrier_1.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.7686 0.3922 0.2510 1</ambient>
+          <diffuse>0.7686 0.3922 0.2510 1</diffuse>
+        </material>
+      </visual>
+      <visual name="landing_pad_ring_r9">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/landing_pad_ring_r9.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.9569 0.8745 0.6039 1</ambient>
+          <diffuse>0.9569 0.8745 0.6039 1</diffuse>
+        </material>
+      </visual>
+      <collision name="boulder_4">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_4.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="boulder_4">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_4.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5961 0.4745 0.3451 1</ambient>
+          <diffuse>0.5961 0.4745 0.3451 1</diffuse>
+        </material>
+      </visual>
+      <collision name="net_side_south">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_south.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="net_side_south">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_south.obj</uri>
+          </mesh>
+        </geometry>
+        <transparency>0.94</transparency>
+        <cast_shadows>false</cast_shadows>
+        <material>
+          <ambient>0.5216 0.7020 0.7961 1</ambient>
+          <diffuse>0.5216 0.7020 0.7961 1</diffuse>
+        </material>
+      </visual>
+      <collision name="boulder_5">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_5.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="boulder_5">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_5.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5961 0.4745 0.3451 1</ambient>
+          <diffuse>0.5961 0.4745 0.3451 1</diffuse>
+        </material>
+      </visual>
+      <visual name="launch_mark">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/launch_mark.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>1.0000 0.8392 0.5059 1</ambient>
+          <diffuse>1.0000 0.8392 0.5059 1</diffuse>
+        </material>
+      </visual>
+      <collision name="a1_approach_wall">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/a1_approach_wall.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="a1_approach_wall">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/a1_approach_wall.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5020 0.6078 0.6824 1</ambient>
+          <diffuse>0.5020 0.6078 0.6824 1</diffuse>
+        </material>
+      </visual>
+      <collision name="boulder_2">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_2.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="boulder_2">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/boulder_2.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5961 0.4745 0.3451 1</ambient>
+          <diffuse>0.5961 0.4745 0.3451 1</diffuse>
+        </material>
+      </visual>
+      <collision name="tube_cradle_2">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_cradle_2.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="tube_cradle_2">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/tube_cradle_2.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2196 0.5490 0.5765 1</ambient>
+          <diffuse>0.2196 0.5490 0.5765 1</diffuse>
+        </material>
+      </visual>
+      <visual name="landing_pad_ring_r20">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/landing_pad_ring_r20.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.9569 0.8745 0.6039 1</ambient>
+          <diffuse>0.9569 0.8745 0.6039 1</diffuse>
+        </material>
+      </visual>
+      <collision name="m2_maze_divider">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/m2_maze_divider.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="m2_maze_divider">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/m2_maze_divider.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5020 0.6078 0.6824 1</ambient>
+          <diffuse>0.5020 0.6078 0.6824 1</diffuse>
+        </material>
+      </visual>
+      <collision name="net_roof">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_roof.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="net_roof">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_roof.obj</uri>
+          </mesh>
+        </geometry>
+        <transparency>0.94</transparency>
+        <cast_shadows>false</cast_shadows>
+        <material>
+          <ambient>0.5216 0.7020 0.7961 1</ambient>
+          <diffuse>0.5216 0.7020 0.7961 1</diffuse>
+        </material>
+      </visual>
+      <visual name="approach_ring_stage_4_line">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/approach_ring_stage_4_line.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5725 0.8471 0.7725 1</ambient>
+          <diffuse>0.5725 0.8471 0.7725 1</diffuse>
+        </material>
+      </visual>
+      <collision name="net_side_west">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_west.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="net_side_west">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/net_side_west.obj</uri>
+          </mesh>
+        </geometry>
+        <transparency>0.94</transparency>
+        <cast_shadows>false</cast_shadows>
+        <material>
+          <ambient>0.5216 0.7020 0.7961 1</ambient>
+          <diffuse>0.5216 0.7020 0.7961 1</diffuse>
+        </material>
+      </visual>
+      <visual name="floor_20_x_20_ft">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/floor_20_x_20_ft.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.3255 0.3804 0.4431 1</ambient>
+          <diffuse>0.3255 0.3804 0.4431 1</diffuse>
+        </material>
+      </visual>
+      <collision name="m3_maze_divider">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/m3_maze_divider.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="m3_maze_divider">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/m3_maze_divider.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.5020 0.6078 0.6824 1</ambient>
+          <diffuse>0.5020 0.6078 0.6824 1</diffuse>
+        </material>
+      </visual>
+      <visual name="landing_pad_ring_r30">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/landing_pad_ring_r30.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.9569 0.8745 0.6039 1</ambient>
+          <diffuse>0.9569 0.8745 0.6039 1</diffuse>
+        </material>
+      </visual>
+      <visual name="landing_pad_5_ft">
+        <geometry>
+          <mesh>
+            <uri>model://course_v3/meshes/landing_pad_5_ft.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.1412 0.3843 0.3765 1</ambient>
+          <diffuse>0.1412 0.3843 0.3765 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
