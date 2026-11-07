@@ -22,6 +22,10 @@ class HealthReadError(ValueError):
     pass
 
 
+class HealthTransportError(RuntimeError):
+    pass
+
+
 def _fields(text, topic, required):
     if not isinstance(text, str):
         raise HealthReadError(f'{topic}_invalid_output')
@@ -104,6 +108,8 @@ class _Snapshot:
     power: Optional[_Read] = None
     consecutive: int = 0
     reason: Optional[str] = None
+    read_error: Optional[str] = None
+    consecutive_transport_errors: int = 0
 
 
 class SitlHealthMonitor:
@@ -128,9 +134,11 @@ class SitlHealthMonitor:
             result = self._runner(['px4-listener', topic, '-n', '1'],
                                   capture_output=True, text=True, check=True, timeout=LISTENER_TIMEOUT_S)
         except subprocess.TimeoutExpired as error:
-            raise HealthReadError(f'{topic}_listener_timeout') from error
-        except (subprocess.SubprocessError, OSError, UnicodeError) as error:
-            raise HealthReadError(f'{topic}_listener_error:{type(error).__name__}') from error
+            raise HealthTransportError(f'{topic}_listener_timeout') from error
+        except (subprocess.SubprocessError, OSError) as error:
+            raise HealthTransportError(f'{topic}_listener_error:{type(error).__name__}') from error
+        except UnicodeError as error:
+            raise HealthReadError(f'{topic}_invalid_output') from error
         stamp, value = parse(result.stdout)
         return _Read(stamp, value, self._clock())
 
@@ -144,9 +152,18 @@ class SitlHealthMonitor:
                 if self._stop.is_set():
                     return
                 power = self._read('system_power', parse_system_power)
+            except HealthTransportError as error:
+                # Keep the last validated pair and its original ages. The
+                # caller still checks both freshness limits on every status().
+                with self._lock:
+                    previous = self._snapshot
+                    self._snapshot = replace(previous, read_error=str(error),
+                                             consecutive_transport_errors=previous.consecutive_transport_errors+1)
+                return
             except HealthReadError as error:
                 with self._lock:
-                    self._snapshot = replace(self._snapshot, consecutive=0, reason=str(error))
+                    self._snapshot = replace(self._snapshot, consecutive=0, reason=str(error),
+                                             read_error=None, consecutive_transport_errors=0)
                 return
             with self._lock:
                 previous = self._snapshot
@@ -190,7 +207,8 @@ class SitlHealthMonitor:
             clocks_valid = False
         if reason is None and not clocks_valid:
             reason = 'invalid_health_clock'
-        result = {'consecutive_samples': snapshot.consecutive}
+        result = {'consecutive_samples': snapshot.consecutive, 'read_error': snapshot.read_error,
+                  'consecutive_transport_errors': snapshot.consecutive_transport_errors}
         for topic, sample in (('battery_status', snapshot.battery), ('system_power', snapshot.power)):
             sim_age = sim_s-sample.timestamp_usec*1e-6 if sample is not None and clocks_valid else None
             # The polling thread can finish just after the caller captured now.

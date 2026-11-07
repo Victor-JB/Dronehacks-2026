@@ -169,15 +169,45 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(invalid['reason'], 'invalid_health_clock')
         self.assertIsNone(invalid['battery_status_age_sim_s'])
 
-    def test_bad_publication_and_subprocess_timeout_drop_readiness(self):
+    def test_transport_timeout_preserves_only_the_fresh_original_pair(self):
+        self.poll(75_600_000, 75_600_000)
+        self.poll(75_652_000, 75_652_000)
+        self.now += 2.615
+        self.responses['battery_status'] = subprocess.TimeoutExpired('px4-listener', 1.5)
+        self.monitor.poll()
+        status = self.monitor.status(75.844, self.now)
+        self.assertTrue(status['healthy'], status)
+        self.assertEqual(status['read_error'], 'battery_status_listener_timeout')
+        self.assertEqual(status['consecutive_transport_errors'], 1)
+        self.assertEqual(status['battery_status_timestamp_usec'], 75_652_000)
+        self.assertAlmostEqual(status['battery_status_read_age_wall_s'], 2.615)
+        self.assertEqual(self.monitor.status(76.453, self.now)['reason'],
+                         'battery_status_stale_sim_timestamp')
+        self.now += 1.385
+        self.monitor.poll()
+        expired = self.monitor.status(75.844, self.now)
+        self.assertFalse(expired['healthy'])
+        self.assertEqual(expired['reason'], 'battery_status_stale_wall_read')
+        self.assertEqual(expired['consecutive_transport_errors'], 2)
+
+    def test_transport_failure_before_first_sample_is_not_ready(self):
+        self.responses['battery_status'] = subprocess.TimeoutExpired('px4-listener', 1.5)
+        self.monitor.poll()
+        status = self.monitor.status(1., self.now)
+        self.assertFalse(status['healthy'])
+        self.assertEqual(status['read_error'], 'battery_status_listener_timeout')
+        self.assertIsNone(status['battery_status_timestamp_usec'])
+
+    def test_bad_publication_drops_readiness_even_with_a_recent_good_sample(self):
         self.poll(1_000_000, 1_000_000)
         self.poll(1_200_000, 1_200_000)
-        self.responses['system_power'] = subprocess.TimeoutExpired('px4-listener', 1.5)
+        self.responses['battery_status'] = battery(1_220_000, '.08')
         self.monitor.poll()
         status = self.monitor.status(1.22, self.now)
         self.assertFalse(status['healthy'])
-        self.assertEqual(status['reason'], 'system_power_listener_timeout')
+        self.assertEqual(status['reason'], 'battery_status_low_remaining')
         self.assertEqual(status['consecutive_samples'], 0)
+        self.responses['battery_status'] = battery(1_220_000)
         self.responses['system_power'] = 'Never published'
         self.monitor.poll()
         self.assertEqual(self.monitor.status(1.22, self.now)['reason'], 'system_power_missing_timestamp')
