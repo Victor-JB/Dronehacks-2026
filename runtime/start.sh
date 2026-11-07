@@ -18,11 +18,13 @@ start() {
 }
 
 args=(-r -v 3)
+world=${SIM_WORLD:-worlds/course.sdf}
+gui_args=()
 if [[ ${SIM_GUI:-1} == 1 ]]; then
     install -d -m 700 "$XDG_RUNTIME_DIR"
     # Match the actual Qt window to the virtual display, otherwise a smaller
     # Xvfb screen clips the default 1280x800 Gazebo window and its 3D view.
-    python3 - "${SIM_DESKTOP_SIZE:-1200x1000}" <<'PY'
+    python3 - "${SIM_DESKTOP_SIZE:-1200x1000}" "$world" <<'PY'
 import re
 import shutil
 import sys
@@ -51,7 +53,16 @@ if window_match:
 else:
     text = updated + '\n' + text
 config.write_text(text)
+# Explicit GUI config has higher precedence than the world's plugin block.
+# Copy that block into it so both window dimensions and course camera apply.
+if len(sys.argv) > 2:
+    gui = ET.parse(sys.argv[2]).getroot().find('world/gui')
+    if gui is not None:
+        text = updated + '\n' + '\n'.join(
+            ET.tostring(plugin, encoding='unicode') for plugin in gui.findall('plugin'))
+config.with_name('dronehacks-gui.config').write_text(text)
 PY
+    gui_args=(--gui-config "$HOME/.gz/sim/8/dronehacks-gui.config")
     start Xvfb "$DISPLAY" -screen 0 "${SIM_DESKTOP_SIZE:-1200x1000}x24" -nolisten tcp
     for ((attempt = 0; attempt < 100; attempt++)); do
         if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
@@ -73,7 +84,6 @@ else
     fi
 fi
 
-world=${SIM_WORLD:-worlds/course.sdf}
 if [[ ${SIM_GUI:-1} == 1 && ${SIM_SEPARATE_GUI:-0} == 1 ]]; then
     # Start the server independently so rendering and GUI discovery cannot
     # block the server's initial Gazebo transport handshake.
@@ -94,9 +104,9 @@ if [[ ${SIM_GUI:-1} == 1 && ${SIM_SEPARATE_GUI:-0} == 1 ]]; then
         echo "Gazebo server did not advertise a scene" >&2
         exit 1
     fi
-    start stdbuf -oL -eL gz sim -g -v 3
+    start stdbuf -oL -eL gz sim -g -v 3 "${gui_args[@]}"
 else
-    start gz sim "${args[@]}" "$world"
+    start gz sim "${args[@]}" "${gui_args[@]}" "$world"
 fi
 services=("${pids[@]}")
 if [[ ${SIM_MISSION:-1} == 1 ]]; then
