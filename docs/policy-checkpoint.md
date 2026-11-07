@@ -13,3 +13,5 @@ python3 -m learning.inference \
 ```
 
 For any flight reproduction, retain the separately implemented policy boundary braking guard; it is enabled by default in the mission runner. The learned actor alone is not the guarded policy-03 controller. The guard is a heuristic with no formal safety guarantee. This package and its simulator results make no hardware-readiness claim.
+
+[Watch the packaged-policy repeat](media/window-policy-repeat.mp4). The clip contains recorded forward RGB and optical-Z depth, including preflight; its 94.48-second encoded duration is separate from the 77.000-second flight timing.

@@ -669,5 +669,14 @@
     "artifacts/markerfree/policy-05/score.json": "e98702128be0b4a85ed9221210858af3522be24153ed242a6406b0f412168cf3",
     "artifacts/markerfree/policy-05/telemetry.jsonl": "ff04b5c9d8660a74e3241e3cc2d2a6287d336b7220db3923771d62bae5e00861",
     "artifacts/markerfree/policy-05/telemetry.summary.json": "69f527a67e6de146ac471ef39a6663461dd64c5ae0f73805fb159e7bc18fe5f6"
+  },
+  "replay": {
+    "path": "docs/media/window-policy-repeat.mp4",
+    "sha256": "e246ccc49831fad87ebcd69c539b60e724b7c1ef5253e9cc097be44548c42312",
+    "recorded_capture_events": 472,
+    "encoded_frames": 473,
+    "encoded_duration_s": 94.48,
+    "capture_interval_duration_sim_s": 94.42,
+    "note": "RGB and optical-Z depth; includes preflight. Capture timestamp differences determine playback duration. The encoder appends a final still."
   }
 }

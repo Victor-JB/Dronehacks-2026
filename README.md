@@ -11,10 +11,13 @@ The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/d
 | Course-08 | Waypoint baseline | 83.000 s | 15/15 | 106.3 mm |
 | Course-09 | Waypoint baseline repeat | 82.000 s | 15/15 | 109.6 mm |
 | Policy-03 | Learned depth policy with boundary braking | 77.000 s | 15/15 | 93.3 mm |
+| Policy-05 | Packaged policy repeat, patched PX4 | 77.000 s | 15/15 | 91.9 mm |
 
-All three passed the eight independent route, multipart geometry, window and landing checks. Times use simulation timestamps and include takeoff and touchdown. Window clearances include 15 mm inflation of the modeled x500 envelope. Contact-topic coverage was partial; these geometry results do not establish zero physical collisions or hardware readiness.
+All listed runs passed the eight independent route, multipart geometry, window and landing checks. Times use simulation timestamps and include takeoff and touchdown. Window clearances include 15 mm inflation of the modeled x500 envelope. Contact-topic coverage was partial; these geometry results do not establish zero physical collisions or hardware readiness.
 
 Policy-03 accepted 364 learned actions. Its separate braking guard changed 193 of 4,689 outgoing setpoints, or 4.1%. The earlier unguarded policy-02 overshot the north boundary and aborted after 6/15 waypoints. The padded rotor model also overlapped the north-wall proxy during that abort. The successful result belongs to the combined policy and guard.
+
+The [complete trial inventory](docs/flight-trials.md) also includes failed attempts and separate hover and blackout diagnostics. A repeat stopped during takeoff when PX4's periodic battery/power publications froze. The [scheduler investigation](docs/px4-hrt-backport.md) records an upstream patch being tested; its health checks remain enabled. The [depth-noise diagnostic](docs/sensor-stress.md) verified the injected noise in camera captures. Its first noisy hover lost visual tracking and landed after abort; that limitation is being investigated separately from the nominal successes.
 
 [Watch the learned-policy RGB/depth replay](docs/media/window-policy.mp4) or the [baseline replay](docs/media/window-baseline.mp4). The [policy score](docs/markerfree-policy-results.json) records the checkpoint, guard settings, sensor timestamps and source hashes. Read the [flight evidence and reproduction commands](docs/markerfree-rgbd.md), [baseline score](docs/markerfree-results.json), and [braking model and limits](docs/policy-braking.md). The [section comparison](docs/flight-comparison.md) separates cruise time from takeoff and landing. Timings can be reproduced with:
 
@@ -35,6 +38,10 @@ python3 -m web.server
 ```
 
 Open [http://127.0.0.1:8083](http://127.0.0.1:8083). Starting the simulator does not arm the aircraft. Follow the [runbook](docs/markerfree-rgbd.md) for explicit hover, course, frozen-policy and independent-scoring commands. The viewer follows `artifacts/markerfree/current` and identifies the controller and guard intervention count.
+
+The [tested checkpoint package](docs/policy-checkpoint.md) is included for reproduction without retraining. Policy-05 used the [separate patched PX4 image](docs/px4-hrt-backport.md), selected explicitly with `SIM_PX4_IMAGE=dronehacks-markerfree:hrt-v1.16.2`.
+
+The lightweight [unit-test workflow](.github/workflows/markerfree-tests.yml) runs on Ubuntu. Torch-dependent tests are skipped in that job; Gazebo flight results are recorded separately.
 
 ## Bounded Mac training
 
