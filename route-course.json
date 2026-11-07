@@ -1,0 +1,31 @@
+{
+  "note": "Course route, forward/left metres from the launch mark, taking off facing the course's +Y. Fitted to the 2026-11-06 point scan at 1.15 m by sim/scan/fit_route_to_scan.py (branch victor/sim-course-scan): legs 2-12 and 14 clear the nearest real surface by 0.33-0.54 m (the Sky Beta reaches ~0.29 m). Leg 1 (a thin panel by the launch mark) and the window leg (something small in the opening) are flagged: SYSTEM.md section 4.",
+  "route": [
+    [1.67, -0.0],
+    [1.67, -1.143],
+    [0.617, -1.423],
+    [0.057, -2.541],
+    [1.79, -2.541],
+    [1.79, -3.825],
+    [1.566, -4.906],
+    [0.666, -4.766],
+    [-1.654, -4.766],
+    [-2.634, -4.825],
+    [-2.834, -2.795],
+    [-3.243, -2.608],
+    [-2.867, -1.575],
+    [-1.857, -0.322]
+  ],
+  "params": {
+    "explore": false,
+    "height_m": 1.15,
+    "hover_s": 3.0,
+    "speed_mps": 0.4,
+    "arrive_m": 0.15,
+    "corridor_half_m": 0.3,
+    "stop_m": 0.45,
+    "slow_m": 0.9,
+    "blocked_wait_s": 4.0,
+    "clear_past_leg_m": 0.25
+  }
+}

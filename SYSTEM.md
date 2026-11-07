@@ -146,7 +146,8 @@ pilot's Position switch can hand over; gives up after `arm_wait_s` 120 s) -> `cl
   over. It does not use `/skybeta/hold`, which holds the last (unreached) setpoint and is cancelled
   by the next one.
 
-**Current route:** `route.json` is the course: 14 legs from the launch mark through the maze, Gate A,
+**Current route:** `route.json` is a **takeoff, 5 s hover at 1.0 m, land** test (the pilot lands). The course
+route is `route-course.json`: copy it over `route.json` to fly it. It is 14 legs from the launch mark through the maze, Gate A,
 the tunnel, the chicane and the window to the pad, at **1.15 m** and 0.4 m/s. The waypoints are fitted to
 the **2026-11-06 point scan** of the real course (`sim/scan/fit_route_to_scan.py` on `victor/sim-course-scan`),
 not the CAD: in the real course m2, m3 and a1 sit 0.3-0.8 m from their CAD positions, and the CAD route
@@ -170,7 +171,7 @@ from its centre); every leg's side clearance is >= 0.33 m, so side walls stay ou
    too narrow for the drone.
 4. c2b (a chicane wall) is not in the scan; the route still avoids its CAD position.
 
-For a first flight use a plain hover: `{"route": [], "params": {"explore": false, "height_m": 1.0, "hover_s": 5.0}}`.
+
 
 `/refnav/status` (JSON, 2 Hz) reports the phase, why it is waiting, depth age/coverage, rejects,
 `motion_check` and `frozen_enu`.
