@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DroneHacks · Gazebo</title>
+  <style>
+    :root{color-scheme:dark;--bg:#101416;--panel:#191f21;--muted:#9ba9a7;--line:#303a39;--mint:#7de0bd;--amber:#f4c66b;--red:#ff867e}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#ecf2ef;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif}
+    header{height:62px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px}
+    header strong{font-size:15px;letter-spacing:.04em}header small,.muted{color:var(--muted)}a{color:var(--mint);text-decoration:none}a:hover{text-decoration:underline}
+    main{padding:18px;display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;max-width:1700px;margin:auto}
+    .viewport,.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+    .viewport-head{height:48px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+    iframe{display:block;width:100%;height:calc(100vh - 150px);min-height:420px;border:0;background:#080a0b}
+    .panel{padding:16px;align-self:start}.pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:99px;padding:5px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+    .dot{width:7px;height:7px;border-radius:100%;background:var(--amber)}.live .dot{background:var(--mint)}.stale .dot{background:var(--red)}
+    h2{font-size:14px;margin:22px 0 10px}h1{font-size:20px;margin:14px 0 2px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .metric{padding:11px;background:#121719;border-radius:7px}.metric label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px}.metric b{font-size:14px;font-variant-numeric:tabular-nums}
+    .labels{display:flex;flex-wrap:wrap;gap:6px}.tag{font-size:10px;letter-spacing:.06em;padding:5px 7px;border:1px solid #3a5149;border-radius:5px;color:var(--mint)}
+    .route{padding:10px;background:#121719;border-radius:7px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}.notice{font-size:12px;color:var(--muted)}
+    @media(max-width:900px){main{grid-template-columns:1fr;padding:10px}.panel{order:-1}.grid{grid-template-columns:repeat(3,1fr)}iframe{height:60vh;min-height:360px}}
+  </style>
+</head>
+<body>
+<header><div><strong>DRONEHACKS <span style="color:var(--mint)">/</span> GAZEBO</strong><br><small>Local simulation monitor</small></div><a id="full" href="http://127.0.0.1:8080/vnc.html?autoconnect=1&amp;resize=scale" target="_blank" rel="noreferrer">Open Gazebo full window ↗</a></header>
+<main>
+  <section class="viewport"><div class="viewport-head"><b>Gazebo Harmonic · live GUI</b><span class="muted">noVNC</span></div><iframe id="gazebo" title="Actual Gazebo simulator" src="http://127.0.0.1:8080/vnc.html?autoconnect=1&amp;resize=scale"></iframe></section>
+  <aside class="panel"><span id="pill" class="pill"><i class="dot"></i><span id="status">Waiting</span></span><h1 id="phase">Waiting for telemetry</h1><div class="notice" id="age">No valid sample yet</div>
+    <h2>Simulation state</h2><div class="grid">
+      <div class="metric"><label>Sim time</label><b id="simtime">—</b></div><div class="metric"><label>Elapsed sim</label><b id="elapsed">—</b></div>
+      <div class="metric"><label>Waypoint</label><b id="waypoint">—</b></div><div class="metric"><label>Speed</label><b id="speed">—</b></div>
+      <div class="metric"><label>Position x / y / z</label><b id="position">—</b></div><div class="metric"><label>Mission</label><b id="result">—</b></div>
+    </div>
+    <h2>Ground truth source</h2><div class="labels"><span class="tag">REAL GAZEBO PHYSICS</span><span class="tag">GROUND-TRUTH SIM STATE</span><span class="tag">NOT PX4</span><span class="tag">NOT A REAL DRONE</span></div>
+    <h2>Route</h2><div class="route" id="route">Route version unavailable until telemetry metadata provides it.</div>
+    <h2>Run summary</h2><div class="notice" id="summary">No run summary yet.</div>
+  </aside>
+</main>
+<script>
+const el=id=>document.getElementById(id), num=(v,d=2)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
+function render(s){const sample=s.sample, summary=s.summary;el('pill').className='pill '+s.status;el('status').textContent=s.status==='live'?'Live':s.status==='stale'?'Stale':'Waiting';el('age').textContent=s.file_age_s==null?'Telemetry file not found':`Telemetry file updated ${num(s.file_age_s,1)}s ago`;
+ if(sample){el('phase').textContent=sample.phase||'In progress';el('simtime').textContent=num(sample.sim_time)+' s';el('elapsed').textContent=num(summary?.elapsed_sim_s??sample.elapsed_sim_s)+' s';el('waypoint').textContent=`${sample.waypoint_index??'—'} / ${sample.waypoint_count??'—'}`;const v=sample.velocity||[];el('speed').textContent=v.length>=3?`${num(Math.hypot(+v[0],+v[1],+v[2]))} m/s`:'—';const p=sample.position||[];el('position').textContent=p.length>=3?`${num(p[0])}, ${num(p[1])}, ${num(p[2])} m`:'—';el('result').textContent=sample.fault?`FAULT: ${sample.fault}`:summary?.result|| (sample.done?'Done':'Running');}
+ const m=s.metadata||{};el('route').textContent=m.route_version?`Route version: ${m.route_version}`:m.waypoints?`${m.world||'Gazebo'} · ${m.vehicle||'vehicle'} · ${m.waypoint_count??m.waypoints.length} waypoints${m.run_id?` · run ${m.run_id}`:''}`:'Route version unavailable until telemetry metadata provides it.';
+ el('summary').textContent=summary?JSON.stringify(summary):'No run summary yet.';
+}
+async function poll(){try{const r=await fetch('/api/state',{cache:'no-store'});render(await r.json())}catch(e){el('status').textContent='Viewer error'}}poll();setInterval(poll,500);
+</script>
+</body></html>
