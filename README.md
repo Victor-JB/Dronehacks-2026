@@ -15,6 +15,7 @@ The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/d
 | Policy-07 | Packaged v1, Gaussian 10 mm depth noise, FALS7, patched PX4 | 78.000 s | 15/15 | 100.9 mm |
 | Policy-08 | Packaged v1, nominal depth, FALS7, 120 ms continuity limit | 78.000 s | 15/15 | 92.3 mm |
 | Policy-09 | Packaged v1, Gaussian 10 mm noise, FALS7, 120 ms continuity limit | 78.000 s | 15/15 | 95.3 mm |
+| Policy-10 | Same noisy-depth configuration, +40 mm declared launch-position error | 78.000 s | 15/15 | 94.7 mm |
 
 All listed runs passed the eight independent route, multipart geometry, window and landing checks. Times use simulation timestamps and include takeoff and touchdown. Window clearances include 15 mm inflation of the modeled x500 envelope. Contact-topic coverage was partial; these geometry results do not establish zero physical collisions or hardware readiness.
 
@@ -36,6 +37,8 @@ A separate injected camera-aid blackout passed eight fault-response checks. PX4 
 The later [learned-policy camera-aid loss test](docs/experiments/policy-blackout-02/README.md) reached the expected freshness fault, landed and disarmed, but did not pass its full assessment. Eight of nine checks passed; a 204 ms gap in the independent pose recording prevented certification of the entire abort path. The failed result and unchanged scoring threshold are retained.
 
 The [repeat with improved recording](docs/experiments/policy-blackout-03/README.md) certified the modeled abort path but also failed one strict check: a pre-cutoff camera sample reached PX4 4 ms after injection. The send count stayed fixed and no later updates appeared. Both attempts are preserved rather than combined into a single passing result.
+
+The [launch-prior diagnostic](docs/experiments/launch-prior-01/README.md) passed a hover prerequisite and the full route with a 40 mm error in the declared launch position. The simulated spawn stayed fixed. Policy-10 took 78 simulated seconds and passed all eight independent checks; its [RGB/depth replay](docs/media/window-policy-launch-prior.mp4) includes the paired ToF reading. This supports that one initialization-error case, not broader reliability.
 
 ## Run locally
 
