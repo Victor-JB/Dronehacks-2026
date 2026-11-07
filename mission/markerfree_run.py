@@ -4,6 +4,7 @@ Only camera measurements and PX4 estimates drive navigation. Any simulator
 truth recorder must be a separate process used for evaluation only.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -16,6 +17,7 @@ from learning.inference import (CAMERA_HEIGHT, CAMERA_WIDTH, PolicyClient, Polic
                                 validate_transfer_contract)
 from learning.sim import DT as POLICY_STEP
 from .core import CourseController, ZERO, limited, norm, sub, vector, wrap
+from .boundary_brake import BoundaryBrake
 from .heading import route_yaw
 from .landing import LandingMonitor
 from .navigation_audit import audit_navigation_sources
@@ -29,6 +31,10 @@ REQUIRED_PARAMS.update(EKF2_DELAY_MAX=500., EKF2_EVP_NOISE=.03)
 HOVER_SECONDS = 3.0
 POLICY_MAX_AGE_S = .45
 POLICY_MAX_CAPTURE_AGE_S = .25
+# The stopping budget depends on recent local position/velocity, even when
+# the most recent camera action remains valid for its longer lifetime.
+POLICY_BRAKE_MAX_ESTIMATE_AGE_S = .06
+POLICY_MAX_SETPOINT_GAP_S = .10
 # Horizontal enclosing radius of the SDF-derived swept propellers plus 15 mm.
 # This bounds the course/pad footprint; obstacle/window scoring uses components.
 AIRCRAFT_RADIUS = .401
@@ -89,7 +95,7 @@ def policy_camera_shift(physical, trained, mode):
 
 
 class Log:
-    def __init__(self, args, course, launch, camera_translation):
+    def __init__(self, args, course, launch, camera_translation, boundary_brake=None):
         args.output.parent.mkdir(parents=True, exist_ok=True)
         self.file = args.output.open('w', buffering=1)
         self.summary_path = args.output.with_suffix('.summary.json')
@@ -101,9 +107,20 @@ class Log:
                            simulator_position_used_for_control=False,
                            inertial_tilt_prior_enabled=args.use_px4_tilt,
                            sitl_power_watchdog_enabled=True,
+                           policy_boundary_brake_enabled=boundary_brake is not None,
                            policy_checkpoint_sha256=args.policy_sha256,
                            policy_depth_mode=args.policy_depth_mode if args.task == 'policy' else None)
         self.write(type='metadata', **self.common,
+                   runtime_source_sha256={str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                          for folder in ('mission', 'vision', 'learning')
+                                          for path in sorted((ROOT/folder).rglob('*.py'))},
+                   policy_boundary_brake=(dict(response_s=boundary_brake.response_s,
+                                               command_lead_s=boundary_brake.lead_s,
+                                               position_reserve_m=boundary_brake.reserve_m,
+                                               max_estimate_age_s=POLICY_BRAKE_MAX_ESTIMATE_AGE_S,
+                                               max_setpoint_gap_s=POLICY_MAX_SETPOINT_GAP_S,
+                                               scope='Predictive planar bound guard; no formal safety guarantee')
+                                          if boundary_brake is not None else None),
                    camera_method='Forward RGBD depth registration',
                    camera_resolution_px=[CAMERA_WIDTH, CAMERA_HEIGHT],
                    camera_translation_flu_m=camera_translation,
@@ -289,7 +306,11 @@ def run(args):
         dict(course, waypoints=course['waypoints'][1:]), speed_scale=args.speed_scale)
     landing = LandingMonitor(course['landing']['position'], args.pad_radius,
                              AIRCRAFT_RADIUS, args.landing_timeout)
-    log = Log(args, course, launch, RGBD_TRANSLATION)
+    # The default .40 s lead budgets .24 s actuator delay and the maximum
+    # estimate age and inter-setpoint interval accepted below.
+    boundary_brake = (BoundaryBrake(route.bound_min, route.bound_max, route.footprint_radius)
+                      if args.task == 'policy' and not args.no_policy_boundary_brake else None)
+    log = Log(args, course, launch, RGBD_TRANSLATION, boundary_brake)
     link = vision = client = learned = health = None
     yaw_command = math.radians(args.launch_yaw_deg)
     launch_yaw = yaw_command
@@ -316,6 +337,9 @@ def run(args):
     position_enu = velocity_enu = None
     reply = command = None
     policy_setpoints_sent = 0
+    braking_step = None
+    braking_interventions = braking_setpoints = 0
+    max_stop_budget_deficit = 0.
     sim_s = 0.0
     try:
         try:
@@ -518,15 +542,32 @@ def run(args):
                         motion, reply = learned.tick(route.waypoint_index, frame, link.policy_history,
                                                      command.target, cap, sim_s, now)
                     if now-last_setpoint >= .04:
+                        braking_step = None
                         if policy_active:
-                            dt = max(0., min(.1, sim_s-last_setpoint_sim)) if last_setpoint_sim is not None else 0.
-                            delta_v = limited(sub(motion, sent_velocity), route.max_accel*dt)
-                            sent_velocity = limited(tuple(a+b for a, b in zip(sent_velocity, delta_v)), cap)
-                            if reply is not None:
-                                policy_setpoints_sent += 1
+                            setpoint_gap = sim_s-last_setpoint_sim if last_setpoint_sim is not None else 0.
+                            dt = max(0., min(POLICY_MAX_SETPOINT_GAP_S, setpoint_gap))
+                            if boundary_brake is not None:
+                                if sim_s-stamp > POLICY_BRAKE_MAX_ESTIMATE_AGE_S+1e-9:
+                                    raise FlightFault('policy_boundary_estimate_stale')
+                                if setpoint_gap > POLICY_MAX_SETPOINT_GAP_S+1e-9:
+                                    raise FlightFault('policy_boundary_setpoint_gap')
+                                braking_step = boundary_brake.step(position_enu, velocity_enu, motion, sent_velocity,
+                                                                   slew=route.max_accel, dt=dt, cap=cap)
+                                sent_velocity = braking_step.sent_velocity
+                            else:
+                                delta_v = limited(sub(motion, sent_velocity), route.max_accel*dt)
+                                sent_velocity = limited(tuple(a+b for a, b in zip(sent_velocity, delta_v)), cap)
                         else:
                             sent_velocity = motion
                         link.velocity(sent_velocity, yaw_command)
+                        if policy_active and reply is not None:
+                            policy_setpoints_sent += 1
+                        if braking_step is not None:
+                            braking_setpoints += 1
+                            if norm(sub(sent_velocity, braking_step.unfiltered_velocity)) > 1e-9:
+                                braking_interventions += 1
+                            max_stop_budget_deficit = max(max_stop_budget_deficit,
+                                max((value for _, value in braking_step.stop_budget_deficits_m), default=0.))
                         last_setpoint, last_setpoint_sim = now, sim_s
 
             if sim_s-last_log >= .1:
@@ -566,6 +607,13 @@ def run(args):
                           policy_actions_received=learned.actions if learned else 0,
                           policy_latency_wall_s=reply.latency_s if reply else None,
                           policy_velocity_flu=reply.velocity_flu if reply else None,
+                          policy_boundary_braking_interventions=braking_interventions,
+                          policy_boundary_guard_setpoints=braking_setpoints,
+                          policy_boundary_braking_faces=braking_step.faces if braking_step and landing.started is None else None,
+                          policy_boundary_budget_deficits_m=dict(braking_step.stop_budget_deficits_m)
+                          if braking_step and landing.started is None else None,
+                          policy_unfiltered_sent_velocity=braking_step.unfiltered_velocity
+                          if braking_step and landing.started is None else None,
                           policy_depth_coverage=learned.current_coverage if learned else None)
             time.sleep(.002)
     except KeyboardInterrupt:
@@ -598,6 +646,9 @@ def run(args):
                    vision_measurements_sent=sent,
                    policy_actions_received=learned.actions if learned else 0,
                    policy_setpoints_sent=policy_setpoints_sent,
+                   policy_boundary_braking_interventions=braking_interventions,
+                   policy_boundary_guard_setpoints=braking_setpoints,
+                   policy_boundary_budget_max_deficit_m=max_stop_budget_deficit,
                    policy_training_camera_forward_m=client.camera_forward_m if client else None,
                    policy_training_heading_lookahead_m=client.heading_lookahead if client else None,
                    policy_service_session=client.session if client else None)
@@ -624,6 +675,8 @@ def main():
     parser.add_argument('--policy-depth-mode', choices=('virtual', 'raw'), default='raw',
                         help='virtual reprojects to the checkpoint camera; raw requires matching camera mounts')
     parser.add_argument('--policy-timeout', type=float, default=2.0)
+    parser.add_argument('--no-policy-boundary-brake', action='store_true',
+                        help='Explicit diagnostic opt-out of predictive planar braking for the learned policy')
     parser.add_argument('--speed-scale', type=float, default=1.0)
     parser.add_argument('--heading-lookahead', type=float, default=1.8,
                         help='Metres before a turn to begin looking into the next corridor; 0 disables')

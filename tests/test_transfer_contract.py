@@ -6,6 +6,7 @@ import unittest
 
 from learning.inference import PolicyError, validate_transfer_contract
 from learning.transfer import TransferCourse
+from learning.transfer_delay import DelayCourse
 
 
 class TransferContractTests(unittest.TestCase):
@@ -36,6 +37,29 @@ class TransferContractTests(unittest.TestCase):
                 validate_transfer_contract(wrong, *paths, speed_scale=1., lookahead=1.8)
             with self.assertRaisesRegex(PolicyError, 'transfer_profile_required'):
                 validate_transfer_contract(contract | {'profile': 'legacy'}, *paths, speed_scale=1., lookahead=1.8)
+
+    def test_delay_profile_binds_dynamics_and_source_version(self):
+        root = Path(__file__).resolve().parents[1]
+        course = DelayCourse()
+        paths = (course.route_path, root/'mission/heading.py', root/'models/flight_x500_base/model.sdf')
+        profile = course.profile_metadata()
+        contract = dict(profile='x500-transfer-delay', route_sha256=profile['route_sha256'],
+                        heading_sha256=hashlib.sha256(paths[1].read_bytes()).hexdigest(),
+                        transfer_profile=profile)
+        self.assertEqual(validate_transfer_contract(contract, *paths, speed_scale=1., lookahead=1.8), profile)
+        with self.assertRaisesRegex(PolicyError, 'transfer_profile_invalid'):
+            validate_transfer_contract(contract | {'profile': 'x500-transfer'}, *paths,
+                                       speed_scale=1., lookahead=1.8)
+        for key, value in (('command_delay_s', [.12, .20]), ('command_delay_location', 'pre_slew'),
+                           ('velocity_gain_xy', [1., 1.]), ('plant_substep_s', .02)):
+            with self.subTest(key=key):
+                wrong = dict(contract, transfer_profile=dict(profile, **{key: value}))
+                with self.assertRaisesRegex(PolicyError, 'delay_dynamics_mismatch'):
+                    validate_transfer_contract(wrong, *paths, speed_scale=1., lookahead=1.8)
+        for key in ('transfer_delay_source_sha256', 'transfer_source_sha256'):
+            wrong = dict(contract, transfer_profile=dict(profile, **{key: '0'*64}))
+            with self.assertRaisesRegex(PolicyError, 'transfer_source_mismatch'):
+                validate_transfer_contract(wrong, *paths, speed_scale=1., lookahead=1.8)
 
 
 if __name__ == '__main__':

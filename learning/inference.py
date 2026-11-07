@@ -199,10 +199,13 @@ def validate_heading_lookahead(value):
 
 def validate_transfer_contract(contract, course_path, heading_path, model_path, *, speed_scale, lookahead):
     """Reject a stale route/model contract before allowing an x500 policy flight."""
-    if contract.get('profile') != 'x500-transfer':
+    kind = contract.get('profile')
+    if kind not in ('x500-transfer', 'x500-transfer-delay'):
         raise PolicyError('policy_checkpoint_transfer_profile_required')
+    delayed = kind == 'x500-transfer-delay'
+    expected_name = 'x500-transfer-v2' if delayed else 'x500-transfer-v1'
     profile = contract.get('transfer_profile')
-    if not isinstance(profile, dict) or profile.get('name') != 'x500-transfer-v1':
+    if not isinstance(profile, dict) or profile.get('name') != expected_name:
         raise PolicyError('policy_checkpoint_transfer_profile_invalid')
     for label, path, expected in (
             ('route', course_path, contract.get('route_sha256')),
@@ -216,6 +219,21 @@ def validate_transfer_contract(contract, course_path, heading_path, model_path, 
             or profile.get('velocity_setpoint_slew_mps2') != .8
             or profile.get('actor_step_s') != .16):
         raise PolicyError('policy_checkpoint_control_profile_mismatch')
+    if delayed:
+        dynamics = dict(command_delay_s=[.12, .24], command_delay_quantum_s=.04,
+                        command_delay_location='post_slew', velocity_gain_xy=[1., 1.08],
+                        velocity_response_s=[.50, .80], plant_acceleration_mps2=.8,
+                        plant_substep_s=.04, substeps_per_action=4, yaw_rate_rad_s=1.6)
+        if any(profile.get(key) != value for key, value in dynamics.items()):
+            raise PolicyError('policy_checkpoint_delay_dynamics_mismatch')
+        for source, key in (('transfer.py', 'transfer_source_sha256'),
+                            ('transfer_delay.py', 'transfer_delay_source_sha256')):
+            try:
+                actual = hashlib.sha256(Path(__file__).with_name(source).read_bytes()).hexdigest()
+            except OSError as error:
+                raise PolicyError('policy_checkpoint_transfer_source_unavailable') from error
+            if actual != profile.get(key):
+                raise PolicyError('policy_checkpoint_transfer_source_mismatch')
     plan = json.loads(Path(course_path).read_text())
     radii = [w.get('arrival_radius', plan['limits']['arrival_radius']) for w in plan['waypoints'][1:]]
     if profile.get('estimated_waypoint_arrival_radii_m') != radii:
