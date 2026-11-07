@@ -23,7 +23,7 @@ This inventory contains 26 unique run IDs across 27 flight telemetry archive pat
 | policy-05 | learned policy / `a1919ecd` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
 | policy-06 | learned policy / `a1919ecd` | rgbd_pose_unavailable:tracking_lost:survey:unobservable_depth_geometry:0.0028333;depth:insufficient_depth_overlap;rgb:insufficient_correspondences | 5/15 | 5/15 | confirmed touchdown and disarm |
 | policy-07 | learned policy / `a1919ecd` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
-| policy-08 | learned policy / `a1919ecd` | in_progress | None/15 | not scored | no armed flight; touchdown not applicable |
+| policy-08 | learned policy / `a1919ecd` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
 
 ## Independent score details
 
@@ -44,6 +44,7 @@ Only a score file whose run ID matches its telemetry archive is joined. Abort-la
 - **policy-05:** truth 15/15 ordered=True.
 - **policy-06:** truth 5/15 ordered=False; abort landing 50.896→56.556 s, CAD clear through disarm=True, contact coverage=partial_topic_coverage.
 - **policy-07:** truth 15/15 ordered=True.
+- **policy-08:** truth 15/15 ordered=True.
 
 ## Diagnostic hovers
 

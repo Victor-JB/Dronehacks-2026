@@ -13,6 +13,7 @@ The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/d
 | Policy-03 | Learned depth policy with boundary braking | 77.000 s | 15/15 | 93.3 mm |
 | Policy-05 | Packaged policy repeat, patched PX4 | 77.000 s | 15/15 | 91.9 mm |
 | Policy-07 | Packaged v1, Gaussian 10 mm depth noise, FALS7, patched PX4 | 78.000 s | 15/15 | 100.9 mm |
+| Policy-08 | Packaged v1, nominal depth, FALS7, 120 ms continuity limit | 78.000 s | 15/15 | 92.3 mm |
 
 All listed runs passed the eight independent route, multipart geometry, window and landing checks. Times use simulation timestamps and include takeoff and touchdown. Window clearances include 15 mm inflation of the modeled x500 envelope. Contact-topic coverage was partial; these geometry results do not establish zero physical collisions or hardware readiness.
 
