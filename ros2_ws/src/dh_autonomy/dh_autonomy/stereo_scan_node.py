@@ -95,6 +95,7 @@ class StereoScanNode(Node):
         P("dark_mean_level", 12.0)       # mean left-image grey level below which stereo is declared blind
         P("max_pair_dt", 0.005)          # s; left/right stamps must agree to this (OAK is hardware-synced)
         P("base_frame", "base_link")
+        P("scan_percentile", 50.0)       # per-beam statistic for /dh/stereo_scan (localization): median
         g = lambda n: self.get_parameter(n).value
         self.info = {}
         self.t_first_info = None
@@ -288,11 +289,17 @@ class StereoScanNode(Node):
         n = int(g("n_beams"))
         fov = 2 * math.atan2(self.cx, self.f)
         mp = int(g("min_points_per_beam"))
-        ranges, amin, inc, counts = points_to_scan(xb, yb, zb, g("camera_z"), g("band_half_height"), fov, n,
-                                                   g("max_range"), min_pts=mp, return_counts=True)
+        # Two statistics per beam from the same points: the localizer gets an UNBIASED range (median), the
+        # obstacle check a conservative one (10th percentile = nearest robust return).
+        near, amin, inc, counts = points_to_scan(xb, yb, zb, g("camera_z"), g("band_half_height"), fov, n,
+                                                 g("max_range"), min_pts=mp, pct=10.0, return_counts=True)
+        mid, _, _ = points_to_scan(xb, yb, zb, g("camera_z"), g("band_half_height"), fov, n,
+                                   g("max_range"), min_pts=mp, pct=g("scan_percentile"))
         a = amin + np.arange(n) * inc
-        ranges, fwd = scan_validity(ranges, counts, a, math.radians(g("forward_half_angle_deg")), mp,
-                                    g("forward_min_coverage"))
+        _, fwd = scan_validity(near, counts, a, math.radians(g("forward_half_angle_deg")), mp,
+                               g("forward_min_coverage"))
+        ranges, _ = scan_validity(mid, counts, a, math.radians(g("forward_half_angle_deg")), mp,
+                                  g("forward_min_coverage"))
         scan = LaserScan()
         scan.header = header
         scan.angle_min, scan.angle_max, scan.angle_increment = amin, amin + inc * (n - 1), inc

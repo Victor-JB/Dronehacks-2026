@@ -30,7 +30,7 @@ import cv2  # noqa: E402
 import fake_ros  # noqa: E402
 
 fake_ros.install()
-from fake_ros import BUS, Node, CameraInfo, Image, TfBuffer as _TfBuffer  # noqa: E402
+from fake_ros import BUS, Node, CameraInfo, Image, TfBuffer as _TfBuffer, make_time  # noqa: E402
 from fake_ros import ApproximateTimeSynchronizer as _Sync  # noqa: E402
 
 from dh_core.camera_geom import optical_to_body, quat_to_rot  # noqa: E402
@@ -89,6 +89,7 @@ def render(origin_l, R_cam_to_left, wall_x):
 def make_image(arr, frame):
     msg = Image()
     msg.header.frame_id = frame
+    msg.header.stamp = make_time(1.0)
     msg.height, msg.width, msg.step, msg.encoding = arr.shape[0], arr.shape[1], arr.shape[1], "mono8"
     msg.data = arr.tobytes()
     return msg
@@ -147,7 +148,7 @@ def run_case(case, wall_x, q_rel, with_tf=True):
                 x_med=float(np.median(x)) if len(x) else math.nan,
                 x_p10=float(np.percentile(x, 10)) if len(x) else math.nan,
                 x_p90=float(np.percentile(x, 90)) if len(x) else math.nan,
-                clearance=float(clear[-1][1].data) if clear else math.nan, angles=a, ranges=r,
+                clearance=float(clear[-1][1].range) if clear else math.nan, angles=a, ranges=r,
                 imgs=(left, right))
 
 

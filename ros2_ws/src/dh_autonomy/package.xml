@@ -13,7 +13,18 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>message_filters</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
-  <!-- px4_msgs is optional: only needed for backend:=px4 (SITL or if organizers allow) -->
+  <exec_depend>python3-numpy</exec_depend>
+  <!-- Optional, deliberately NOT declared (so rosdep never tries to install them on the drone):
+       px4_msgs                          only for backend:=px4 (SITL); use the image's copy, never the team workspace
+       isaac_ros_visual_slam_interfaces  VO tracking status (/visual_slam/status); imported if present -->
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>launch_testing</test_depend>
+  <test_depend>launch_testing_ros</test_depend>
   <export><build_type>ament_python</build_type></export>
 </package>

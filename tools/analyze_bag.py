@@ -5,7 +5,7 @@ Run inside a ROS 2 Humble environment (rosbag2_py available), e.g. in the skybet
 
 Record the bag with the organizers' tool plus our topics, e.g.:
   ros2 bag record -s mcap -o /bags/$(date +%Y%m%d-%H%M%S) /dh/plan /dh/pose_map /dh/mission_state \
-     /dh/map_correction /dh/loc_health /dh/line_obs /dh/forward_clearance /dh/stereo_scan \
+     /dh/map_fix /dh/loc_health /dh/health /dh/line_obs /dh/forward_clearance /dh/stereo_scan /dh/dry_run/cmd_vel \
      /visual_slam/tracking/odometry /visual_slam/status /skybeta/state /fmu/out/vehicle_local_position
 
 Outputs: <prefix>_xy.png (plan vs flown in the course frame, coloured by speed, corrections marked),
@@ -48,7 +48,19 @@ def main():
     plan = d.get("/dh/plan", [])
     plan_xy = np.array([[p.pose.position.x, p.pose.position.y] for p in plan[-1][1].poses]) if plan else None
     states = [(t - t0, m.data) for t, m in d.get("/dh/mission_state", [])]
-    corr = np.array([[t - t0, m.vector.x, m.vector.y, m.vector.z] for t, m in d.get("/dh/map_correction", [])])
+    # map fixes are absolute course poses at the scan's capture time; the "correction" is fix - estimate then
+    fixes = [(t - t0, m.header.stamp.sec + 1e-9 * m.header.stamp.nanosec, m.pose.pose.position.x, m.pose.pose.position.y)
+             for t, m in d.get("/dh/map_fix", [])]
+    corr = []
+    if len(pose) and fixes:
+        pst = np.array([[m.header.stamp.sec + 1e-9 * m.header.stamp.nanosec] for _, m in d.get("/dh/pose_map", [])]).ravel()
+        for tr, ts, x, y in fixes:
+            k = int(np.argmin(np.abs(pst - ts)))
+            corr.append([tr, x - pose[k, 1], y - pose[k, 2], 0.0])
+    corr = np.array(corr)
+    hl = [(t - t0, m.data) for t, m in d.get("/dh/health", [])]
+    if hl:
+        print("  health states seen: %s" % sorted({h.split(" ")[0] + " " + h.split(" ")[1] for _, h in hl}))
     health = np.array([[t - t0, *m.data] for t, m in d.get("/dh/loc_health", [])])
 
     # ---- summary

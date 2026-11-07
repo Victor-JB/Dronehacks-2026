@@ -365,6 +365,9 @@ class MissionNode(Node):
         self.last_tick = now
         self.backend.tick()
         self.pub_state.publish(String(data=self.state))
+        if self.odom is not None and self.align.valid and now - self.odom[3] <= self.get_parameter("odom_timeout").value:
+            pm0, yaw0 = self._map_pose()
+            self._publish_pose(pm0, yaw0)      # also while waiting: stationary localization checks + localizer prior
         if self.odom is None or self.state in ("WAIT_START", "ABORTED", "DONE"):
             if self.state == "WAIT_START" and self.odom is not None and \
                     self.get_parameter("autostart_on_offboard").value and self.backend.offboard_active():
@@ -426,8 +429,6 @@ class MissionNode(Node):
         if mode == ABORT:
             self._abort(reason)
             return
-        if now - self.odom[3] <= self.get_parameter("odom_timeout").value:
-            self._publish_pose(pm, yaw)
         if mode == HOVER:
             self.counters["hover_ticks"] += 1
             self.get_logger().warn("HOVER: " + reason, throttle_duration_sec=1.0)

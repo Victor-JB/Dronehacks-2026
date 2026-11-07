@@ -231,6 +231,97 @@ def test_lqmt_heuristic_is_the_relaxed_optimum():
         assert brute * (1 - 1e-3) <= h <= brute + 1e-6
 
 
+def test_pose_history_interpolation_and_rejection():
+    from dh_core.health import PoseHistory, stamp_to_sec
+    h = PoseHistory(span_s=2.0, max_gap_s=0.25)
+    for t in (10.2, 10.0, 10.1, 10.3):                  # out-of-order inserts
+        h.add(t, (t, 0.0, 0.0, math.pi - 0.01 if t < 10.15 else -math.pi + 0.01))
+    p = h.at(10.05)
+    assert abs(p[0] - 10.05) < 1e-9
+    p = h.at(10.15)                                      # yaw interpolates across +-pi, not through 0
+    assert abs(abs(p[3]) - math.pi) < 0.02, p[3]
+    assert h.at(9.9) is None and h.at(10.5) is None and h.at(0.0) is None   # stale / future / unstamped
+    assert h.at(10.31, future_tol=0.02) is not None
+    h.add(11.0, (11.0, 0, 0, 0))                          # 0.7 s gap
+    assert h.at(10.6) is None
+    assert not h.add(0.0, (0, 0, 0, 0))
+    import types
+    assert stamp_to_sec(types.SimpleNamespace(sec=5, nanosec=250000000)) == 5.25
+    assert stamp_to_sec(None) == 0.0
+
+
+def test_forward_clearance_monitor_states():
+    from dh_core.health import ClearanceParams, ForwardClearanceMonitor
+    m = ForwardClearanceMonitor(ClearanceParams(min_clearance=0.45, timeout_s=0.5, invalid_scale=0.35,
+                                                invalid_grace_s=1.5, invalid_floor_scale=0.2))
+    assert m.speed_scale(0.0) == (0.0, "MISSING")        # never received: not clear
+    m.update(1.0, 1.0, math.inf)
+    assert m.speed_scale(1.1) == (1.0, "CLEAR")          # valid measurement, nothing ahead
+    assert m.speed_scale(1.7)[1] == "STALE" and m.speed_scale(1.7)[0] == 0.0
+    m.update(2.0, 2.0, math.nan)
+    assert m.speed_scale(2.1) == (0.35, "INVALID")
+    assert m.speed_scale(2.1, expected_blind=True)[0] == 1.0     # mapped dark zone: blind by design
+    m.update(3.4, 3.4, math.nan)
+    assert m.speed_scale(3.6) == (0.2, "INVALID")        # past the grace period: creep, never full speed
+    m.update(4.0, 4.0, 0.6)                              # unexpected obstacle (map says 3 m)
+    s, st = m.speed_scale(4.1, expected_range=3.0)
+    assert st == "OBSTACLE" and abs(s - (0.6 - 0.45) / 0.45) < 1e-9
+    assert m.speed_scale(4.1, expected_range=0.65) == (1.0, "MAPPED_WALL")   # the planned wall at a hairpin
+    m.update(4.2, 4.2, 0.30)
+    assert m.speed_scale(4.3, expected_range=0.32)[0] == 0.0                 # mapped but too close: stop
+    m.update(4.1, 4.5, math.inf)                         # out-of-order (older stamp): ignored
+    assert m.range == 0.30
+    m.update(0.0, 5.0, math.inf)
+    assert m.state(5.1) == "STALE"                       # unstamped reading is never trusted
+
+
+def test_localization_health_modes():
+    from dh_core.health import LocHealthParams, LocalizationHealth
+    h = LocalizationHealth(LocHealthParams())
+    assert h.evaluate(0.0)[0] == "HOVER"                 # no odometry yet
+    h.on_odom(1.0, 1.0, (0, 0, 1))
+    assert h.evaluate(1.1)[0] == "OK"
+    assert h.evaluate(1.6)[0] == "HOVER" and h.evaluate(3.5)[0] == "ABORT"
+    h.on_odom(4.0, 4.0, (0, 0, 1))
+    h.on_odom(4.033, 4.033, (0.6, 0, 1))                 # 0.6 m in 33 ms: relocalization jump
+    assert h.evaluate(4.1)[0] == "HOVER"
+    h.on_odom(4.65, 4.65, (0.6, 0, 1))
+    assert h.evaluate(4.7)[0] == "OK"                    # pause over, odometry fresh
+    h.on_odom(4.8, 4.8, (0.6, 0, 1))
+    h.on_map_fix(4.8, 0.5)
+    m, s, _ = h.evaluate(4.9)
+    assert m == "DEGRADED" and s < 1.0
+    h.on_odom(6.0, 6.0, (0.6, 0, 1))
+    h.on_vo_status(6.0, 2)                                # tracking lost outside a dark zone
+    assert h.evaluate(6.1)[0] == "HOVER"
+    h.set_in_dark(6.0, True)                              # ... inside the mapped tube it is expected
+    assert h.evaluate(6.1)[0] == "OK"
+    h.on_odom(10.5, 10.5, (0.6, 0, 1))
+    assert h.evaluate(10.5)[0] == "HOVER"                 # dead-reckoning too long in the dark
+    h.set_in_dark(10.5, False)
+    h.on_odom(10.6, 10.6, (0.6, 0, 1))
+    assert h.evaluate(10.6)[0] == "ABORT" or h.evaluate(10.6)[0] == "HOVER"
+    h.on_vo_status(10.6, 1)
+    h.on_odom(10.7, 10.7, (0.6, 0, 1), pos_std=0.4)
+    assert h.evaluate(10.7)[0] == "DEGRADED"
+
+
+def test_scan_validity_distinguishes_clear_from_unknown():
+    from dh_core.camera_geom import scan_validity
+    a = np.linspace(-0.6, 0.6, 25)
+    half = math.radians(15)
+    r, f = scan_validity(np.full(25, np.inf), np.full(25, 50), a, half)
+    assert f == math.inf and np.all(np.isinf(r))        # lots of stereo data, nothing within range: clear
+    r, f = scan_validity(np.full(25, np.inf), np.zeros(25, int), a, half)
+    assert math.isnan(f) and np.all(np.isnan(r))        # no stereo data at all: unknown
+    cnt = np.full(25, 50); cnt[np.abs(a) <= half] = 0; cnt[12] = 50
+    r, f = scan_validity(np.full(25, np.inf), cnt, a, half)
+    assert math.isnan(f)                                 # poor forward coverage: cannot vouch for clear
+    rr = np.full(25, np.inf); rr[12] = 0.8
+    r, f = scan_validity(rr, cnt, a, half)
+    assert f == 0.8                                      # an obstacle is reported even with poor coverage
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

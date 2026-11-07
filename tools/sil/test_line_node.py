@@ -24,7 +24,7 @@ import cv2  # noqa: E402
 import fake_ros  # noqa: E402
 
 fake_ros.install()
-from fake_ros import BUS, Node, CameraInfo, Image  # noqa: E402
+from fake_ros import BUS, Node, CameraInfo, Image, make_time  # noqa: E402
 from dh_core.camera_geom import optical_to_body  # noqa: E402
 
 W, H = 1024, 640
@@ -70,9 +70,11 @@ def run(node_mod, height, lateral, heading, half_width, floor_g, line_g, wall_g,
     node.height = height
     img = render(height, lateral, heading, half_width, floor_g, line_g, wall_g, np.random.default_rng(seed))
     m = Image(); m.height, m.width, m.step, m.encoding, m.data = H, W, W, "mono8", img.tobytes()
+    m.header.stamp = make_time(1.0)
     node._on_img(m)
     out = BUS.published.get("/dh/line_obs", [])
-    return (out[-1][1].data if out else None), img
+    v = out[-1][1].vector if out else None
+    return ((v.x, v.y, v.z) if v is not None else None), img
 
 
 CASES = [  # name, lateral, heading_deg, half_width, floor, line, wall
