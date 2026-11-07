@@ -510,3 +510,16 @@ def test_require_depth_false_flies_the_route_blind():
     assert m.result == "complete", (m.result, m.why)
     m, px4, log = fly(C.Params(route=[(1.0, 0.0)]), depth_on=lambda t: False, seconds=30.0)
     assert m.result is None or not m.result.startswith("complete")      # the default still refuses without depth
+
+
+def test_zero_waits_never_give_up():
+    """The drone (config/drone.yaml): started at power-up, it waits for READY and for the pilot forever."""
+    m, px4, log = fly(C.Params(route=[(1.0, 0.0)], wait_s=10.0), health=lambda t: False, seconds=40.0)
+    assert m.result and m.result.startswith("refused"), m.result
+    m, px4, log = fly(C.Params(route=[(1.0, 0.0)], wait_s=0.0), health=lambda t: False, seconds=40.0)
+    assert m.result is None and m.phase == "wait"
+    no_offboard = lambda t: 4                            # armed, but the pilot never switches to Position
+    m, px4, log = fly(C.Params(route=[(1.0, 0.0)], arm_wait_s=10.0), nav_override=no_offboard, seconds=60.0)
+    assert m.result and m.result.startswith("refused: not armed in Offboard"), m.result
+    m, px4, log = fly(C.Params(route=[(1.0, 0.0)], arm_wait_s=0.0), nav_override=no_offboard, seconds=60.0)
+    assert m.result is None and m.phase == "arm"

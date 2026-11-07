@@ -85,6 +85,7 @@ class SkybetaNav(Node):
             default = doc.get("params", {}).get(k, v)
             val = self.declare_parameter(k, default).value
             setattr(prm, k, type(v)(val))
+        self.prm = prm
         self.mission = C.Mission(prm)
         self.depth_topic = self.declare_parameter("depth_topic", "").value
         info = self.declare_parameter("depth_info_topic", "").value
@@ -93,6 +94,9 @@ class SkybetaNav(Node):
         self.odom_topic = self.declare_parameter("odometry_topic", "/visual_slam/tracking/odometry").value
         self.odom_stale_s = float(self.declare_parameter("odom_stale_s", 0.3).value)
         self.state_stale_s = float(self.declare_parameter("state_stale_s", 1.0).value)
+        # True: exit once the mission is done (the sim). False (the drone, started by the stack at
+        # power-up): once the run is over and PX4 reports disarmed, start a fresh mission, so each
+        # arming gets one go, as the organisers' autonomy_pipeline.md specifies
         self.exit_when_done = bool(self.declare_parameter("exit_when_done", True).value)
         self.motion_on = bool(self.declare_parameter("motion_check", True).value)
         self.motion = MotionCheck(
@@ -317,6 +321,17 @@ class SkybetaNav(Node):
         if out.phase == "done" and self.done_at is None:
             self.done_at = now
             self.get_logger().info(f"mission done: {self.mission.result}")
+        if (out.phase == "done" and not self.exit_when_done
+                and self._vehicle(now).armed is False):           # landed and disarmed by the pilot
+            self._new_mission(f"previous run: {self.mission.result}")
+
+    def _new_mission(self, why):
+        """A fresh mission for the next arming: same route and params, no state from the last run."""
+        self.mission = C.Mission(self.prm)
+        self.frozen, self.done_at, self._wait_log_t = None, None, None
+        self.motion.reset()
+        self._said.clear()
+        self.get_logger().info(f"disarmed: new mission for the next arming ({why})")
 
     def _publish_status(self):
         st = self.mission.status(self._now())

@@ -88,8 +88,8 @@ class Params:
     depth_border_px: int = 24                   # image edge ignored (stereo matching is weakest there)
     confirm_frames: int = 2                     # an obstacle must be in this many consecutive frames to stop
     stream_lead_s: float = 1.0                  # setpoints stream this long before Offboard is requested
-    wait_s: float = 300.0                       # nothing ready this long: give up without arming
-    arm_wait_s: float = 30.0
+    wait_s: float = 300.0                       # nothing ready this long: give up without arming (0: never)
+    arm_wait_s: float = 30.0                    # READY but not in Offboard this long: give up (0: never)
     cmd_resend_s: float = 1.0
     land_timeout_s: float = 60.0
 
@@ -318,7 +318,7 @@ class Mission:
         if self.phase in ("wait", "arm") and self.t_cmd is None:
             if v.armed is True:
                 self._end(now, out, "yielded: vehicle armed before this mission requested control")
-            elif now - self.t_started > p.wait_s:
+            elif p.wait_s > 0 and now - self.t_started > p.wait_s:
                 self._end(now, out, f"refused: {self.why or 'not ready'} after {p.wait_s:.0f} s")
             elif self.phase == "arm" and v.armed is None:
                 self._requalify(now, out, "waiting for an explicit disarmed PX4 report")
@@ -356,7 +356,7 @@ class Mission:
         ph = self.phase
         if ph == "wait":
             ok, why = self.health.arm_ok(now)
-            if now - self.t_started > p.wait_s:
+            if p.wait_s > 0 and now - self.t_started > p.wait_s:
                 self._end(now, out, f"refused: {self.why or 'not ready'} after {p.wait_s:.0f} s")
             elif v.armed is not False:
                 self.why = "waiting for an explicit disarmed PX4 report"
@@ -390,7 +390,7 @@ class Mission:
                     self._requalify(now, out, "depth not continuously usable; requalifying before any control request")
                 else:
                     self._end(now, out, "yielded: depth lost before this mission requested control")
-            elif now - self.t_phase > p.arm_wait_s:
+            elif p.arm_wait_s > 0 and now - self.t_phase > p.arm_wait_s:
                 if v.armed:
                     out.commands.append("disarm")          # a normal, checked disarm: on the ground, never forced
                 self._end(now, out, f"refused: not armed in Offboard after {p.arm_wait_s:.0f} s")

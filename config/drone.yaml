@@ -12,11 +12,13 @@
     min_obstacle_px: 75         # was 1200 (~35 x 35 px at 1280x800 -> ~9 x 9 px here)
     base_frame: base_link
     status_topic: /refnav/status
-    # The pilot arms by hand: give them time after the mission reports READY.
-    # PX4 still disarms 10 s after arming without a takeoff (COM_DISARM_PRFLT).
-    arm_wait_s: 120.0
-    # The stack holds the drone still for its first minute; wait that out too.
-    wait_s: 600.0
+    # The stack starts this node at power-up (autonomy_pipeline.md): it waits as long as it takes,
+    # holds a setpoint from READY on, and flies when the pilot arms on Altitude and switches to
+    # Position. PX4 still disarms 10 s after arming without a takeoff (COM_DISARM_PRFLT), so the
+    # pilot switches within a few seconds of arming.
+    wait_s: 0.0                 # 0: never give up waiting for READY
+    arm_wait_s: 0.0             # 0: never give up waiting for the pilot after READY
+    exit_when_done: false       # after a run, once disarmed: a fresh mission for the next arming
     # Motion check (dronehacks_nav/motion_check.py): while Offboard is ours, a setpoint more than
     # motion_err_m away for motion_window_s must move the vehicle motion_min_progress_m toward it,
     # and VIO's height change must match PX4's rangefinder within motion_z_mismatch_m. Otherwise

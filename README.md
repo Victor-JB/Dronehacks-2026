@@ -44,48 +44,53 @@ on the drone. In short:
 observed free space). skybeta ships no depth image, so the team image below turns
 on the OAK's own stereo depth, `/oak/stereo/image_raw`.
 
-## Deploying
+## Deploying: the stack starts our code at power-up
 
-The drone holds a clone at `~/team_ws/src/dronehacks`, checked out on `main`. From the laptop:
-
-```sh
-git push drone main          # updates the drone's working tree in place
-```
-
-Then, on the drone, the stack rebuilds the team workspace when it starts, or by
-hand inside the container:
+Exactly as the organisers' `autonomy_pipeline.md` (on the drone: `~/skybeta/docs/`) asks: the stack
+builds `~/team_ws` and launches **our** launch file at every power-up, so the mission is running and
+READY before the pilot arms. **Once per drone**, on the drone:
 
 ```sh
-ssh dronehacks@skybeta-02.local
-docker exec -it skybeta-stack bash
-team_build.sh --packages-select dronehacks_nav
+sudoedit /etc/skybeta/drone.env
+#   COMPETITOR_PKG=dronehacks_nav
+#   COMPETITOR_LAUNCH=mission.launch.py
 ```
 
-Python edits need no rebuild (`--symlink-install`); new files, launch files and
-config do (`fly.sh start` rebuilds anyway).
+colcon finds our package by its `package.xml` (`<name>dronehacks_nav</name>`) anywhere under
+`~/team_ws/src`; the folder being called `dronehacks` does not matter. **The whole `team_ws` must
+build**, or the stack launches nothing: keep half-finished packages out of `~/team_ws/src`.
 
-## Flying: `scripts/fly.sh`
-
-The drone boots with `COMPETITOR_PKG=manual` in `/etc/skybeta/drone.env`: the stack
-(VIO, PX4 link) comes up by itself, and the `competitor` window only builds and
-idles. Nothing of ours runs until, on the drone:
+Every deploy, from the laptop:
 
 ```sh
-~/team_ws/src/dronehacks/scripts/fly.sh start    # rebuild, then mission + bag + foxglove + map + camera page
-~/team_ws/src/dronehacks/scripts/fly.sh attach   # watch the mission (Ctrl-b d leaves, Ctrl-b n next window)
-~/team_ws/src/dronehacks/scripts/fly.sh stop     # on the ground: stops them all, closes the bag
+git push drone main          # updates the drone's checkout in place
+ssh dronehacks@skybeta-02.local 'docker rm -f skybeta-stack'   # ON THE GROUND, DISARMED, STILL: it re-zeroes VIO
 ```
+
+The stack is back in ~10 s; its `competitor` window rebuilds `team_ws` and launches
+`mission.launch.py` (the flight interface with `auto_offboard_on_arm: true`, plus our mission node).
+
+## Flying
+
+1. Power on where the drone will take off; keep it still for the first minute.
+2. On the drone, optional but recommended: `~/team_ws/src/dronehacks/scripts/fly.sh start`
+   records a bag and opens the camera page and Foxglove. It does not start a second mission.
+3. Wait for `READY` (`fly.sh status` shows the mission's last lines).
+4. Pilot arms on **Altitude**, then switches to **Position within a few seconds** (PX4 disarms 10 s
+   after arming without a takeoff). The mission takes off and flies `modes.json`'s active mode.
+5. It holds position at the end and says `PILOT, TAKE OVER AND LAND`; the pilot raises the throttle
+   to centre (back to Position), lands and disarms. The pilot can take over at any time the same way.
+6. Once disarmed, the mission starts over and is READY for the next arming: **one go per arming**.
+7. `fly.sh stop` closes the bag (on the ground).
 
 - Camera, depth and map: `http://skybeta-02.local:8080/` in a browser (`dronehacks_nav/camera_web.py`).
 - Foxglove (pose, state, `/map/occupied`; no images): `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local`
   on the laptop, then `ws://localhost:8765`.
 - Bags: `~/team_ws/bags/<date-time>/` (mcap; depth, odometry, state, setpoints, PX4).
 
-After `start`, wait for `READY` in the mission window; then the safety pilot arms on
-Altitude and switches to Position. `stop` while airborne kills the flight interface
-and PX4 falls back to Position under the pilot.
-
-First runs: props off, then low and tethered. Nothing on this stack has flown yet.
+**Bench mode** (iterating without restarting the stack): set `COMPETITOR_PKG=manual`, restart the
+stack, and `fly.sh start` builds and runs the mission in its own window. It dies with the stack, so
+switch back before handing the drone to the pilot.
 
 ## Depth (team image)
 
@@ -94,10 +99,3 @@ swaps in a camera config with on-device stereo depth (`/oak/stereo/image_raw`,
 320x200, 30 Hz). On the drone `~/team_ws/Dockerfile` links to it; rebuild with
 `~/skybeta/host/run.sh build` after every skybeta update. To go back to the stock
 camera: `rm ~/team_ws/Dockerfile && docker rm -f skybeta-stack` (on the ground).
-
-## Keeping branches in step
-
-Mission changes made on `main` come over with `git merge main` (or
-`git cherry-pick`). Expect conflicts only on files this branch deleted
-(`refnav/node.py`, `onboard/`, …): those deletions are deliberate, so keep them
-deleted and port any interface change into `dronehacks_nav/skybeta_node.py`.

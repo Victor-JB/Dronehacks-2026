@@ -73,38 +73,42 @@ the drone sat when the stack started. Height in PX4 comes from the downward lase
 
 ## 3. Boot and a flight session
 
+The organisers' sequence (`~/skybeta/docs/autonomy_pipeline.md`), which this follows exactly:
+
 ```mermaid
 sequenceDiagram
   participant P as Pilot (RC)
   participant D as Drone boot
-  participant F as fly.sh start
-  participant M as mission
+  participant M as mission (started by the stack)
+  participant F as fly.sh start (optional)
   D->>D: skybeta-stack.service starts agent, cuVSLAM, bridge
-  D->>D: competitor window builds team code and idles (COMPETITOR_PKG=manual)
+  D->>M: competitor window builds team_ws, launches dronehacks_nav mission.launch.py
   Note over D: keep the drone still ~1 min: VIO origin + heading are set here
-  F->>F: checks, team_build, opens tmux session "dronehacks"
-  F->>M: mission + bag + foxglove + map + camera
-  M->>M: waits: PX4 link, VIO tracking, live depth (3 s quiet each)
-  M-->>P: READY: arm on Altitude, then switch to Position
-  P->>P: arm, switch to Position
+  F->>F: bag + foxglove + map + camera page
+  M->>M: waits: PX4 link, VIO tracking, live depth (3 s quiet each), for as long as it takes
+  M-->>P: READY: holds a setpoint; arm on Altitude, then switch to Position
+  P->>P: arm, switch to Position within a few seconds
   Note over M: flight interface enters Offboard; mission takes off and flies
   M-->>P: MISSION ENDED / FREEZING: take over and land
   P->>P: throttle to centre, land, disarm
-  F->>F: fly.sh stop (on the ground)
+  M->>M: disarmed: a fresh mission, READY again for the next arming
 ```
 
-**At boot** only the organisers' stack runs. `/etc/skybeta/drone.env` has `COMPETITOR_PKG=manual`,
-so the stack's `competitor` window builds our package and then waits at a shell instead of launching
-anything. (Backup of the original file: `/etc/skybeta/drone.env.bak-before-dronehacks_nav`.)
+**At boot** `/etc/skybeta/drone.env` has `COMPETITOR_PKG=dronehacks_nav` and
+`COMPETITOR_LAUNCH=mission.launch.py`, so the stack's `competitor` window builds `team_ws` and
+launches our launch file: one `flight_interface` with `auto_offboard_on_arm: true`, plus our mission
+node. The node never gives up waiting (`wait_s`, `arm_wait_s` 0 in `config/drone.yaml`) and never
+exits (`exit_when_done: false`): after a run, once PX4 reports disarmed, it starts a fresh mission.
+(Backup of the organisers' original file: `/etc/skybeta/drone.env.bak-before-dronehacks_nav`.)
 
 **`scripts/fly.sh`** runs on the drone's host shell:
 
 | Command | Does |
 |---|---|
-| `fly.sh start` | Refuses unless the stack runs, no session exists and the `competitor` window is idle (two flight interfaces would fight). Rebuilds `dronehacks_nav`, then opens a tmux session `dronehacks` in the container with five windows: `mission`, `bag`, `foxglove`, `map`, `camera` |
-| `fly.sh status` | Window list and the mission's last lines |
-| `fly.sh attach` | Watch live. `Ctrl-b n` next window, `Ctrl-b d` leave. **Never Ctrl-C the stack's `skybeta` session** |
-| `fly.sh stop` | Ctrl-C to every window (closes the bag cleanly), then ends the session. **Only on the ground**: stopping in the air kills the flight interface and PX4 falls back to Position under the pilot |
+| `fly.sh start` | Opens a tmux session `dronehacks` in the container with `bag`, `foxglove`, `map`, `camera`. If the stack's `competitor` window is idle (bench mode, `COMPETITOR_PKG=manual`), it also builds and runs `mission`; never both, or two flight interfaces would fight |
+| `fly.sh status` | The mission's last lines (from the stack's `competitor` window, or the bench `mission` window) and the session's windows |
+| `fly.sh attach` | Watch the session. `Ctrl-b n` next window, `Ctrl-b d` leave. **Never Ctrl-C the stack's `skybeta` session** |
+| `fly.sh stop` | Ctrl-C to every window of the session (closes the bag cleanly). In bench mode it stops the mission too: **only on the ground** |
 
 ## 4. The mission
 
@@ -130,7 +134,7 @@ the adapter around it:
 | `land` | nothing (skybeta has no land command); holds the last setpoint and logs `MISSION ENDED ... PILOT, TAKE OVER AND LAND` |
 
 **Phases:** `wait` (all inputs healthy and 3 s of usable depth) -> `arm` (streams a hold so the
-pilot's Position switch can hand over; gives up after `arm_wait_s` 120 s) -> `climb` to `height_m`
+pilot's Position switch can hand over; on the drone it waits for the pilot indefinitely) -> `climb` to `height_m`
 -> optional `hover` -> the route (`turn`, `check`, `go`, `hold` per leg) or `explore` -> `land`
 (hold + pilot) -> `done`.
 
@@ -250,8 +254,9 @@ parameters). Main knobs:
 |---|---|---|
 | `depth_topic` | `/oak/stereo/image_raw` | depth source |
 | `depth_stride`, `depth_border_px`, `min_obstacle_px` | 4, 6, 75 | refnav's 1280x800 defaults scaled to 320x200 |
-| `arm_wait_s` | 120 | time the pilot has after `READY` |
-| `wait_s` | 600 | give up if never ready |
+| `arm_wait_s` | 0 | time the pilot has after `READY` (0: forever) |
+| `wait_s` | 0 | give up if never ready (0: never) |
+| `exit_when_done` | false | false: after a run, once disarmed, a fresh mission for the next arming (the sim uses true) |
 | `motion_check`, `motion_err_m`, `motion_window_s`, `motion_min_progress_m`, `motion_z_mismatch_m` | true, 0.3, 3.0, 0.1, 0.3 | the motion check |
 | `height_m`, `speed_mps`, `stop_m`, `explore`, `hover_s` (refnav, in `route.json` params) | 1.2, 0.6, 0.9, true, 0 | mission shape |
 
