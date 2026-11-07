@@ -144,7 +144,9 @@ params="$out/code/config/drone.sim.yaml"
 [[ -f "$out/code/config/drone.yaml" ]] || die "$src has no config/drone.yaml"
 # The only change to the team's config: PX4 SITL runs on Gazebo's clock, so the nodes must too.
 # Also: the drone's node never exits (a fresh mission per arming); the sim's run ends with the mission.
+# And no start gate: nobody presses START ROUTE in a sim run.
 sed -e 's/use_sim_time:[[:space:]]*false/use_sim_time: true/' -e 's/exit_when_done:[[:space:]]*false/exit_when_done: true/' \
+  -e 's/start_gate:[[:space:]]*true/start_gate: false/' \
   "$out/code/config/drone.yaml" > "$params"
 if ! grep -q 'use_sim_time: true' "$params"; then
   awk '{print} /ros__parameters:/ && !done {print "    use_sim_time: true"; done=1}' "$params" > "$params.tmp" && mv "$params.tmp" "$params"
