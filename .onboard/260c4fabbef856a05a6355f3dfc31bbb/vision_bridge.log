@@ -1,0 +1,79 @@
+[WARN] [1794011666.547721830] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[WARN] [1794011666.547737380] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[INFO] [1794011666.611708386] [px4_vision_bridge]: /visual_slam/tracking/odometry -> /fmu/in/vehicle_visual_odometry; frame=flu; heading reference=Proposed launch mark aligned with the source guideline +Y (CAD v3 assumption; confirm official heading before use)
+[INFO] [1794011666.662100168] [px4_vision_bridge]: counts={'input': 0, 'published': 0, 'invalid': 0, 'withheld': 0, 'unowned': 0, 'clock_resets': 0} captures={'ok': 0, 'duplicate': 0, 'reordered': 0, 'stale': 0, 'future': 0, 'invalid': 0} healthy=False reason=no samples
+[INFO] [1794011670.740193091] [px4_vision_bridge]: counts={'input': 47, 'published': 0, 'invalid': 0, 'withheld': 0, 'unowned': 45, 'clock_resets': 0} captures={'ok': 45, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=False reason=proving sole vision ownership
+[INFO] [1794011675.841863129] [px4_vision_bridge]: counts={'input': 122, 'published': 0, 'invalid': 0, 'withheld': 0, 'unowned': 120, 'clock_resets': 0} captures={'ok': 120, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=False reason=proving sole vision ownership
+[INFO] [1794011680.777923147] [px4_vision_bridge]: counts={'input': 196, 'published': 0, 'invalid': 0, 'withheld': 0, 'unowned': 194, 'clock_resets': 0} captures={'ok': 194, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=False reason=proving sole vision ownership
+[INFO] [1794011685.957892993] [px4_vision_bridge]: counts={'input': 271, 'published': 0, 'invalid': 0, 'withheld': 0, 'unowned': 269, 'clock_resets': 0} captures={'ok': 269, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=False reason=proving sole vision ownership
+[INFO] [1794011691.163990976] [px4_vision_bridge]: counts={'input': 345, 'published': 0, 'invalid': 0, 'withheld': 0, 'unowned': 343, 'clock_resets': 0} captures={'ok': 343, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=False reason=proving sole vision ownership
+[INFO] [1794011696.783330847] [px4_vision_bridge]: counts={'input': 420, 'published': 69, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 418, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011702.219951048] [px4_vision_bridge]: counts={'input': 495, 'published': 144, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 493, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011708.058617978] [px4_vision_bridge]: counts={'input': 567, 'published': 216, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 565, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011713.874937204] [px4_vision_bridge]: counts={'input': 643, 'published': 292, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 641, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011719.444071270] [px4_vision_bridge]: counts={'input': 716, 'published': 365, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 714, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011725.154234365] [px4_vision_bridge]: counts={'input': 790, 'published': 439, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 788, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011730.876475170] [px4_vision_bridge]: counts={'input': 863, 'published': 512, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 861, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011736.730319834] [px4_vision_bridge]: counts={'input': 938, 'published': 587, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 936, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011742.318710080] [px4_vision_bridge]: counts={'input': 1012, 'published': 661, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1010, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011747.961061875] [px4_vision_bridge]: counts={'input': 1086, 'published': 735, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1084, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011753.522455761] [px4_vision_bridge]: counts={'input': 1159, 'published': 808, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1157, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011759.112639907] [px4_vision_bridge]: counts={'input': 1233, 'published': 882, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1231, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011764.837454502] [px4_vision_bridge]: counts={'input': 1308, 'published': 957, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1306, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011770.356952448] [px4_vision_bridge]: counts={'input': 1383, 'published': 1032, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1381, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011776.218071033] [px4_vision_bridge]: counts={'input': 1456, 'published': 1105, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1454, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011782.333369905] [px4_vision_bridge]: counts={'input': 1529, 'published': 1178, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1527, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011788.152266358] [px4_vision_bridge]: counts={'input': 1604, 'published': 1253, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1602, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011793.990624901] [px4_vision_bridge]: counts={'input': 1679, 'published': 1328, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1677, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011799.826000025] [px4_vision_bridge]: counts={'input': 1754, 'published': 1403, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1752, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011805.510490978] [px4_vision_bridge]: counts={'input': 1828, 'published': 1477, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1826, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011811.291314302] [px4_vision_bridge]: counts={'input': 1902, 'published': 1551, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1900, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011816.880703825] [px4_vision_bridge]: counts={'input': 1975, 'published': 1624, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 1973, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011822.538289289] [px4_vision_bridge]: counts={'input': 2050, 'published': 1699, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2048, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011828.183282983] [px4_vision_bridge]: counts={'input': 2124, 'published': 1773, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2122, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011833.653901287] [px4_vision_bridge]: counts={'input': 2197, 'published': 1846, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2195, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011839.305331641] [px4_vision_bridge]: counts={'input': 2270, 'published': 1919, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2268, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011844.989195610] [px4_vision_bridge]: counts={'input': 2346, 'published': 1995, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2344, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011850.691026367] [px4_vision_bridge]: counts={'input': 2420, 'published': 2069, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2418, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011856.116101755] [px4_vision_bridge]: counts={'input': 2496, 'published': 2145, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2494, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011861.709418412] [px4_vision_bridge]: counts={'input': 2569, 'published': 2218, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2567, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011867.332698099] [px4_vision_bridge]: counts={'input': 2643, 'published': 2292, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2641, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011872.891277997] [px4_vision_bridge]: counts={'input': 2717, 'published': 2366, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2715, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011878.348407475] [px4_vision_bridge]: counts={'input': 2792, 'published': 2441, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2790, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+[INFO] [1794011883.798736892] [px4_vision_bridge]: counts={'input': 2866, 'published': 2515, 'invalid': 0, 'withheld': 0, 'unowned': 349, 'clock_resets': 0} captures={'ok': 2864, 'duplicate': 0, 'reordered': 0, 'stale': 2, 'future': 0, 'invalid': 0} healthy=True reason=ok
+Traceback (most recent call last):
+  File "/var/lib/flyx-lab/workspace/onboard/vio/ev_bridge.py", line 122, in main
+    node=EvBridge();rclpy.spin(node)
+                    ^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 247, in spin
+    executor.spin_once()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 926, in spin_once
+    self._spin_once_impl(timeout_sec)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 907, in _spin_once_impl
+    handler, entity, node = self.wait_for_ready_callbacks(
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 877, in wait_for_ready_callbacks
+    return next(self._cb_iter)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/executors.py", line 757, in _wait_for_ready_callbacks
+    wait_set = _rclpy.WaitSet(
+               ^^^^^^^^^^^^^^^
+rclpy._rclpy_pybind11.RCLError: failed to initialize wait set: the given context is not valid, either rcl_init() was not called or rcl_shutdown() was called., at ./src/rcl/wait.c:130
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/var/lib/flyx-lab/workspace/onboard/vio/ev_bridge.py", line 129, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/var/lib/flyx-lab/workspace/onboard/vio/ev_bridge.py", line 126, in main
+    rclpy.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/__init__.py", line 134, in shutdown
+    _shutdown(context=context)
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/utilities.py", line 82, in shutdown
+    context.shutdown()
+  File "/opt/ros/jazzy/lib/python3.12/site-packages/rclpy/context.py", line 129, in shutdown
+    self.__context.shutdown()
+rclpy._rclpy_pybind11.RCLError: failed to shutdown: rcl_shutdown already called on the given context, at ./src/rcl/init.c:333
