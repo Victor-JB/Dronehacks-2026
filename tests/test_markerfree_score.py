@@ -10,7 +10,7 @@ import numpy as np
 from learning.sim import Scene
 from mission.airframe import load_x500_envelope, quaternion_xyzw_from_rpy
 from tools.score_markerfree import (ARMED_EVENT, HOVER_EVENT, TOUCHDOWN_EVENT, Truth,
-                                    _contacts, _multipart_scene, _multipart_window,
+                                    _abort_landing, _contacts, _multipart_scene, _multipart_window,
                                     _position_alignment, _proxy_collisions, _truth_waypoints,
                                     _window, score_run)
 
@@ -25,6 +25,48 @@ def truth_row(stamp, position):
 
 
 class ScoreTests(unittest.TestCase):
+    def test_abort_disarm_does_not_hide_post_fault_obstacle_overlap(self):
+        truth = Truth([truth_row(1., [-1., 0., .8]), truth_row(1.1, [1., 0., .227])], .12)
+        obstacle = Scene(np.array([[0., 0., .6]]), np.eye(3)[None],
+                         np.array([[.02, .5, .5]]), WINDOW, .28)
+        events = [dict(message='PX4 confirmed touchdown and disarm after abort', sim_time=1.1)]
+        summary = dict(result='failed', landed_after_fault=True)
+        result = _abort_landing(summary, events, truth, [], {}, 1., obstacle, load_x500_envelope())
+        self.assertTrue(result['controller_confirmed_ground_and_disarm'])
+        self.assertFalse(result['certified_clear_through_disarm'])
+        self.assertEqual(result['cad_proxy']['phases']['abort_landing']['first_unresolved']['obstacle'], 0)
+        self.assertFalse(result['cad_proxy']['phases']['abort_landing']['ground_checked'])
+
+    def test_abort_without_disarm_or_complete_truth_cannot_certify_clearance(self):
+        truth = Truth([truth_row(1., [-1., 0., .8]), truth_row(1.5, [-1., 0., .227])], .12)
+        far = Scene(np.array([[0., 10., .6]]), np.eye(3)[None],
+                    np.array([[.02, .5, .5]]), WINDOW, .28)
+        summary = dict(result='failed', landed_after_fault=True)
+        args = (truth, [], {}, 1., far, load_x500_envelope())
+        absent = _abort_landing(summary, [], *args)
+        self.assertFalse(absent['controller_confirmed_ground_and_disarm'])
+        self.assertFalse(absent['certified_clear_through_disarm'])
+        self.assertIsNone(absent['cad_proxy'])
+        events = [dict(message='PX4 confirmed touchdown and disarm after abort', sim_time=1.5)]
+        no_confirmation_flag = _abort_landing(dict(result='failed'), events, *args)
+        self.assertFalse(no_confirmation_flag['controller_confirmed_ground_and_disarm'])
+        self.assertFalse(no_confirmation_flag['certified_clear_through_disarm'])
+        incomplete = _abort_landing(summary, events, *args)
+        self.assertTrue(incomplete['controller_confirmed_ground_and_disarm'])
+        self.assertFalse(incomplete['certified_clear_through_disarm'])
+        self.assertFalse(incomplete['cad_proxy']['phases']['abort_landing']['truth_complete'])
+
+    def test_abort_cad_clearance_and_received_contacts_are_separate_evidence(self):
+        truth = Truth([truth_row(1., [-1., 0., .8]), truth_row(1.1, [-1., 0., .227])], .12)
+        far = Scene(np.array([[0., 10., .6]]), np.eye(3)[None],
+                    np.array([[.02, .5, .5]]), WINDOW, .28)
+        events = [dict(message='PX4 confirmed touchdown and disarm after abort', sim_time=1.1)]
+        summary = dict(result='failed', landed_after_fault=True)
+        contacts = [dict(sim_time_s=1.1, pairs=[['course_quad::base_link', 'other_obstacle']])]
+        result = _abort_landing(summary, events, truth, contacts, {}, 1., far, load_x500_envelope())
+        self.assertTrue(result['certified_clear_through_disarm'])
+        self.assertEqual(result['contacts']['raw_pair_observations']['obstacle'], 1)
+
     def test_truth_waypoint_has_separate_verification_radius(self):
         parts = [[(1., np.array([-.1, .07, 1.])), (1.1, np.array([.1, .07, 1.]))]]
         waypoint = dict(position=[0., 0., 1.], phase='MAZE', arrival_radius=.06)

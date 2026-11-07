@@ -36,7 +36,7 @@ Use the remaining wall-time budget when resuming an interrupted experiment. The 
 python3 runtime/train_overnight.py --stop
 ```
 
-See the [competition references and SAND-O status](docs/competition-reuse.md) for the projects investigated and their limits. The local SANDO checkout is a reference; its ROS 2/Gurobi planner is not integrated into this Mac run.
+See the [competition references and SAND-O status](docs/competition-reuse.md) for the projects investigated and their limits. The local SANDO checkout is a reference; its ROS 2/Gurobi planner is not integrated into this Mac run. The [focused SAND.O assessment](docs/sando-reuse.md) identifies its stopping-distance logic and checks whether it accounts for command delay.
 
 An injected camera-aid blackout also passed eight independent fault-response checks: PX4 entered Auto Land, touched down and disarmed without a logged vision update after injection. See [the fault-test evidence](docs/blackout-results.json) and the [reproduction command](docs/markerfree-rgbd.md#camera-aid-blackout-test).
 

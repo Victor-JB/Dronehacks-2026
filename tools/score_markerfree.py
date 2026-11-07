@@ -382,6 +382,28 @@ def _event(events, message):
     return next((row for row in events if row.get('message') == message), {})
 
 
+def _abort_landing(summary, events, truth, contacts, status, fault_time, scene, envelope):
+    """Keep post-fault clearance separate from the scored mission interval."""
+    if summary.get('result') != 'failed' or fault_time is None:
+        return None
+    confirmed = _event(events, 'PX4 confirmed touchdown and disarm after abort').get('sim_time')
+    confirmed = _time(confirmed) if confirmed is not None else None
+    valid = (summary.get('landed_after_fault') is True and confirmed is not None
+             and confirmed > fault_time)
+    result = {'fault_sim_s': fault_time, 'confirmed_disarm_sim_s': confirmed,
+              'controller_confirmed_ground_and_disarm': valid,
+              'cad_proxy': None, 'contacts': None, 'certified_clear_through_disarm': False,
+              'scope': 'Clearance covers the post-fault interval through controller-confirmed disarm. '
+                       'It compares the margin-inflated multipart envelope with course CAD obstacle proxies. '
+                       'Floor contact is permitted. Physical contact evidence is reported separately.'}
+    if valid:
+        geometry = _multipart_scene(truth, [('abort_landing', fault_time, confirmed, False)], scene, envelope)
+        observed = _contacts(contacts, status, fault_time, confirmed, fault_time, fault_time)
+        result.update(cad_proxy=geometry, contacts=observed,
+                      certified_clear_through_disarm=geometry['certified_clear'])
+    return result
+
+
 def score_run(directory, max_truth_gap_s=DEFAULT_MAX_GAP_S):
     if not math.isfinite(max_truth_gap_s) or max_truth_gap_s <= 0:
         raise ValueError('max truth gap must be positive and finite')
@@ -436,6 +458,7 @@ def score_run(directory, max_truth_gap_s=DEFAULT_MAX_GAP_S):
         source_hashes[str(asset)] = hashlib.sha256(asset.read_bytes()).hexdigest()
     scene = course.scene(np.random.default_rng(0), 0.)
     proxy = _multipart_scene(truth, spans, scene, envelope)
+    abort = _abort_landing(summary, events, truth, contacts, status, end, scene, envelope)
     crossing = _multipart_window(truth, parts, metadata.get('window'), envelope)
     truth_route = _truth_waypoints(parts, metadata)
     contact = _contacts(contacts, status, start or 0., end or 0., transit_start, landing_start)
@@ -518,6 +541,7 @@ def score_run(directory, max_truth_gap_s=DEFAULT_MAX_GAP_S):
             'landing_horizontal_clearance_m': legacy_pad_margin,
         },
         'landing': landing,
+        'abort_landing': abort,
         'contacts': contact,
         'px4_position_error': position,
         'px4_attitude_error': attitude,
