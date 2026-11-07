@@ -5,6 +5,7 @@ the Jetson itself. Read-only: subscribes to two image topics, publishes nothing.
     http://skybeta-02.local:8080/            both streams side by side
     http://skybeta-02.local:8080/camera.mjpg
     http://skybeta-02.local:8080/depth.mjpg
+    http://skybeta-02.local:8080/map.mjpg     top-down occupancy map from dronehacks_nav.map_node
     http://skybeta-02.local:8080/stats.json   topic rate, resolution, depth at the image centre
 
 Frames are re-encoded at most max_fps per stream, and only while someone is watching, so an idle
@@ -37,6 +38,7 @@ img{width:100%;image-rendering:pixelated;background:#000}
 .s{font:16px monospace;color:#8f8;white-space:pre}</style></head><body><div>
 <figure><img src="/camera.mjpg"><figcaption>camera (left)</figcaption><div class="s" id="camera">-</div></figure>
 <figure><img src="/depth.mjpg"><figcaption>depth (black = no return; + = centre)</figcaption><div class="s" id="depth">-</div></figure>
+<figure><img src="/map.mjpg"><figcaption>map from above, north up (grey = unknown, light = free, red = occupied; green + = start, yellow = drone)</figcaption><div class="s" id="map">-</div></figure>
 </div><script>
 function f(x){if(!x||!x.fps&&x.fps!==0)return "no messages";
  let t=x.fps.toFixed(1)+" Hz   "+x.width+"x"+x.height+" "+x.encoding;
@@ -44,7 +46,7 @@ function f(x){if(!x||!x.fps&&x.fps!==0)return "no messages";
   +"   nearest "+(x.min_m==null?"-":x.min_m.toFixed(2)+" m")+"   valid "+(100*x.valid).toFixed(0)+"%";
  return t}
 setInterval(async()=>{try{const d=await (await fetch("/stats.json")).json();
- for(const k of ["camera","depth"])document.getElementById(k).textContent=f(d[k]);}catch(e){}},500);
+ for(const k of ["camera","depth","map"])document.getElementById(k).textContent=f(d[k]);}catch(e){}},500);
 </script></body></html>"""
 
 
@@ -89,13 +91,16 @@ class CameraWeb(Node):
         self.address = self.declare_parameter("address", "0.0.0.0").value
         camera_topic = self.declare_parameter("camera_topic", "/oak/left/image_mono").value
         depth_topic = self.declare_parameter("depth_topic", "/oak/stereo/image_raw").value
+        map_topic = self.declare_parameter("map_topic", "/map/image").value
         self.max_fps = float(self.declare_parameter("max_fps", 10.0).value)
         self.depth_max_mm = 1000.0 * float(self.declare_parameter("depth_max_m", 4.0).value)
         self.quality = int(self.declare_parameter("jpeg_quality", 70).value)
-        self.streams = {"camera": Stream(), "depth": Stream()}
+        self.streams = {"camera": Stream(), "depth": Stream(), "map": Stream()}
         self.create_subscription(Image, camera_topic, lambda m: self._on_image("camera", m), qos_profile_sensor_data)
         self.create_subscription(Image, depth_topic, lambda m: self._on_image("depth", m), qos_profile_sensor_data)
-        self.get_logger().info(f"camera {camera_topic}, depth {depth_topic}: http://{self.address}:{self.port}/")
+        self.create_subscription(Image, map_topic, lambda m: self._on_image("map", m), 1)
+        self.get_logger().info(f"camera {camera_topic}, depth {depth_topic}, map {map_topic}: "
+                               f"http://{self.address}:{self.port}/")
 
     def _depth_stats(self, a):
         """Centre distance (median of a small patch), nearest return, fraction of valid pixels."""
