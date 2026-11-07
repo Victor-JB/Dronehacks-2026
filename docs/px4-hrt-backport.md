@@ -60,3 +60,7 @@ docker --context colima-dronehacks-sim exec dronehacks-markerfree-sim-1 \
 ```
 
 The soak is passive and refuses to run outside the isolated simulator partition. It does not arm the drone, change parameters or replace the flight watchdog. Each new flight records the actual executable hash and checks it against the image's build manifest before arming.
+
+## Post-flight publisher soak
+
+After policy-09 landed and disarmed, the same patched PX4 process passed a separate 600.108-second simulated publisher soak. All 1,869 samples passed the timestamp checks for battery, system power and CPU load. The observation took 2,001.591 wall-clock seconds at the configured slow simulator rate. No arming or parameter changes occurred during this soak. This extends the finite evidence for publisher continuity after a completed noisy-depth flight; it does not test every arming transition or establish that the intermittent fault is eliminated. The [runtime evidence](px4-hrt-results.json) includes the executable identity, sample-log hash and recomputed assessment.
