@@ -13,7 +13,8 @@
       "params_override": {
         "explore": false,
         "hover_s": 5.0,
-        "require_depth": false
+        "require_depth": false,
+        "speed_mps": 0.6
       },
       "route": []
     },
@@ -21,16 +22,18 @@
       "name": "box_test_no_depth",
       "params_override": {
         "explore": false,
-        "require_depth": false
+        "require_depth": false,
+        "speed_mps": 0.6
       },
-      "box_size_m": 1.0,
+      "box_size_m": 0.3048,
       "route": []
     },
     "3": {
       "name": "box_test_with_depth",
       "params_override": {
         "explore": false,
-        "require_depth": true
+        "require_depth": true,
+        "speed_mps": 0.6
       },
       "box_size_m": 1.0,
       "route": []
@@ -44,7 +47,8 @@
         "band_m": 0.4,
         "stop_m": 0.35,
         "lead_max_m": 0.2,
-        "min_corridor_coverage": 0.15
+        "min_corridor_coverage": 0.15,
+        "speed_mps": 0.6
       },
       "_comment": "26-leg A*-derived route, launch->Gate B, no window bonus. Tightest point ~33cm raw clearance at leg 17 (C1 chicane corner) vs 25cm placeholder drone radius used in sim -- re-verify against real airframe span before flying. Camera note: team found a level camera gets little depth return down open stretches of this course; consider angling it down slightly (rule 3.2 allows) rather than relying solely on the lowered min_corridor_coverage.",
       "route": [
@@ -77,6 +81,14 @@
       ]
     },
     "5": {
+      "name": "vio_explore",
+      "params_override": {
+        "explore": true,
+        "speed_mps": 0.6
+      },
+      "route": []
+    },
+    "6": {
       "name": "course_scan",
       "_comment": "Full course (maze, Gate A, tunnel, chicane, window, pad) fitted to the 2026-11-06 point scan at 1.15 m (victor/sim-course-scan: sim/scan/fit_route_to_scan.py). Legs 2-12 and 14 clear real walls by 0.33-0.54 m; the Sky Beta reaches ~0.29 m. Take off on the launch mark facing the course's +Y. Check on site first: SYSTEM.md section 4.",
       "params_override": {
