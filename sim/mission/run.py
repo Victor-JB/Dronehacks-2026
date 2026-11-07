@@ -9,6 +9,7 @@ from threading import Lock
 import time
 from uuid import uuid4
 
+from gz.msgs10.boolean_pb2 import Boolean
 from gz.msgs10.clock_pb2 import Clock
 from gz.msgs10.contacts_pb2 import Contacts
 from gz.msgs10.odometry_pb2 import Odometry
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLOCK_TOPIC = '/world/dronehacks/clock'
 ODOM_TOPIC = '/model/course_quad/odometry'
 TWIST_TOPIC = '/course_quad/gazebo/command/twist'
+ENABLE_TOPIC = '/course_quad/enable'
 CONTACT_TOPICS = tuple(
     f'/model/course_quad/contact/{link}'
     for link in ('base_link', 'rotor_0', 'rotor_1', 'rotor_2', 'rotor_3')
@@ -51,9 +53,13 @@ class Gazebo:
         self.clock = None
         self.odom = None
         self.contacts = deque()
+        self.disarmed = False
         self.twist = self.node.advertise(TWIST_TOPIC, Twist)
         if not self.twist.valid():
             raise RuntimeError(f'cannot advertise {TWIST_TOPIC}')
+        self.enable = self.node.advertise(ENABLE_TOPIC, Boolean)
+        if not self.enable.valid():
+            raise RuntimeError(f'cannot advertise {ENABLE_TOPIC}')
         for msg_type, topic, handler in (
             (Clock, CLOCK_TOPIC, self.on_clock),
             (Odometry, ODOM_TOPIC, self.on_odom),
@@ -90,6 +96,15 @@ class Gazebo:
         message.angular.z = yaw_rate
         if not self.twist.publish(message):
             raise RuntimeError(f'publish failed on {TWIST_TOPIC}')
+
+    def disarm(self):
+        if not self.disarmed:
+            self.command(ZERO)
+            message = Boolean()
+            message.data = False
+            if not self.enable.publish(message):
+                raise RuntimeError(f'publish failed on {ENABLE_TOPIC}')
+            self.disarmed = True
 
 
 class FlightLog:
@@ -134,7 +149,7 @@ class FlightLog:
             elif any('ground_plane' in n for n in names):
                 self.ground_contacts += 1
 
-    def summary(self, config, controller, sim_time, start, fault):
+    def summary(self, config, controller, sim_time, start, fault, *, disarmed=False):
         crossing = evaluate_window_crossing(self.positions, config['window'], X3_RADIUS)
         completed = (controller.done and crossing['full_envelope_crossed']
                      and not self.obstacles and not fault)
@@ -145,6 +160,7 @@ class FlightLog:
             'sim_time': sim_time,
             'elapsed_sim_s': max(0.0, sim_time - start),
             'route_completed': controller.done,
+            'landed_and_disarmed': disarmed,
             'waypoints_reached': controller.waypoint_index,
             'waypoint_count': len(controller.waypoints),
             'window': crossing,
@@ -210,9 +226,13 @@ def fly(gazebo, controller, config, flight, args):
         if result is None:
             flight.positions.append(position)
             flight.max_speed = max(flight.max_speed, norm(velocity))
-        gazebo.command(command.velocity, command.yaw_rate, orientation)
-        if command.phase != phase:
-            phase = command.phase
+        active_phase = 'DISARMED' if command.done else command.phase
+        if command.done:
+            gazebo.disarm()
+        else:
+            gazebo.command(command.velocity, command.yaw_rate, orientation)
+        if active_phase != phase:
+            phase = active_phase
             print(f'{sim_time - start:6.2f} s  {phase}', flush=True)
         if result is None or sim_time - last_log_time >= 1.0 or command.fault:
             last_log_time = sim_time
@@ -223,9 +243,10 @@ def fly(gazebo, controller, config, flight, args):
                 'position': position,
                 'orientation_xyzw': orientation,
                 'velocity': velocity,
-                'command_velocity': command.velocity,
-                'yaw_rate': command.yaw_rate,
-                'phase': command.phase,
+                'command_velocity': ZERO if gazebo.disarmed else command.velocity,
+                'yaw_rate': 0.0 if gazebo.disarmed else command.yaw_rate,
+                'phase': active_phase,
+                'disarmed': gazebo.disarmed,
                 'waypoint_index': controller.waypoint_index,
                 'waypoint_count': len(controller.waypoints),
                 'target': command.target,
@@ -236,14 +257,14 @@ def fly(gazebo, controller, config, flight, args):
             fault = command.fault
             break
         if command.done and result is None:
-            result = flight.summary(config, controller, sim_time, start, None)
+            result = flight.summary(config, controller, sim_time, start, None, disarmed=gazebo.disarmed)
             if args.exit_on_finish:
                 return result
         if result is None and sim_time - start > args.max_sim_seconds:
             fault = 'mission_timeout'
             break
     if result is None:
-        return flight.summary(config, controller, clock, start, fault)
+        return flight.summary(config, controller, clock, start, fault, disarmed=gazebo.disarmed)
     print(f'Gazebo handoff hold ended: {fault}', flush=True)
     return 1
 
@@ -276,7 +297,10 @@ def main():
     except KeyboardInterrupt:
         return 130
     finally:
-        gazebo.command(ZERO)
+        if gazebo.disarmed:
+            gazebo.disarm()
+        else:
+            gazebo.command(ZERO)
 
 
 if __name__ == '__main__':

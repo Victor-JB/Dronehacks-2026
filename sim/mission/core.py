@@ -111,10 +111,12 @@ class CourseController:
             self.handoff_target = self.waypoints[-1]['position']
             if self.handoff_target[2] < self.start[2] + 0.3:
                 raise ValueError('terminal target must remain above the interface floor')
-        if norm(sub(self.waypoints[-1]['position'], self.handoff_target)) > 1e-6:
+        if not any(norm(sub(w['position'], self.handoff_target)) <= 1e-6 for w in self.waypoints):
             self.waypoints.append({'position': self.handoff_target,
                                    'phase': 'LANDING_APPROACH', 'speed': min(0.3, self.max_speed),
                                    'arrival_radius': self.arrival_radius})
+        else:
+            self.handoff_target = self.waypoints[-1]['position']
         self.waypoint_index = 0
         self.started = False
         self.done = False

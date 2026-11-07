@@ -141,6 +141,51 @@
       ],
       "phase": "LANDING_APPROACH",
       "speed": 0.65
+    },
+    {
+      "position": [
+        -2.0422,
+        -0.7925,
+        0.056
+      ],
+      "phase": "GATE_B_LAND",
+      "speed": 0.25
+    },
+    {
+      "position": [
+        -2.0422,
+        -0.7925,
+        2.25
+      ],
+      "phase": "RETURN_CLIMB",
+      "speed": 0.45
+    },
+    {
+      "position": [
+        -2.5146,
+        0.9144,
+        2.25
+      ],
+      "phase": "RETURN_VAULT",
+      "speed": 0.5
+    },
+    {
+      "position": [
+        -2.5146,
+        0.9144,
+        0.7
+      ],
+      "phase": "RETURN_APPROACH",
+      "speed": 0.45
+    },
+    {
+      "position": [
+        -2.5146,
+        0.9144,
+        0.056
+      ],
+      "phase": "START_PAD_LAND_AND_DISARM",
+      "speed": 0.25
     }
   ],
   "limits": {
