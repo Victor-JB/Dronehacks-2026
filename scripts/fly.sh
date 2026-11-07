@@ -22,12 +22,19 @@ BAGS=/root/team_ws/bags                 # the same folder, inside the container
 FOXGLOVE_PORT=8765
 CAMERA_PORT=8080
 
+# Kept identical to the sim's fly-sim-drone.sh (victor/sim) so drone and sim bags compare one to
+# one (sim/skybeta/compare.py). Only vehicle_status is versioned (_v1) in px4_msgs release/1.16.
 BAG_TOPICS=(
   /visual_slam/tracking/odometry /visual_slam/status /visual_slam/tracking/vo_path
   /oak/imu/data /oak/left/camera_info /oak/stereo/camera_info /oak/stereo/image_raw
   /skybeta/state /skybeta/setpoint/pose /skybeta/setpoint/twist /refnav/status
   /fmu/in/vehicle_visual_odometry /fmu/in/trajectory_setpoint /fmu/in/offboard_control_mode
-  /fmu/out/vehicle_local_position /fmu/out/vehicle_status_v1 /fmu/out/vehicle_land_detected
+  /fmu/in/vehicle_command
+  /fmu/out/vehicle_local_position /fmu/out/vehicle_odometry /fmu/out/vehicle_attitude
+  /fmu/out/vehicle_status_v1 /fmu/out/vehicle_land_detected /fmu/out/vehicle_control_mode
+  /fmu/out/vehicle_command_ack /fmu/out/estimator_status_flags /fmu/out/failsafe_flags
+  /fmu/out/manual_control_setpoint /fmu/out/sensor_combined /fmu/out/battery_status
+  /fmu/out/timesync_status
   /tf /tf_static /rosout
 )
 FOXGLOVE_TOPICS="['/visual_slam/tracking/odometry','/visual_slam/tracking/vo_path','/map/occupied','/skybeta/state','/skybeta/setpoint/pose','/refnav/status','/fmu/out/vehicle_local_position','/tf','/tf_static','/rosout']"
