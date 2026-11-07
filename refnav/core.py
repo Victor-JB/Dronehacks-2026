@@ -70,6 +70,8 @@ class Params:
     hold_s: float = 1.0
     climb_tol_m: float = 0.15
     climb_rate_mps: float = 0.5
+    climb_forward_m: float = 0.0                # climb to a point this far ahead of the takeoff point (0: straight up):
+                                                # keeps a takeoff drift aft from carrying the props into a wall behind the mark
     hover_s: float = 0.0                        # hold at height_m this long after the climb (0: straight on)
     health_quiet_s: float = 3.0                 # healthy this long before arming
     health_stale_s: float = 1.0
@@ -414,6 +416,10 @@ class Mission:
                 self._end(now, out, f"refused: not armed in Offboard after {p.arm_wait_s:.0f} s")
             elif v.armed and v.nav_state == NAV_OFFBOARD:
                 self.offboard_seen = True
+                if p.climb_forward_m:
+                    hn, he, _, hh = self.home
+                    self.sp[0] = hn + p.climb_forward_m * math.cos(hh)
+                    self.sp[1] = he + p.climb_forward_m * math.sin(hh)
                 self._set("climb", now, out)
             elif now - self.t_phase >= p.stream_lead_s and self._resend(now):
                 out.commands += ["offboard", "arm"]

@@ -157,6 +157,17 @@ def test_route_is_in_the_takeoff_frame():
     assert np.allclose(m.targets[0], (0.0, 2.0), atol=1e-9)          # facing east: forward = +e
 
 
+def test_climb_forward_climbs_ahead_of_the_takeoff_point():
+    # facing east: the climb setpoint sits 0.4 m ahead (+e), and the route still ends where it would
+    m, px4, log = fly(C.Params(route=[(2.0, 0.0)], climb_forward_m=0.4), yaw0=math.radians(90))
+    assert m.result == "complete", (m.result, m.why)
+    climb_end = [pos for _, ph, _s, _c, pos in log if ph == "climb"][-1]
+    assert abs(climb_end[1] - 0.4) < 0.1 and abs(climb_end[0]) < 0.05
+    assert np.allclose(m.targets[0], (0.0, 2.0), atol=1e-9)
+    m0, *_ = fly(C.Params(route=[(2.0, 0.0)]), yaw0=math.radians(90))      # default: straight up
+    assert m0.result == "complete"
+
+
 def test_no_health_never_arms():
     m, px4, log = fly(C.Params(route=ROUTE, wait_s=20.0), health=lambda t: None)
     assert m.result.startswith("refused") and not px4.armed
