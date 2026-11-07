@@ -6,7 +6,7 @@ Course-08 completed the **waypoint baseline** through all 15 waypoints. It armed
 
 The estimator/controller used forward 384×256 rendered RGB-D registration against the supplied static course survey, downward ToF, and PX4 EKF2. The navigation audit passed: no artificial landmark models and zero publishers on the Gazebo truth odometry topic used by the separate observer. Recorded simulator truth did not feed navigation or control. The course-08 contact report has partial topic coverage: base-link contact messages were observed, while rotor topics advertised publishers but delivered no messages. That silence does not prove absence of collisions.
 
-The learned-policy flight policy-01 is running and has not yet been independently scored. Do not interpret course-08 as a learned-policy result. Earlier marker-free course runs failed observability and safely landed after abort; their failures remain part of the evidence. The course-08 replay and compact score are linked from the [README](../README.md#dronehacks-sim).
+Policy-01 failed during preflight with `invalid_policy_exchange_record:response.json`; elapsed flight time was zero and the vehicle did not arm. No learned-policy flight occurred, so that result remains unverified. Do not interpret course-08 as a learned-policy result. Earlier marker-free course runs failed observability and safely landed after abort; their failures remain part of the evidence. The course-08 replay and compact score are linked from the [README](../README.md#dronehacks-sim).
 
 ## Limits
 

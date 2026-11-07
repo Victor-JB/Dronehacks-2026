@@ -6,7 +6,7 @@ Course-08 completed the marker-free waypoint baseline: 15/15 waypoints, PX4 land
 
 ![Course-08 baseline window-crossing still](docs/media/window-baseline.png)
 
-[Watch the course-08 RGB/depth replay](docs/media/window-baseline.mp4) (100.28 seconds; rendered from recorded simulation-time frames). The learned-policy flight is currently running as policy-01 and remains unverified until it is scored. Read the [flight evidence, limitations, and commands](docs/markerfree-rgbd.md) before treating any run as a success. Compact machine-readable results and provenance are in [markerfree-results.json](docs/markerfree-results.json).
+[Watch the course-08 RGB/depth replay](docs/media/window-baseline.mp4) (100.28 seconds; rendered from recorded simulation-time frames). Policy-01 failed during preflight with `invalid_policy_exchange_record:response.json`; elapsed flight time was zero, it did not arm, and no learned-policy flight occurred. The learned-policy result remains unverified. Read the [flight evidence, limitations, and commands](docs/markerfree-rgbd.md) before treating any run as a success. Compact machine-readable results and provenance are in [markerfree-results.json](docs/markerfree-results.json).
 
 ## Run the current experiment
 
