@@ -1,5 +1,30 @@
 # Local sim (no ROS, no PX4, no GPU)
 
+## WARNING (2026-11-07): the hardcoded route.json does NOT survive realistic conditions
+`local_sim` now has a PX4-like physics model + VIO-style estimator error (`dynamics.py`), a tilting
+noisy depth camera with latency, and `montecarlo.py`. Results for `route.json`, 16 seeds each:
+
+| scenario | complete | ground-truth collision |
+|---|---|---|
+| ideal (no noise, physics only) | 1/1 | 0 |
+| launch placement 2 cm / 1.5 deg, perfect VIO | 6/16 | 10/16 |
+| placement + VIO drift 0.25% / 0.5% / 1% | 2/16 each | 14/16 each |
+| jig placement 0.5 cm / 0.3 deg, perfect VIO | 16/16 | 0 |
+| jig placement + good VIO 0.25% | 9/16 | 7/16 |
+
+Why: the route has ~7 cm of margin; heading placement error alone swings the far end ~10 cm, and
+VIO drifts 4-10 cm over the flight. The depth stop only looks ahead along each leg, so side-swipes
+are never caught. Also found: real PX4 with refnav's position-only setpoints and lead_max_m 0.2
+flies ~0.19 m/s (MPC_XY_P 0.95 x 0.2 m), so the run takes ~155 s, not ~95 s.
+
+Also WRONG in local_sim/course.py (fix in progress): C1/C2a/C2b are thin 10 cm walls angled ~20 deg,
+not the solid 0.65 m boxes modelled here, and the tunnel tube (oval 1.47 x 1.83 m, x 1.575-3.048,
+y -0.305-1.219) is missing. route.json was planned against this wrong geometry. See the other team's
+corridor-centred window route: https://github.com/machmoon/dronehacks-sim (mission/course.json).
+
+Run: `cd local_sim && python3 sim.py ../route.json --seed 3` or `python3 montecarlo.py ../route.json 16`
+(`MC_SET=jig` for the careful-placement scenarios; `--model kinematic` for the old idealised model).
+
 A pure-Python stand-in for the FlyX Lab sim, for when it's down or for a fast iteration loop.
 Runs the real `refnav.core.Mission` decision code, unmodified, against:
 

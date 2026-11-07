@@ -80,3 +80,18 @@ def nearest_obstacle_dist(x, y):
 
 def outside_net(x, y):
     return abs(x) > HALF or abs(y) > HALF
+
+
+def true_clearance(x, y, z_bottom=0.0):
+    """Ground-truth horizontal clearance (m) from the drone centre to anything it could hit at its
+    height: walls (68 in), boulders only if the gear is below their top, and the net walls."""
+    best = HALF - max(abs(x), abs(y))
+    if z_bottom < WALL_H:
+        for _, xmin, xmax, ymin, ymax in WALL_BOXES:
+            dx = max(xmin - x, 0.0, x - xmax)
+            dy = max(ymin - y, 0.0, y - ymax)
+            best = min(best, math.hypot(dx, dy))
+    if z_bottom < BOULDER_H:
+        for cx, cy, r in BOULDERS:
+            best = min(best, math.hypot(x - cx, y - cy) - r)
+    return best
