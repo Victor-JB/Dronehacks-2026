@@ -1,0 +1,14 @@
+/**:
+  ros__parameters:
+    use_sim_time: false
+    # skybeta publishes no depth image (only /oak/{left,right}/image_mono), and the
+    # mission refuses to fly without one. Set this once a depth source exists.
+    depth_topic: ""
+    depth_info_topic: ""
+    base_frame: base_link
+    status_topic: /refnav/status
+    # The pilot arms by hand: give them time after the mission reports READY.
+    # PX4 still disarms 10 s after arming without a takeoff (COM_DISARM_PRFLT).
+    arm_wait_s: 120.0
+    # The stack holds the drone still for its first minute; wait that out too.
+    wait_s: 600.0
