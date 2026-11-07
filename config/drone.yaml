@@ -17,3 +17,12 @@
     arm_wait_s: 120.0
     # The stack holds the drone still for its first minute; wait that out too.
     wait_s: 600.0
+    # Motion check (dronehacks_nav/motion_check.py): while Offboard is ours, a setpoint more than
+    # motion_err_m away for motion_window_s must move the vehicle motion_min_progress_m toward it,
+    # and VIO's height change must match PX4's rangefinder within motion_z_mismatch_m. Otherwise
+    # the node freezes where the odometry says it is and asks the pilot to take over.
+    motion_check: true
+    motion_err_m: 0.3
+    motion_window_s: 3.0
+    motion_min_progress_m: 0.1
+    motion_z_mismatch_m: 0.3

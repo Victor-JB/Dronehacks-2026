@@ -24,6 +24,12 @@ land command (skybeta_flight_interface owns /fmu/in/*; never publish there):
                   tells the pilot to take over and land
   disarm          nothing (the mission only asks for it on the ground)
 
+Motion check (dronehacks_nav.motion_check), while Offboard is ours and nothing is clamped: if commanding
+the vehicle does not move it, or VIO's height disagrees with PX4's rangefinder height, the node FREEZES:
+it commands the position the odometry reports at that moment, ends the mission through its own landing
+(no more legs) and tells the pilot to take over. If VIO itself is what failed, that position is only
+as good as VIO; the pilot is the real recovery.
+
 Run (inside the skybeta container; the launch file also starts skybeta_flight_interface):
     ros2 launch dronehacks_nav mission.launch.py
 """
@@ -47,6 +53,7 @@ from refnav import core as C
 from refnav import depth as D
 
 from . import frames as F
+from .motion_check import MotionCheck
 
 # PX4's uXRCE-DDS endpoints are BEST_EFFORT + TRANSIENT_LOCAL; a different durability never matches
 PX4_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -87,6 +94,13 @@ class SkybetaNav(Node):
         self.odom_stale_s = float(self.declare_parameter("odom_stale_s", 0.3).value)
         self.state_stale_s = float(self.declare_parameter("state_stale_s", 1.0).value)
         self.exit_when_done = bool(self.declare_parameter("exit_when_done", True).value)
+        self.motion_on = bool(self.declare_parameter("motion_check", True).value)
+        self.motion = MotionCheck(
+            err_m=float(self.declare_parameter("motion_err_m", 0.3).value),
+            window_s=float(self.declare_parameter("motion_window_s", 3.0).value),
+            min_progress_m=float(self.declare_parameter("motion_min_progress_m", 0.1).value),
+            z_mismatch_m=float(self.declare_parameter("motion_z_mismatch_m", 0.3).value))
+        self.frozen = None              # (x, y, z, yaw) ENU the node holds after a motion-check failure
 
         from tf2_ros import Buffer, TransformListener
         self.tf_buffer = Buffer()
@@ -136,8 +150,10 @@ class SkybetaNav(Node):
 
     def _on_odom(self, m):
         p, o = m.pose.pose.position, m.pose.pose.orientation
+        self.odom_enu = (p.x, p.y, p.z)
+        self.odom_yaw_enu = F.yaw_from_quat_xyzw(o.x, o.y, o.z, o.w)
         self.v.pos = F.enu_to_ned(p.x, p.y, p.z)
-        self.v.heading = F.yaw_swap(F.yaw_from_quat_xyzw(o.x, o.y, o.z, o.w))
+        self.v.heading = F.yaw_swap(self.odom_yaw_enu)
         self.v.q = F.quat_enu_flu_to_ned_frd(o.x, o.y, o.z, o.w)
         self.odom_t = self._now()
 
@@ -235,7 +251,31 @@ class SkybetaNav(Node):
         return v
 
     # ------------------------------------------------------------------ outputs
+    def _check_motion(self, now, out):
+        """Run the motion check while Offboard is ours; on a failure, freeze where the vehicle is."""
+        s = self.sky if self.sky_t is not None and now - self.sky_t <= self.state_stale_s else None
+        active = (self.motion_on and self.frozen is None and out.setpoint is not None
+                  and self.mission.phase in C.AIRBORNE and s is not None and s.get("offboard_active")
+                  and not s.get("clamped") and self.odom_t is not None and now - self.odom_t <= self.odom_stale_s)
+        if not active:
+            if self.frozen is None:
+                self.motion.reset()                  # a clamp, a pause or a takeover starts a new window
+            return
+        local = s.get("local_enu")
+        why = self.motion.step(now, F.ned_to_enu(*out.setpoint[:3]), self.odom_enu,
+                               None if local is None else local[2])
+        if why:
+            self.frozen = (*self.odom_enu, self.odom_yaw_enu)
+            self.get_logger().error(f"MOTION CHECK FAILED: {why}. FREEZING at ENU "
+                                    f"({self.frozen[0]:.2f}, {self.frozen[1]:.2f}, {self.frozen[2]:.2f}): "
+                                    f"PILOT, TAKE OVER AND LAND")
+            self.mission.request_land(f"motion check: {why}")
+
     def _send(self, n, e, d, yaw_ned):
+        if self.frozen is not None:                  # after a motion-check failure, only the freeze point
+            x, y, z, yaw_enu = self.frozen
+            yaw_ned = F.yaw_swap(yaw_enu)
+            n, e, d = F.enu_to_ned(x, y, z)
         x, y, z = F.ned_to_enu(n, e, d)
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -257,6 +297,7 @@ class SkybetaNav(Node):
                     self.get_logger().info(f"not ready after {now - self.mission.t_phase:.0f} s "
                                            f"(gives up at {self.mission.p.wait_s:.0f} s): {self.mission.why}")
                 self._wait_log_t = now
+        self._check_motion(now, out)
         if out.events:
             self._publish_status()
         if out.stream and out.setpoint is not None:
@@ -277,6 +318,9 @@ class SkybetaNav(Node):
     def _publish_status(self):
         st = self.mission.status(self._now())
         st["rejects"] = dict(self.rejects)
+        st["motion_check"] = ("off" if not self.motion_on else
+                              f"FAILED: {self.motion.failure}" if self.frozen is not None else "ok")
+        st["frozen_enu"] = None if self.frozen is None else [round(c, 3) for c in self.frozen[:3]]
         self.pub_status.publish(String(data=json.dumps(st)))
         if self.exit_when_done and self.done_at is not None and self._now() - self.done_at > 1.5:
             raise SystemExit(0 if self.mission.result == "complete" else 1)
