@@ -370,6 +370,11 @@ class PrerequisiteTests(unittest.TestCase):
             self.assertEqual([w['phase'] for w in takeoff['waypoints']], ['TAKEOFF'])
             self.assertIn('WINDOW_CROSS', [w['phase'] for w in course['waypoints']])
             self.assertGreaterEqual(course['footprint_radius'], math.sqrt(2)*.174 + math.hypot(.27923077/2, .01692308/2) + .015)
+            args.survey_normals = 'fals7'
+            with self.assertRaisesRegex(ValueError, 'completed RGBD hover and landing'):
+                prepare_course(args, launch)
+            write_json(proof, result | {'survey_normals': {'method': 'fals7'}})
+            prepare_course(args, launch)
 
 
 if __name__ == '__main__':

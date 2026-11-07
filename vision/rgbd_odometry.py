@@ -17,8 +17,9 @@ import time
 import cv2
 import numpy as np
 
-from .depth_odometry import (DepthFrame, DepthGates, DepthSurvey, DownwardRange, InertialTilt,
-                             MAX_TILT_BRACKET_USEC, MIN_TILT_STD_RAD, TrackingFailure, register_depth)
+from .depth_odometry import (DepthFrame, DepthGates, DepthSurvey, DownwardRange, FalsSurveyNormals,
+                             InertialTilt, MAX_TILT_BRACKET_USEC, MIN_TILT_STD_RAD, TrackingFailure,
+                             register_depth, survey_normal_config)
 from .rgbd_scene import (COLOR_TOPIC, DEPTH_TOPIC, RGBD_BODY_FROM_OPTICAL,
                          RGBD_HEIGHT, RGBD_HFOV, RGBD_TRANSLATION, RGBD_WIDTH,
                          TOF_MAX_DEPTH, TOF_MIN_DEPTH, TOF_TOPIC, TOF_TRANSLATION)
@@ -28,6 +29,7 @@ TOF_SYNC_NS = 15_000_000
 TILT_WAIT_NS = MAX_TILT_BRACKET_USEC*1000
 TILT_WAIT_WALL_S = .3
 SURVEY_NORMAL_RADIUS_PX = 2
+RELATIVE_DEPTH_NORMALS = {'method': 'central1', 'sample_stride_px': 6, 'normal_radius_px': 1}
 
 
 @dataclass(frozen=True)
@@ -127,13 +129,18 @@ def estimate_motion(points, pixels, intrinsics, dt, gates=Gates()):
 
 class RGBDOdometry:
     def __init__(self, launch_position_enu, launch_orientation_wxyz=(1, 0, 0, 0),
-                 intrinsics=None, gates=Gates(), survey=None, depth_gates=DepthGates()):
+                 intrinsics=None, gates=Gates(), survey=None, depth_gates=DepthGates(), *,
+                 survey_normals='central2'):
         cv2.setNumThreads(1)
         self.intrinsics = calibration() if intrinsics is None else np.array(intrinsics, dtype=float)
         self.inverse_intrinsics = np.linalg.inv(self.intrinsics)
         self.gates = gates
         self.depth_gates = depth_gates
         self.survey = survey
+        self.survey_normals = survey_normal_config(survey_normals)
+        if survey_normals == 'fals7' and survey is None:
+            raise ValueError('fals7 normals require an absolute depth survey')
+        self._survey_fals = FalsSurveyNormals(self.intrinsics) if survey_normals == 'fals7' else None
         self.body_from_optical = np.array(RGBD_BODY_FROM_OPTICAL)
         self.camera_translation = np.array(RGBD_TRANSLATION)
         self.reset(launch_position_enu, launch_orientation_wxyz)
@@ -155,7 +162,9 @@ class RGBDOdometry:
     def _record(self, sim_usec, reason=None, **diagnostics):
         record = dict(valid=False, sim_usec=int(sim_usec), stamp_sim_s=sim_usec*1e-6,
                       position_enu=None, orientation_enu_flu_wxyz=None,
-                      orientation_xyzw=None, quality=0, reason=reason, **diagnostics)
+                      orientation_xyzw=None, quality=0, reason=reason,
+                      survey_normals=self.survey_normals if self.survey is not None else None,
+                      **diagnostics)
         if reason is None:
             rotation = self.world_from_optical[:3, :3] @ self.body_from_optical.T
             position = self.world_from_optical[:3, 3] - rotation @ self.camera_translation
@@ -228,7 +237,8 @@ class RGBDOdometry:
         transform, diagnostics = register_depth(frame, reference, initial, self.depth_gates,
                                                  survey=survey, downward_range=downward_range,
                                                  inertial_tilt=inertial_tilt)
-        diagnostics['depth_normal_radius_px'] = frame.normal_radius_px
+        normals = self.survey_normals if survey else RELATIVE_DEPTH_NORMALS
+        diagnostics.update(depth_normals=normals, depth_normal_radius_px=normals['normal_radius_px'])
         pose = transform if survey else self.world_from_optical @ transform
         try:
             self._check_motion(pose, dt)
@@ -282,7 +292,9 @@ class RGBDOdometry:
                 # normals come from static geometry; keep frame fallback and
                 # its observability based on the original image derivative.
                 survey_frame = DepthFrame(depth, self.intrinsics, self.depth_gates,
-                                          normal_radius_px=SURVEY_NORMAL_RADIUS_PX)
+                                          stride=self.survey_normals['sample_stride_px'],
+                                          normal_radius_px=SURVEY_NORMAL_RADIUS_PX,
+                                          survey_fals=self._survey_fals)
                 try:
                     diagnostics = self._update_depth(survey_frame, self.survey, self.world_from_optical, dt,
                                                      True, downward_range=downward_range,
@@ -290,7 +302,9 @@ class RGBDOdometry:
                 except TrackingFailure as error:
                     survey_failure = str(error)
                     attempts['survey'] = {'reason': survey_failure,
-                                          'depth_normal_radius_px': survey_frame.normal_radius_px, **error.details}
+                                          'depth_normals': self.survey_normals,
+                                          'depth_normal_radius_px': self.survey_normals['normal_radius_px'],
+                                          **error.details}
             if self.previous is not None and diagnostics is None:
                 old_gray, old_depth, old_frame = self.previous
                 try:
@@ -298,6 +312,7 @@ class RGBDOdometry:
                 except TrackingFailure as error:
                     depth_failure = str(error)
                     attempts['frame_depth'] = {'reason': depth_failure,
+                                               'depth_normals': RELATIVE_DEPTH_NORMALS,
                                                'depth_normal_radius_px': frame.normal_radius_px, **error.details}
                 if diagnostics is None:
                     try:
@@ -422,12 +437,13 @@ class TiltHistory:
 class Vision:
     """CameraWorker-compatible Gazebo adapter. No pose/odometry subscription."""
     def __init__(self, launch_position_enu, launch_orientation_wxyz=(1, 0, 0, 0),
-                 *, rejected_frame_dir=None, use_px4_tilt=False):
+                 *, rejected_frame_dir=None, use_px4_tilt=False, survey_normals='central2'):
         from gz.msgs10.clock_pb2 import Clock
         from gz.msgs10.image_pb2 import Image, RGB_INT8, R_FLOAT32
         from gz.transport13 import Node
         survey = DepthSurvey.from_course(Path(__file__).resolve().parents[1] / 'models/course_v3/model.sdf')
-        self.estimator = RGBDOdometry(launch_position_enu, launch_orientation_wxyz, survey=survey)
+        self.estimator = RGBDOdometry(launch_position_enu, launch_orientation_wxyz, survey=survey,
+                                      survey_normals=survey_normals)
         self._formats = (RGB_INT8, R_FLOAT32)
         self._lock, self._pairs = Lock(), CapturePairs()
         self._clock_usec = None
@@ -557,6 +573,7 @@ class Vision:
                     'camera_intrinsics': self.estimator.intrinsics.tolist(),
                     'camera_body_from_optical': RGBD_BODY_FROM_OPTICAL,
                     'camera_translation_flu_m': RGBD_TRANSLATION,
+                    'survey_normals': record.get('survey_normals'),
                     'reason': record['reason'], 'rejected_fits': record.get('rejected_fits', {}),
                     'tof_stamp_ns': range_ns if downward_range is not None else None,
                     'tof_range_m': downward_range.distance_m if downward_range is not None else None,

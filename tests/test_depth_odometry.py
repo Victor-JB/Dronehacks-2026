@@ -1,4 +1,5 @@
 """Camera-only localization against analytic, textureless depth scenes."""
+from pathlib import Path
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -6,7 +7,7 @@ from unittest.mock import patch
 try:
     import cv2
     import numpy as np
-    from vision.depth_odometry import (DepthFrame, DepthGates, DepthSurvey, DownwardRange,
+    from vision.depth_odometry import (DepthFrame, DepthGates, DepthSurvey, DownwardRange, FalsSurveyNormals,
                                         InertialTilt, SurveySurface, TrackingFailure,
                                         register_depth, tilt_residual)
     from vision.rgbd_odometry import RGBDOdometry, calibration
@@ -123,6 +124,82 @@ class DepthOdometryTests(unittest.TestCase):
         wide = DepthFrame(measurement, self.k, DepthGates(), normal_radius_px=2)
         with self.assertRaisesRegex(TrackingFailure, 'unobservable_depth_geometry'):
             register_depth(wide, surveyed, np.eye(4), survey=True)
+        fals = DepthFrame(measurement, self.k, DepthGates(), stride=8, normal_radius_px=2,
+                          survey_fals=FalsSurveyNormals(self.k))
+        with self.assertRaisesRegex(TrackingFailure, 'unobservable_depth_geometry'):
+            register_depth(fals, surveyed, np.eye(4), survey=True)
+
+    def test_fals_keeps_raw_centers_and_rejects_steps_thin_strips_and_holes(self):
+        fals = FalsSurveyNormals(self.k)
+        u, v = np.array([191, 191, 191, 189, 189, 184]), np.array([30, 100, 170, 100, 130, 220])
+        with patch.object(cv2.rgbd, 'RgbdNormals_create', wraps=cv2.rgbd.RgbdNormals_create) as create:
+            for height in (.03, .06, .10, .25):
+                with self.subTest(height=height):
+                    depth = np.full(self.rgb.shape[:2], .7, dtype=np.float32)
+                    depth[15:45, 192:] += height
+                    depth[85:115, 192] = np.nan
+                    depth[155:185, 192] += height
+                    depth[120:145, 192:] = .95
+                    frame = DepthFrame(depth, self.k, DepthGates(), stride=8, normal_radius_px=2,
+                                       survey_fals=fals)
+                    points, normals = frame._surface_at(u, v)
+                    np.testing.assert_array_equal(points[:, 2], depth[v, u])
+                    np.testing.assert_array_equal(np.isfinite(normals).all(axis=1),
+                                                  [False, False, False, False, False, True])
+            create.assert_called_once()
+
+    def test_fals_recovers_maze_divider_support_without_accepting_lateral_alias(self):
+        # This oblique view sees the end wall and a narrow strip of the maze divider.
+        # Short-baseline source normals can discard the strip under range noise.
+        roll, pitch, yaw = np.radians([-.407, .553, 69.])
+        body_rotation = (cv2.Rodrigues(np.array([0., 0., yaw]))[0]
+                         @ cv2.Rodrigues(np.array([0., pitch, 0.]))[0]
+                         @ cv2.Rodrigues(np.array([roll, 0., 0.]))[0])
+        body_position = np.array([-.29565, 1.54764, .95099])
+        body_from_optical = np.asarray(RGBD_BODY_FROM_OPTICAL)
+        rotation = body_rotation @ body_from_optical
+        camera = body_position + body_rotation @ RGBD_TRANSLATION
+        rays = self.rays @ rotation.T
+        depth = np.full(self.rgb.shape[:2], np.inf)
+        faces = ((1, 3.048, (-3., 3.047, 0.), (3., 3.049, 3.05)),
+                 (0, .254, (.253, .508, 0.), (.255, 2.1209, 1.7272)),
+                 (1, 2.1209, (.254, 2.1208, 0.), (.3556, 2.121, 1.7272)),
+                 (2, 0., (-10., -10., -.0001), (10., 10., .0001)))
+        for axis, coordinate, lower, upper in faces:
+            distance = (coordinate-camera[axis])/rays[..., axis]
+            points = camera + distance[..., None]*rays
+            hit = (distance > .04) & np.all((points >= lower) & (points <= upper), axis=-1)
+            depth = np.minimum(depth, np.where(hit, distance, np.inf))
+        depth = (depth + np.random.default_rng(29).normal(0., .01, depth.shape)).astype(np.float32)
+        survey = DepthSurvey.from_course(Path(__file__).resolve().parents[1]/'models/course_v3/model.sdf')
+        initial = np.eye(4)
+        initial[:3, :3], initial[:3, 3] = rotation, camera + [.015, -.025, .006]
+        origin = body_from_optical.T @ (np.array([0., 0., -.075])-RGBD_TRANSLATION)
+        ray = body_from_optical.T @ np.array([0., 0., -1.])
+        distance = -(camera+rotation@origin)[2]/(rotation@ray)[2]
+        tof = DownwardRange(distance, origin, ray)
+        tilt = InertialTilt(100_000, rotation.T @ np.array([0., 0., 1.]), .01, 0)
+
+        central = DepthFrame(depth, self.k, DepthGates(), normal_radius_px=2)
+        wrong, _ = register_depth(central, survey, initial, survey=True, downward_range=tof, inertial_tilt=tilt)
+        self.assertGreater(abs(wrong[0, 3]-camera[0]), .10)
+
+        estimator = RGBDOdometry(body_position, intrinsics=self.k, survey=survey, survey_normals='fals7')
+        estimator.world_from_optical = initial
+        record = estimator.estimate(self.rgb, depth, 100_000, downward_range=tof, inertial_tilt=tilt)
+        self.assertTrue(record['valid'], record)
+        self.assertTrue(record['source'].startswith('depth_survey'))
+        np.testing.assert_allclose(record['position_enu'], body_position, atol=.01)
+        self.assertEqual(record['depth_normals']['method'], 'fals7')
+        self.assertEqual(record['depth_normals']['sample_stride_px'], 8)
+        self.assertEqual(record['depth_normals']['center_curvature_radii_px'], [1, 2])
+        self.assertEqual(record['depth_normal_radius_px'], 3)
+
+    def test_fals_selection_requires_contrib(self):
+        with patch.object(cv2, 'rgbd', None):
+            with self.assertRaisesRegex(RuntimeError, 'OpenCV contrib cv2.rgbd'):
+                RGBDOdometry((0., 0., 1.), intrinsics=self.k, survey=self.survey(), survey_normals='fals7')
+            RGBDOdometry((0., 0., 1.), intrinsics=self.k, survey=self.survey())
 
     def test_noisy_plane_cannot_gain_rank_from_wider_relative_normals(self):
         rng = np.random.default_rng(741)
@@ -133,17 +210,22 @@ class DepthOdometryTests(unittest.TestCase):
         _, wrong = register_depth(*wide_frames, np.eye(4))
         self.assertGreater(wrong['depth_observability'], .004)
 
-        estimator = RGBDOdometry((0., 0., 1.), intrinsics=self.k, survey=self.survey())
         textured = rng.integers(0, 256, self.rgb.shape, dtype=np.uint8)
-        self.assertTrue(estimator.estimate(textured, old, 100_000)['valid'])
-        self.assertEqual(estimator.previous[2].normal_radius_px, 1)
-        with patch.object(estimator, '_rgb_motion', side_effect=TrackingFailure('insufficient_inliers')):
-            record = estimator.estimate(self.rgb, new, 150_000)
-        self.assertFalse(record['valid'])
-        self.assertEqual(record['rejected_fits']['survey']['depth_normal_radius_px'], 2)
-        relative = record['rejected_fits']['frame_depth']
-        self.assertEqual(relative['depth_normal_radius_px'], 1)
-        self.assertEqual(relative['reason'], 'insufficient_depth_overlap')
+        survey = self.survey()
+        for method, radius in (('central2', 2), ('fals7', 3)):
+            with self.subTest(method=method):
+                estimator = RGBDOdometry((0., 0., 1.), intrinsics=self.k, survey=survey, survey_normals=method)
+                self.assertTrue(estimator.estimate(textured, old, 100_000)['valid'])
+                self.assertEqual(estimator.previous[2].normal_radius_px, 1)
+                with patch.object(estimator, '_rgb_motion', side_effect=TrackingFailure('insufficient_inliers')):
+                    record = estimator.estimate(self.rgb, new, 150_000)
+                self.assertFalse(record['valid'])
+                self.assertEqual(record['rejected_fits']['survey']['depth_normal_radius_px'], radius)
+                self.assertEqual(record['rejected_fits']['survey']['depth_normals']['method'], method)
+                relative = record['rejected_fits']['frame_depth']
+                self.assertEqual(relative['depth_normals']['method'], 'central1')
+                self.assertEqual(relative['depth_normal_radius_px'], 1)
+                self.assertEqual(relative['reason'], 'insufficient_depth_overlap')
 
     def test_tof_recovers_the_missing_vertical_axis_only(self):
         survey = self.survey()

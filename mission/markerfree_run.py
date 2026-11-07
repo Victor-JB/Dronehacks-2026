@@ -97,6 +97,8 @@ def policy_camera_shift(physical, trained, mode):
 
 class Log:
     def __init__(self, args, course, launch, camera_translation, boundary_brake=None):
+        from vision.depth_odometry import survey_normal_config
+
         args.output.parent.mkdir(parents=True, exist_ok=True)
         self.file = args.output.open('w', buffering=1)
         self.summary_path = args.output.with_suffix('.summary.json')
@@ -107,6 +109,7 @@ class Log:
                            source=NAVIGATION, navigation_source=NAVIGATION,
                            simulator_position_used_for_control=False,
                            inertial_tilt_prior_enabled=args.use_px4_tilt,
+                           survey_normals=survey_normal_config(args.survey_normals),
                            sitl_power_watchdog_enabled=True,
                            policy_boundary_brake_enabled=boundary_brake is not None,
                            policy_checkpoint_sha256=args.policy_sha256,
@@ -288,6 +291,8 @@ def prepare_course(args, launch):
                 and proof.get('navigation_source') == NAVIGATION
                 and proof.get('simulator_position_used_for_control') is False
                 and proof.get('inertial_tilt_prior_enabled', False) == getattr(args, 'use_px4_tilt', False)
+                and (proof.get('survey_normals') or {}).get('method', 'central2')
+                == getattr(args, 'survey_normals', 'central2')
                 and proof.get('launch') == launch
                 and proof.get('hover_settled_sim_s', 0) >= HOVER_SECONDS):
             raise ValueError('course requires a completed RGBD hover and landing at this launch pose')
@@ -357,7 +362,7 @@ def run(args):
         link = MarkerFreeLink(log)
         vision = CameraWorker(Vision(launch['position_enu'], rotation,
                                      rejected_frame_dir=args.output.parent/'vision-diagnostics',
-                                     use_px4_tilt=args.use_px4_tilt))
+                                     use_px4_tilt=args.use_px4_tilt, survey_normals=args.survey_normals))
         if args.task == 'policy':
             client = PolicyClient(args.policy_dir, args.policy_sha256, log.run_id, args.policy_timeout)
             if tuple(RGBD_TRANSLATION[1:]) != (0., 0.):
@@ -599,6 +604,7 @@ def run(args):
                           vision_reason=(frame or {}).get('reason'),
                           vision_quality=(frame or {}).get('quality'),
                           vision_backend=(frame or {}).get('source'),
+                          vision_depth_normals=(frame or {}).get('depth_normals'),
                           vision_position_std_m=(frame or {}).get('position_std_m'),
                           px4_tilt_prior_status=(frame or {}).get('px4_tilt_prior_status'),
                           px4_tilt_pairing_status=(frame or {}).get('px4_tilt_pairing_status'),
@@ -688,6 +694,8 @@ def main():
                         help='Metres before a turn to begin looking into the next corridor; 0 disables')
     parser.add_argument('--use-px4-tilt', action='store_true',
                         help='Optional capture-aligned inertial roll/pitch prior for weak depth geometry')
+    parser.add_argument('--survey-normals', choices=('central2', 'fals7'), default='central2',
+                        help='Absolute depth survey source normals. FALS requires OpenCV contrib.')
     parser.add_argument('--startup-timeout', type=float, default=240.0)
     parser.add_argument('--max-sim-seconds', type=float, default=240.0)
     parser.add_argument('--blackout-after', type=float,

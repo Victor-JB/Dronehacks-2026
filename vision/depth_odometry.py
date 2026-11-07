@@ -111,10 +111,58 @@ class SurveySurface:
         return float(floor_range), np.array((0., 0., 1.))
 
 
+FALS_SURVEY_WINDOW_PX = 7
+FALS_SURVEY_STRIDE_PX = 8
+FALS_SUPPORT_CURVATURE_M = .085
+CENTER_CURVATURE_M = .014
+CURVATURE_PER_DEPTH = .018
+
+
+def survey_normal_config(method):
+    """Describe the configured absolute survey source normals for evidence logs."""
+    if method not in ('central2', 'fals7'):
+        raise ValueError('survey normals must be central2 or fals7')
+    fals = method == 'fals7'
+    return {
+        'method': method,
+        'opencv_version': cv2.__version__,
+        'sample_stride_px': FALS_SURVEY_STRIDE_PX if fals else 6,
+        'sample_origin_uv_px': [2, 2],
+        'normal_radius_px': FALS_SURVEY_WINDOW_PX//2 if fals else 2,
+        'center_curvature_radii_px': [1, 2],
+        'center_curvature_limit_m': [CENTER_CURVATURE_M, CURVATURE_PER_DEPTH],
+        'full_support_window_px': FALS_SURVEY_WINDOW_PX if fals else None,
+        'full_support_requires_valid_depth': fals,
+        'full_support_curvature_limit_m': [FALS_SUPPORT_CURVATURE_M, CURVATURE_PER_DEPTH] if fals else None,
+    }
+
+
+class FalsSurveyNormals:
+    """Cache OpenCV FALS for one calibrated survey camera geometry."""
+
+    def __init__(self, intrinsics):
+        rgbd = getattr(cv2, 'rgbd', None)
+        if not all(hasattr(rgbd, name) for name in (
+                'RgbdNormals_create', 'RgbdNormals_RGBD_NORMALS_METHOD_FALS', 'depthTo3d')):
+            raise RuntimeError('fals7 survey normals require OpenCV contrib cv2.rgbd')
+        self._rgbd = rgbd
+        self._intrinsics = np.array(intrinsics, dtype=np.float64, copy=True)
+        self._shape = None
+        self._normals = None
+
+    def __call__(self, depth):
+        if depth.shape != self._shape:
+            self._normals = self._rgbd.RgbdNormals_create(
+                *depth.shape, cv2.CV_32F, self._intrinsics, FALS_SURVEY_WINDOW_PX,
+                self._rgbd.RgbdNormals_RGBD_NORMALS_METHOD_FALS)
+            self._shape = depth.shape
+        return self._normals.apply(self._rgbd.depthTo3d(depth, self._intrinsics))
+
+
 class DepthFrame:
     """Optical-Z points and local surface normals, evaluated at queried pixels."""
 
-    def __init__(self, depth, intrinsics, gates, stride=6, *, normal_radius_px=1):
+    def __init__(self, depth, intrinsics, gates, stride=6, *, normal_radius_px=1, survey_fals=None):
         if type(normal_radius_px) is not int or normal_radius_px not in (1, 2):
             raise ValueError('normal radius must be one or two pixels')
         depth = np.asarray(depth, dtype=np.float32)
@@ -125,6 +173,23 @@ class DepthFrame:
         self.cx, self.cy = intrinsics[0, 2], intrinsics[1, 2]
         # Finite optical-Z depth, in metres. Clipped returns have no surface.
         self.depth = np.where((depth > gates.min_depth) & (depth < gates.max_depth), depth, np.nan)
+        self._fals_normals = self._fals_support = None
+        if survey_fals is not None:
+            if normal_radius_px != 2:
+                raise ValueError('survey FALS requires both central curvature radii')
+            self._fals_normals = survey_fals(self.depth)
+            support = np.isfinite(self.depth)
+            # The coarse full-window mask adds rejection around deeper steps
+            # and holes. Each center still must pass the tight checks below.
+            horizontal = self.depth[:, 1:-1]
+            vertical = self.depth[1:-1]
+            x_curvature = np.abs(self.depth[:, :-2] + self.depth[:, 2:] - 2*horizontal)
+            y_curvature = np.abs(self.depth[:-2] + self.depth[2:] - 2*vertical)
+            support[:, 1:-1] &= x_curvature < FALS_SUPPORT_CURVATURE_M + CURVATURE_PER_DEPTH*horizontal
+            support[1:-1] &= y_curvature < FALS_SUPPORT_CURVATURE_M + CURVATURE_PER_DEPTH*vertical
+            kernel = np.ones((FALS_SURVEY_WINDOW_PX, FALS_SURVEY_WINDOW_PX), np.uint8)
+            self._fals_support = cv2.erode(support.astype(np.uint8), kernel, borderType=cv2.BORDER_CONSTANT,
+                                           borderValue=0).astype(bool)
         h, w = self.depth.shape
         u, v = np.meshgrid(np.arange(2, w-2, stride), np.arange(2, h-2, stride))
         points, normals = self._surface_at(u.ravel(), v.ravel())
@@ -139,16 +204,19 @@ class DepthFrame:
         top, bottom = self.depth[v-radius, u], self.depth[v+radius, u]
         x = (u.astype(np.float32)-self.cx)/self.fx
         y = (v.astype(np.float32)-self.cy)/self.fy
-        dz_x, dz_y = right-left, bottom-top
-        # Central differences of back-projected neighboring 3D points.
-        dx = np.column_stack((x*dz_x+(right+left)*radius/self.fx, y*dz_x, dz_x))
-        dy = np.column_stack((x*dz_y, y*dz_y+(bottom+top)*radius/self.fy, dz_y))
-        normals = np.cross(dx, dy)
+        if self._fals_normals is None:
+            dz_x, dz_y = right-left, bottom-top
+            # Central differences of back-projected neighboring 3D points.
+            dx = np.column_stack((x*dz_x+(right+left)*radius/self.fx, y*dz_x, dz_x))
+            dy = np.column_stack((x*dz_y, y*dz_y+(bottom+top)*radius/self.fy, dz_y))
+            normals = np.cross(dx, dy)
+        else:
+            normals = self._fals_normals[v, u]
         norm = np.linalg.norm(normals, axis=1)
         # Perspective changes depth even on a plane near the horizon. Reject
         # abrupt asymmetric jumps, which are usually surface discontinuities.
         curvature = np.maximum(np.abs(right+left-2*center), np.abs(bottom+top-2*center))
-        curvature_limit = .014 + .018 * center
+        curvature_limit = CENTER_CURVATURE_M + CURVATURE_PER_DEPTH * center
         valid = (norm > 1e-8) & (curvature < curvature_limit)
         if radius == 2:
             # Reject a hole or depth jump at intermediate pixels that the
@@ -156,6 +224,8 @@ class DepthFrame:
             short_x = np.abs(self.depth[v, u-1]+self.depth[v, u+1]-2*center)
             short_y = np.abs(self.depth[v-1, u]+self.depth[v+1, u]-2*center)
             valid &= np.maximum(short_x, short_y) < curvature_limit
+        if self._fals_support is not None:
+            valid &= self._fals_support[v, u] & np.isfinite(norm) & (norm > 1e-6)
         normals /= np.where(valid, norm, np.nan)[:, None]
         return np.column_stack((x*center, y*center, center)), normals
 
