@@ -23,7 +23,7 @@ Rectification (`rectify_source`, default auto), in order of preference:
   1. camera_info  - K, D, R, P from each camera_info when P_right carries a baseline;
   2. tf           - cv2.stereoRectify from K, D and the left->right optical-frame transform in TF
                     (the depthai driver publishes the factory extrinsics on /tf_static);
-  3. baseline     - cv2.stereoRectify assuming a pure x-translation of `baseline` (OAK-D S2: 0.075 m).
+  3. baseline     - explicit offline opt-in only; auto mode stays unknown without calibration.
 """
 from __future__ import annotations
 
@@ -48,6 +48,11 @@ ENCODINGS = ("mono8", "8UC1", "mono16", "16UC1", "bgr8", "rgb8", "bgra8", "rgba8
 def img_to_gray(msg: Image) -> np.ndarray:
     """sensor_msgs/Image -> uint8 grayscale. Raises ValueError on an unsupported or inconsistent image."""
     enc = msg.encoding
+    channels = 4 if enc in ("rgba8", "bgra8") else 3 if enc in ("rgb8", "bgr8") else 1
+    byte_width = 2 if enc in ("mono16", "16UC1") else 1
+    if (msg.width <= 0 or msg.height <= 0 or msg.step < msg.width * channels * byte_width
+            or msg.step % byte_width):
+        raise ValueError("invalid image dimensions or row stride")
     if enc not in ENCODINGS:
         raise ValueError("unsupported image encoding " + repr(enc))
     if enc in ("mono16", "16UC1"):
@@ -82,6 +87,8 @@ class StereoScanNode(Node):
         P("block_size", 5)
         P("baseline", 0.0)              # >0 overrides the baseline from any source
         P("rectify_source", "auto")     # auto: camera_info if it has a baseline, else TF, else `baseline`/0.075
+        P("allow_assumed_baseline", False)  # opt-in for offline comparison only
+        P("max_image_age", 0.5)
         P("tf_wait_s", 3.0)             # auto mode: how long to wait for the left->right TF before falling back
         P("camera_pitch_deg", 20.0)     # down-tilt of the camera (repo example ~20 deg)
         P("camera_x", 0.10)
@@ -95,6 +102,7 @@ class StereoScanNode(Node):
         P("dark_mean_level", 12.0)       # mean left-image grey level below which stereo is declared blind
         P("max_pair_dt", 0.005)          # s; left/right stamps must agree to this (OAK is hardware-synced)
         P("base_frame", "base_link")
+        P("mount_source", "tf")  # tf (measured organizer mount) | parameters (offline fixtures)
         P("scan_percentile", 50.0)       # per-beam statistic for /dh/stereo_scan (localization): median
         g = lambda n: self.get_parameter(n).value
         self.info = {}
@@ -164,6 +172,8 @@ class StereoScanNode(Node):
                 return R1, R2, P1, P2, B, "tf"
             if mode == "tf" or self._now() - self.t_first_info < g("tf_wait_s"):
                 return None              # keep waiting for TF
+        if not g("allow_assumed_baseline") and mode != "baseline":
+            return None
         B = g("baseline") or 0.075
         self.get_logger().warn("no stereo calibration in camera_info or TF; assuming a pure %.3f m x-baseline "
                                "(OAK-D S2). Depth will be biased if the pair is not factory-aligned." % B)
@@ -189,8 +199,8 @@ class StereoScanNode(Node):
         Ps = np.array(P2, float).reshape(3, 4) * np.array([[s], [s], [1.0]])
         f, cx, cy = Ps[0, 0], Ps[0, 2], Ps[1, 2]
         if not (0.03 < B < 0.3):
-            self.get_logger().error("implausible stereo baseline %.3f m from %s; using 0.075" % (B, source))
-            B = 0.075
+            self.get_logger().error("implausible stereo baseline %.3f m from %s; rejecting" % (B, source))
+            return False
         self.maps, self.f, self.B, self.cx, self.cy = maps, f, B, cx, cy
         self.map_size = (w, h)
         self.R1 = np.asarray(R1, float).reshape(3, 3)
@@ -202,10 +212,16 @@ class StereoScanNode(Node):
 
     def _on_info(self, key, m: CameraInfo):
         K = np.array(m.k, float)
-        if K.size != 9 or K[0] <= 0 or K[4] <= 0:
-            self.get_logger().warn("camera_info %s has no intrinsics (uncalibrated?); ignoring" % key,
-                                   throttle_duration_sec=5.0)
+        arrays = [np.asarray(v, float) for v in (m.k, m.d, m.r, m.p)]
+        if (K.size != 9 or len(m.r) != 9 or len(m.p) != 12 or K[0] <= 0 or K[4] <= 0
+                or not all(np.all(np.isfinite(v)) for v in arrays) or not m.header.frame_id):
+            self.info.pop(key, None)
+            self.maps = None
+            self.get_logger().warn("invalid camera_info: clearance unavailable", throttle_duration_sec=5.0)
             return
+        old = self.info.get(key)
+        if old is not None and any(getattr(old, f) != getattr(m, f) for f in ("k", "d", "r", "p", "width", "height")):
+            self.maps = None
         self.info[key] = m
         if self.t_first_info is None:
             self.t_first_info = self._now()
@@ -231,7 +247,13 @@ class StereoScanNode(Node):
             return
         self.busy = True
         try:
-            self._process(ml, mr)
+            try:
+                self._process(ml, mr)
+            except (cv2.error, ValueError, TypeError) as e:
+                header = Header()
+                header.stamp, header.frame_id = ml.header.stamp, self.get_parameter("base_frame").value
+                self.stats["rejected"] += 1
+                self._publish_invalid(header, str(e))
         finally:
             self.busy = False
 
@@ -242,11 +264,13 @@ class StereoScanNode(Node):
         header.stamp = ml.header.stamp                 # capture time of the left image (copied, not aliased)
         header.frame_id = g("base_frame")
         tl, tr_ = stamp_to_sec(ml.header.stamp), stamp_to_sec(mr.header.stamp)
-        if tl <= 0.0:
+        if not math.isfinite(tl) or tl <= 0.0:
             self.stats["rejected"] += 1
             self.get_logger().warn("image without timestamp; frame dropped", throttle_duration_sec=2.0)
             return
-        if abs(tl - tr_) > g("max_pair_dt"):
+        if (not math.isfinite(tr_) or tr_ <= 0 or tl > self._now() + 0.02
+                or self._now() - tl > g("max_image_age")
+                or abs(tl - tr_) > g("max_pair_dt")):
             self.stats["rejected"] += 1
             self._publish_invalid(header, "left/right stamps differ by %.1f ms" % (1e3 * abs(tl - tr_)))
             return
@@ -256,11 +280,12 @@ class StereoScanNode(Node):
         if (ml.width, ml.height) != (mr.width, mr.height):
             self._publish_invalid(header, "left/right image sizes differ")
             return
-        ci = self.info["l"]
-        if getattr(ci, "width", 0) and (ci.width, ci.height) != (ml.width, ml.height):
-            self._publish_invalid(header, "image %dx%d does not match camera_info %dx%d"
-                                  % (ml.width, ml.height, ci.width, ci.height))
-            return
+        for key, image in (("l", ml), ("r", mr)):
+            ci = self.info[key]
+            if ((ci.width, ci.height) != (image.width, image.height)
+                    or image.header.frame_id != ci.header.frame_id):
+                self._publish_invalid(header, "image dimensions/frame differ from camera_info")
+                return
         if self.maps is not None and self.map_size != (ml.width, ml.height):
             self.get_logger().warn("image size changed; rebuilding rectification")
             self.maps = None
@@ -274,7 +299,7 @@ class StereoScanNode(Node):
             self.stats["rejected"] += 1
             self._publish_invalid(header, str(e))
             return
-        if float(L.mean()) < g("dark_mean_level"):
+        if min(float(L.mean()), float(R.mean())) < g("dark_mean_level"):
             self.stats["dark"] += 1
             self._publish_invalid(header, "image too dark for stereo (mean %.1f)" % float(L.mean()))
             return
@@ -284,16 +309,35 @@ class StereoScanNode(Node):
         Lr = cv2.remap(L, l1, l2, cv2.INTER_LINEAR)
         Rr = cv2.remap(R, r1, r2, cv2.INTER_LINEAR)
         disp = self.sgbm.compute(Lr, Rr).astype(np.float32) / 16.0
+        mount = None
+        band_z = g("camera_z")
+        if g("mount_source") == "tf":
+            try:
+                from rclpy.time import Time
+                tr = self.tf_buffer.lookup_transform(g("base_frame"), ml.header.frame_id,
+                                                     Time.from_msg(ml.header.stamp)).transform
+                q, t = tr.rotation, tr.translation
+                vals = np.array([q.x, q.y, q.z, q.w, t.x, t.y, t.z])
+                if not np.all(np.isfinite(vals)) or abs(np.linalg.norm(vals[:4]) - 1.0) > 0.01:
+                    raise ValueError("invalid optical mount TF")
+                mount = (quat_to_rot(q.x, q.y, q.z, q.w), vals[4:])
+                band_z = t.z
+            except Exception as e:
+                self._publish_invalid(header, "optical-to-body TF unavailable: " + str(e))
+                return
+        elif g("mount_source") != "parameters":
+            self._publish_invalid(header, "invalid mount_source")
+            return
         xb, yb, zb = disparity_to_body(disp, self.f, self.B, self.cx, self.cy, math.radians(g("camera_pitch_deg")),
-                                       g("camera_x"), g("camera_z"), R_rect=self.R1)
+                                       g("camera_x"), g("camera_z"), R_rect=self.R1, body_transform=mount)
         n = int(g("n_beams"))
         fov = 2 * math.atan2(self.cx, self.f)
         mp = int(g("min_points_per_beam"))
         # Two statistics per beam from the same points: the localizer gets an UNBIASED range (median), the
         # obstacle check a conservative one (10th percentile = nearest robust return).
-        near, amin, inc, counts = points_to_scan(xb, yb, zb, g("camera_z"), g("band_half_height"), fov, n,
+        near, amin, inc, counts = points_to_scan(xb, yb, zb, band_z, g("band_half_height"), fov, n,
                                                  g("max_range"), min_pts=mp, pct=10.0, return_counts=True)
-        mid, _, _ = points_to_scan(xb, yb, zb, g("camera_z"), g("band_half_height"), fov, n,
+        mid, _, _ = points_to_scan(xb, yb, zb, band_z, g("band_half_height"), fov, n,
                                    g("max_range"), min_pts=mp, pct=g("scan_percentile"))
         a = amin + np.arange(n) * inc
         _, fwd = scan_validity(near, counts, a, math.radians(g("forward_half_angle_deg")), mp,

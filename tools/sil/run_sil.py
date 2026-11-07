@@ -52,6 +52,7 @@ ap.add_argument("--corner", default="clothoid", choices=["clothoid", "arc"])
 ap.add_argument("--a_total", type=float, default=1.5, help="combined accel limit (0 = separate along/lateral)")
 ap.add_argument("--window_straight", type=float, default=0.6)
 ap.add_argument("--scan_latency", type=float, default=0.12, help="camera capture -> scan delivery delay (s)")
+ap.add_argument("--blackout_tube", action="store_true", help="optional sensor-fault injection; real tube is illuminated")
 args = ap.parse_args()
 
 COURSE = os.environ.get("DH_COURSE_OBJ", "C:/dhdl/obj/dronehacks-course-v3.obj")
@@ -60,7 +61,7 @@ Node.PARAM_OVERRIDES = {"course_obj": COURSE, "backend": args.backend, "route": 
                         "enable_return": args.with_return, "sensor_x": 0.10,
                         "v_max": args.v_max, "v_cap": args.v_cap,
                         "corner": args.corner, "a_total": args.a_total, "window_straight": args.window_straight,
-                        "dry_run": False,                       # SIL exercises the real Sky Beta gating on a fake bus
+                        "require_vo_status": False, "dry_run": False,                       # SIL exercises the real Sky Beta gating on a fake bus
                         "require_forward_clearance": not args.legacy}   # SIL scans come from a sensor 0.10 m ahead
 
 import dh_autonomy.mission_node as mn  # noqa: E402
@@ -143,7 +144,7 @@ while BUS.t < 150:
     t = BUS.t
     # --- sensors
     if abs((t * 100) % 3.333) < 1.0:     # ~30 Hz odom
-        in_dark = any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
+        in_dark = args.blackout_tube and any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
         if in_dark:
             if dark_v is None:
                 dark_v = np.append(rng.normal(0, args.dark_err, 2), 0.0 if args.legacy else rng.normal(0, 0.5 * args.dark_err))
@@ -160,8 +161,8 @@ while BUS.t < 150:
     if abs((t * 100) % 10) < 1.0:
         BUS.publish("/skybeta/state", String(data=json.dumps({"offboard_active": True, "armed": True})))
         if not args.legacy:
-            in_dark_fc = any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
-            fc = math.nan                                 # stereo is blind in the dark tube / on the ground
+            in_dark_fc = args.blackout_tube and any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
+            fc = math.nan if in_dark_fc else math.inf  # ideal ray-cast sensor; no OpenCV coverage model
             if not in_dark_fc and p[2] > 0.15 and p[2] > course.wall_height + 0.1:
                 fc = math.inf                             # above the walls: nothing at camera height
             elif not in_dark_fc and p[2] > 0.15:
@@ -173,7 +174,7 @@ while BUS.t < 150:
             rmsg.range, rmsg.max_range = fc, 4.0
             BUS.publish("/dh/forward_clearance", rmsg)
         if loc is not None:
-            in_dark = any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
+            in_dark = args.blackout_tube and any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
             if not in_dark and p[2] > 0.4:
                 # sensor sits 0.10 m ahead of the body origin (localizer param sensor_x)
                 sp = np.array([p[0] + 0.10 * math.cos(yaw), p[1] + 0.10 * math.sin(yaw), yaw])

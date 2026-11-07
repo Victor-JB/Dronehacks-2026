@@ -105,8 +105,9 @@ def make_info(frame, R=None, P=None):
     return ci
 
 
-def run_case(case, wall_x, q_rel, with_tf=True):
+def run_case(case, wall_x, q_rel, with_tf=True, mount_source="parameters"):
     """q_rel: rotation of the right camera relative to the left (as seen in the left optical frame)."""
+    BUS.t = 1.0
     BUS.subs.clear(); BUS.published.clear(); _TfBuffer.transforms = {}
     R_rl = quat_to_rot(*q_rel)                       # right-camera axes expressed in the left frame
     c_r = np.array([BASE, 0.0, 0.0])                 # right camera centre in the left frame
@@ -114,7 +115,7 @@ def run_case(case, wall_x, q_rel, with_tf=True):
     right = render(c_r, R_rl, wall_x)
     # p_r = R p_l + T with R = R_rl^T, T = -R_rl^T c_r
     R = R_rl.T; T = -R @ c_r
-    Node.PARAM_OVERRIDES = {"rectify_source": "auto", "tf_wait_s": 0.0, "camera_pitch_deg": 20.0,
+    Node.PARAM_OVERRIDES = {"rectify_source": "baseline" if case == "baseline" else "auto", "mount_source": mount_source, "tf_wait_s": 0.0, "camera_pitch_deg": 20.0,
                             "camera_x": CAM_X, "camera_z": CAM_Z}
     import importlib
     import dh_autonomy.stereo_scan_node as ssn
@@ -134,6 +135,11 @@ def run_case(case, wall_x, q_rel, with_tf=True):
                 rotation=types.SimpleNamespace(x=qinv[0], y=qinv[1], z=qinv[2], w=qinv[3]),
                 translation=types.SimpleNamespace(x=T[0], y=T[1], z=T[2])))
             _TfBuffer.transforms[("oak_right_optical", "oak_left_optical")] = tr
+    if mount_source == "tf":
+        q = qmul((0., math.sin(PITCH/2), 0., math.cos(PITCH/2)), (-0.5, 0.5, -0.5, 0.5))
+        _TfBuffer.transforms[("base_link", "oak_left_optical")] = types.SimpleNamespace(transform=types.SimpleNamespace(
+            rotation=types.SimpleNamespace(x=q[0], y=q[1], z=q[2], w=q[3]),
+            translation=types.SimpleNamespace(x=CAM_X, y=0., z=CAM_Z)))
     _Sync.last.cb(make_image(left, "oak_left_optical"), make_image(right, "oak_right_optical"))
     scans = BUS.published.get("/dh/stereo_scan", [])
     clear = BUS.published.get("/dh/forward_clearance", [])
@@ -180,6 +186,10 @@ def main():
         lines.append("| %s | %s | %.2f | %d/%d | %.3f | %+.1f%% | %.3f-%.3f | %.3f |" % (
             r["case"], pair, r["wall_x"], r["n"], r["n_beams"], r["x_med"], 100 * (r["x_med"] / r["wall_x"] - 1),
             r["x_p10"], r["x_p90"], r["clearance"]))
+    for i, result in enumerate(rows):
+        assert result is not None, "no stereo output for case %d" % i
+        if i % 4 != 3:  # deliberately miscalibrated baseline case is a negative control
+            assert abs(result["x_med"] / result["wall_x"] - 1) < 0.05, result
     txt = "\n".join(lines) + "\n"
     print(txt)
     open(args.out, "w", encoding="utf-8").write(txt)

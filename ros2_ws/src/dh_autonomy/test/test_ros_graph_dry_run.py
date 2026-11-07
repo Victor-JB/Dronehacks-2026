@@ -19,18 +19,23 @@ import launch
 import launch_ros.actions
 import launch_testing
 import launch_testing.actions
+import launch_testing.asserts
 import pytest
 import rclpy
 
 COURSE = os.environ.get("DH_COURSE_OBJ", "/root/team_ws/course/dronehacks-course-v3.obj")
 
 
+pytestmark = pytest.mark.skipif(
+    os.environ.get("ROS_DOMAIN_ID") != "77" or os.environ.get("ROS_LOCALHOST_ONLY") != "1",
+    reason="synthetic ROS publishers require ROS_DOMAIN_ID=77 ROS_LOCALHOST_ONLY=1")
+
 @pytest.mark.launch_test
 def generate_test_description():
     mission = launch_ros.actions.Node(
         package="dh_autonomy", executable="mission", name="dh_mission", output="screen",
         parameters=[{"course_obj": COURSE, "dry_run": True, "odom_topic": "/dh_test/odom",
-                     "align_mode": "first_odom", "require_forward_clearance": False}])
+                     "align_mode": "first_odom", "require_forward_clearance": False, "require_vo_status": False}])
     return launch.LaunchDescription([mission, launch_testing.actions.ReadyToTest()]), {"mission": mission}
 
 
@@ -61,6 +66,7 @@ class TestDryRunGraph(unittest.TestCase):
             o = Odometry()
             o.header.stamp = n.get_clock().now().to_msg()
             o.header.frame_id = "odom"
+            o.child_frame_id = "base_link"
             o.pose.pose.orientation.z, o.pose.pose.orientation.w = math.sin(0.785), math.cos(0.785)
             pub_odom.publish(o)
             if not started and time.time() - t0 > 12.0:

@@ -38,12 +38,13 @@ def _quat():
 
 
 Time = _msg_class("Time", sec=0, nanosec=0)
+Time.from_msg = staticmethod(lambda m: m)
 
 
 def make_time(t: float):
     """float seconds -> builtin_interfaces/Time-like object (0.0 -> unstamped)."""
-    sec = int(t)
-    return Time(sec=sec, nanosec=int(round((t - sec) * 1e9)) % 1000000000)
+    sec, ns = divmod(int(round(t * 1e9)), 1000000000)
+    return Time(sec=sec, nanosec=ns)
 
 
 def _header():
@@ -58,7 +59,7 @@ Vector3Stamped = _msg_class("Vector3Stamped", header=_header, vector=_vec3)
 PoseWithCov = _msg_class("PoseWithCovariance", pose=Pose, covariance=lambda: [0.0] * 36)
 PoseWithCovarianceStamped = _msg_class("PoseWithCovarianceStamped", header=_header, pose=PoseWithCov)
 Header = _msg_class("Header", frame_id="", stamp=Time)
-Odometry = _msg_class("Odometry", header=_header, pose=PoseWithCov)
+Odometry = _msg_class("Odometry", header=_header, child_frame_id="base_link", pose=PoseWithCov)
 Path = _msg_class("Path", header=_header, poses=list)
 Empty = _msg_class("Empty")
 Float32 = _msg_class("Float32", data=0.0)
@@ -223,7 +224,7 @@ def install():
     mod("message_filters", ApproximateTimeSynchronizer=ApproximateTimeSynchronizer,
         Subscriber=lambda node, typ, topic, **k: None)
     mod("tf2_ros", Buffer=TfBuffer, TransformListener=lambda buf, node: None)
-    mod("rclpy.time", Time=lambda *a, **k: 0)
+    mod("rclpy.time", Time=Time)
     # px4_msgs (release/1.16 subset used by dh_autonomy)
     VC = _msg_class("VehicleCommand", command=0, param1=0.0, param2=0.0, param7=0.0)
     VC.VEHICLE_CMD_DO_SET_MODE = 176

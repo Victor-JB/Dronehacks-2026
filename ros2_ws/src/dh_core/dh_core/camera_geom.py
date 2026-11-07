@@ -22,7 +22,7 @@ def optical_to_body(X, Y, Z, pitch: float, cam_x: float, cam_z: float):
 
 
 def disparity_to_body(disp: np.ndarray, f: float, B: float, cx: float, cy: float,
-                      pitch: float, cam_x: float, cam_z: float, min_disp: float = 1.0, R_rect=None):
+                      pitch: float, cam_x: float, cam_z: float, min_disp: float = 1.0, R_rect=None, body_transform=None):
     """Disparity image -> body-frame points. R_rect (the left rectification rotation R1) maps the
     left optical frame to the rectified frame; points are rotated back by R1^T before the body transform."""
     v, u = np.nonzero(disp > min_disp)
@@ -32,6 +32,9 @@ def disparity_to_body(disp: np.ndarray, f: float, B: float, cx: float, cy: float
     Y = (v - cy) * Z / f
     if R_rect is not None:
         X, Y, Z = np.asarray(R_rect, float).reshape(3, 3).T @ np.vstack([X, Y, Z])
+    if body_transform is not None:
+        R, t = body_transform
+        return tuple(np.asarray(R) @ np.vstack([X, Y, Z]) + np.asarray(t)[:, None])
     return optical_to_body(X, Y, Z, pitch, cam_x, cam_z)
 
 

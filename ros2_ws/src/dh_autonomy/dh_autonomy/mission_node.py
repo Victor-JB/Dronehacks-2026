@@ -17,7 +17,7 @@ Topics
   pub  /dh/mission_state                std_msgs/String
   pub  /dh/health                       std_msgs/String  "<mode> fc=<state> <reason>"
 
-Command gating (Sky Beta backend): nothing is published to the flight interface until /skybeta/state
+Command gating (Sky Beta backend): only zero readiness twists are sent before fresh /skybeta/state
 reports offboard_active; the trajectory clock does not start before that. If Offboard is lost after
 it was active (pilot takeover = abort under R5) the mission goes to ABORTED and stops commanding.
 Unhealthy localization or missing/stale/invalid forward clearance -> zero-velocity setpoints with the
@@ -42,7 +42,7 @@ from dh_core.course import Course
 from dh_core.localize import raycast_scan
 from dh_core.health import (ABORT, HOVER, ClearanceParams, ForwardClearanceMonitor, LocalizationHealth,
                             LocHealthParams, PoseHistory, stamp_to_sec)
-from dh_core.route import RouteParams, dark_zones, plan_mission, return_leg
+from dh_core.route import RouteParams, plan_mission, return_leg
 from dh_core.timing import time_parameterize
 from dh_core.tracker import FollowerParams, MapAlignment, TrajectoryFollower, wrap
 
@@ -81,12 +81,16 @@ class MissionNode(Node):
         P("align_mode", "start")                # start: align on /dh/start; first_odom: align when the
                                                 # stack starts with the drone on the launch mark
         P("odom_topic", "/visual_slam/tracking/odometry")
+        P("base_frame", "base_link")
         P("odom_frame", "odom")                 # expected header.frame_id of the odometry (warned if different)
         P("vo_status_topic", "/visual_slam/status")
         P("odom_timeout", 0.4)                  # s without odometry -> hover
         P("odom_abort_s", 2.0)                  # s without odometry -> abort (interface hold)
         P("vo_lost_abort_s", 3.0)
-        P("max_dark_s", 4.0)
+        P("max_dark_s", 4.0)  # legacy, never waives a real sensor fault
+        P("require_vo_status", True)
+        P("vo_timeout", 1.0)
+        P("max_measurement_age", 0.5)
         P("correction_gain", 0.5)
         P("corner", "clothoid")                 # fillet corners: clothoid (continuous curvature) | arc
         P("a_total", 1.5)                       # combined acceleration limit for the speed profile (0 = separate)
@@ -97,15 +101,15 @@ class MissionNode(Node):
         P("min_forward_clearance", 0.45)
         P("require_forward_clearance", True)    # False only with use_stereo:=false (then no obstacle check!)
         P("fc_timeout", 0.5)
-        P("fc_invalid_scale", 0.35)
+        P("fc_invalid_scale", 0.0)
         P("fc_invalid_grace_s", 1.5)
-        P("fc_invalid_floor_scale", 0.2)        # creep factor after the grace period (0 = hover)
+        P("fc_invalid_floor_scale", 0.0)        # creep factor after the grace period (0 = hover)
         P("px4_yaw_offset", 0.0)
         P("land_hover_z", 0.35)                 # skybeta interface floor is 0.3 m
         P("geofence_margin", 0.25)
         P("rate_hz", 30.0)
         P("disarm_after_landed_s", 0.4)
-        P("post_dark_scale", 0.25)              # speed factor after the tube until a fresh map fix (1.0 = off)
+        P("post_dark_scale", 1.0)              # speed factor after the tube until a fresh map fix (1.0 = off)
         P("post_dark_timeout", 2.5)
         g = lambda n: self.get_parameter(n).value
 
@@ -137,10 +141,10 @@ class MissionNode(Node):
         self._landed_since = None
         self.last_fix_t = -1.0                  # receipt time of the last applied map fix
         self.last_fix_stamp = 0.0
+        self.last_line_stamp = 0.0
         self.was_active = False                 # Offboard has been active during this flight
         self.abort_reason = ""
         self.counters = {"fix_applied": 0, "fix_rejected": 0, "line_applied": 0, "hover_ticks": 0, "commands": 0}
-        self.dark = [b[:, :2] for b in dark_zones(self.course, self.rp.dark_zone_hints)]
         self.ground_z = g("ground_z")
         self.fc = ForwardClearanceMonitor(ClearanceParams(
             min_clearance=g("min_forward_clearance"), timeout_s=g("fc_timeout"), invalid_scale=g("fc_invalid_scale"),
@@ -148,7 +152,7 @@ class MissionNode(Node):
             required=g("require_forward_clearance")))
         self.health = LocalizationHealth(LocHealthParams(
             odom_timeout_s=g("odom_timeout"), odom_abort_s=g("odom_abort_s"), vo_lost_abort_s=g("vo_lost_abort_s"),
-            max_dark_s=g("max_dark_s")))
+            max_dark_s=g("max_dark_s"), require_vo_status=g("require_vo_status"), vo_timeout_s=g("vo_timeout")))
         self._warned = set()
 
         self.create_subscription(Odometry, g("odom_topic"), self._on_odom, qos_profile_sensor_data)
@@ -180,11 +184,20 @@ class MissionNode(Node):
             from isaac_ros_visual_slam_interfaces.msg import VisualSlamStatus
         except ImportError:
             self.get_logger().warn("isaac_ros_visual_slam_interfaces not importable: VO tracking status is NOT "
-                                   "monitored (odometry freshness/jumps still are)")
+                                   "available; require_vo_status keeps motion inhibited unless explicitly disabled for offline fixtures")
             return
         self.create_subscription(VisualSlamStatus, topic,
-                                 lambda m: self.health.on_vo_status(self._now(), int(m.vo_state)),
+                                 self._on_vo_status,
                                  qos_profile_sensor_data)
+
+    def _on_vo_status(self, m):
+        t = stamp_to_sec(m.header.stamp)
+        now = self._now()
+        if not math.isfinite(t) or t <= 0 or t > now + 0.02 or now - t > self.get_parameter("vo_timeout").value:
+            return
+        if self.health.vo_rx is not None and t <= self.health.vo_rx:
+            return
+        self.health.on_vo_status(t, int(m.vo_state))
 
     def _map_range(self, pm, yaw) -> float:
         """Forward range the course map predicts (same sector as the stereo forward clearance)."""
@@ -193,36 +206,43 @@ class MissionNode(Node):
         pts = raycast_scan(self.plan.grid, np.array([pm[0], pm[1], yaw]), 30.0, 7, r_min=0.05, r_max=4.0, noise=0.0)
         return float(np.min(np.hypot(pts[:, 0], pts[:, 1]))) if len(pts) else math.inf
 
-    def _in_dark(self, pm) -> bool:
-        return any(lo[0] - 0.05 <= pm[0] <= hi[0] + 0.05 and lo[1] - 0.05 <= pm[1] <= hi[1] + 0.05
-                   for lo, hi in self.dark)
-
     # ------------------------------------------------------------ callbacks
     def _on_odom(self, m: Odometry):
         now = self._now()
         t = stamp_to_sec(m.header.stamp)
-        if t <= 0.0:
-            self._warn_once("odom_unstamped", "odometry has no header.stamp: using receipt time; map fixes "
-                                              "and line fixes cannot be time-synchronised")
-            t = now
-        fid = getattr(m.header, "frame_id", "")
-        if fid and fid != self.get_parameter("odom_frame").value:
-            self._warn_once("odom_frame", "odometry frame_id %r != expected %r" % (fid, self.get_parameter("odom_frame").value))
-        if self.odom is not None and t < self.odom[2]:
-            return                                             # out-of-order odometry: ignore
+        fid = m.header.frame_id
+        if (not math.isfinite(t) or t <= 0.0 or t > now + 0.02
+                or fid != self.get_parameter("odom_frame").value
+                or m.child_frame_id != self.get_parameter("base_frame").value):
+            self._warn_once("odom_contract", "rejecting odometry with invalid stamp/clock/frame")
+            return
+        if self.odom is not None and t <= self.odom[2]:
+            return  # duplicate/replayed odometry must not refresh health
         p = m.pose.pose.position
         xyz = np.array([p.x, p.y, p.z])
-        yaw = quat_to_yaw(m.pose.pose.orientation)
-        cov = list(getattr(m.pose, "covariance", []) or [])
-        pos_std = math.sqrt(max(cov[0], cov[7])) if len(cov) == 36 and max(cov[0], cov[7]) > 0 else None
-        self.health.on_odom(now, t, xyz, pos_std, v_max=max(1.5, 1.5 * self.fprm.v_cap))
+        q = m.pose.pose.orientation
+        quat = np.array([q.x, q.y, q.z, q.w], float)
+        cov = np.asarray(m.pose.covariance, float)
+        if (not np.all(np.isfinite(xyz)) or not np.all(np.isfinite(quat))
+                or abs(np.linalg.norm(quat) - 1.0) > 0.01 or cov.shape != (36,)
+                or not np.all(np.isfinite(cov)) or np.any(cov[[0, 7, 14, 21, 28, 35]] < 0)):
+            self._warn_once("odom_invalid", "rejecting nonfinite pose, invalid quaternion or covariance")
+            return
+        yaw = quat_to_yaw(q)
+        pos_std = math.sqrt(max(cov[0], cov[7], cov[14])) if np.any(cov[[0, 7, 14]] > 0) else None
+        self.health.on_odom(now, t, xyz, pos_std, v_max=max(1.5, 1.5 * self.fprm.v_cap), yaw=yaw)
         self.odom = (xyz, yaw, t, now)
         self.odom_hist.add(t, (xyz[0], xyz[1], xyz[2], yaw))
         if not self.align.valid and self.get_parameter("align_mode").value == "first_odom":
             self._align_at_launch()
 
     def _on_clearance(self, m: Range):
-        self.fc.update(stamp_to_sec(m.header.stamp), self._now(), float(m.range))
+        rng = float(m.range)
+        valid_meta = (m.header.frame_id == self.get_parameter("base_frame").value and math.isfinite(m.min_range)
+                      and math.isfinite(m.max_range) and 0 <= m.min_range < m.max_range)
+        if not valid_meta or (math.isfinite(rng) and not m.min_range <= rng <= m.max_range):
+            rng = math.nan
+        self.fc.update(stamp_to_sec(m.header.stamp), self._now(), rng)
 
     def _align_at_launch(self):
         """The drone is sitting on the launch mark with heading `launch_yaw_map`."""
@@ -236,7 +256,7 @@ class MissionNode(Node):
 
     def _map_pose_at(self, t: float):
         """Course-frame pose at time t under the CURRENT alignment, from odometry history (None if unknown)."""
-        od = self.odom_hist.at(t, future_tol=0.03)
+        od = self.odom_hist.at(t, future_tol=0.0)
         if od is None:
             return None
         return self.align.to_map(od[:3], od[3])
@@ -246,7 +266,9 @@ class MissionNode(Node):
         if not self.align.valid or self.odom is None:
             return
         t = stamp_to_sec(m.header.stamp)
-        if t <= 0.0 or t < self.last_fix_stamp:
+        if (not math.isfinite(t) or t <= 0.0 or t <= self.last_fix_stamp
+                or m.header.frame_id != "course" or t > self._now() + 0.02
+                or self._now() - t > self.get_parameter("max_measurement_age").value):
             self.counters["fix_rejected"] += 1                 # unstamped or older than an applied fix
             return
         at = self._map_pose_at(t)
@@ -256,7 +278,18 @@ class MissionNode(Node):
         pm_t, yaw_t = at
         q = m.pose.pose
         d = np.array([q.position.x - pm_t[0], q.position.y - pm_t[1]])
+        quat = np.array([q.orientation.x, q.orientation.y, q.orientation.z, q.orientation.w])
+        cov = np.asarray(m.pose.covariance, float)
+        if (not np.all(np.isfinite(d)) or not np.all(np.isfinite(quat))
+                or abs(np.linalg.norm(quat) - 1.0) > 0.01 or cov.shape != (36,)
+                or not np.all(np.isfinite(cov)) or np.any(cov[[0, 7, 35]] < 0)):
+            self.counters["fix_rejected"] += 1
+            return
         dyaw = wrap(quat_to_yaw(q.orientation) - yaw_t)
+        if np.linalg.norm(d) > 0.30 + 1e-9 or abs(dyaw) > 0.15:
+            self.counters["fix_rejected"] += 1
+            self.health.on_map_fix(self._now(), float(np.linalg.norm(d)))
+            return  # final innovation gate: never apply an unbounded external correction
         self.align.correct(d, dyaw, pm_t[:2], self.get_parameter("correction_gain").value)
         self.last_fix_stamp = t
         self.last_fix_t = self._now()
@@ -268,7 +301,12 @@ class MissionNode(Node):
         gl = self.course.guideline
         if gl is None or not self.align.valid or self.odom is None or m.vector.z < 0.5:
             return
-        at = self._map_pose_at(stamp_to_sec(m.header.stamp))
+        t = stamp_to_sec(m.header.stamp)
+        if (t <= self.last_line_stamp or not math.isfinite(t) or m.header.frame_id != "base_link"
+                or self._now() - t > self.get_parameter("max_measurement_age").value
+                or t > self._now() + 0.02 or not np.all(np.isfinite([m.vector.x, m.vector.y, m.vector.z]))):
+            return
+        at = self._map_pose_at(t)
         if at is None:
             return
         pm, yaw = at
@@ -299,12 +337,16 @@ class MissionNode(Node):
         n = np.array([-u[1], u[0]])
         d_map = (d_map @ n) * n                    # only the line-normal component is observable
         self.align.correct(d_map, 0.0, pm[:2], self.get_parameter("line_gain").value)
+        self.last_line_stamp = t
         self.counters["line_applied"] += 1
 
     # -------------------------------------------------------------- mission
     def _start(self):
         if self.state != "WAIT_START" or self.odom is None:
             self.get_logger().warn("start ignored (state=%s, odom=%s)" % (self.state, self.odom is not None))
+            return
+        if self.health.evaluate(self._now())[0] in (HOVER, ABORT):
+            self.get_logger().warn("start ignored: localization not healthy")
             return
         if not self.align.valid:
             self._align_at_launch()
@@ -352,6 +394,8 @@ class MissionNode(Node):
             reason, "; requesting interface hold" if self.backend.offboard_active() else ""))
         if self.backend.offboard_active():
             self.backend.hold()                # the interface's own freeze-at-last-safe-position
+        if self.dry_run:
+            self.backend.revoke_authority()
         self._goto("ABORTED")
 
     def _send(self, v, yr):
@@ -365,13 +409,25 @@ class MissionNode(Node):
         self.last_tick = now
         self.backend.tick()
         self.pub_state.publish(String(data=self.state))
-        if self.odom is not None and self.align.valid and now - self.odom[3] <= self.get_parameter("odom_timeout").value:
+        if self.odom is not None and self.align.valid and max(now - self.odom[3], now - self.odom[2]) <= self.get_parameter("odom_timeout").value:
             pm0, yaw0 = self._map_pose()
             self._publish_pose(pm0, yaw0)      # also while waiting: stationary localization checks + localizer prior
         if self.odom is None or self.state in ("WAIT_START", "ABORTED", "DONE"):
+            if self.state == "WAIT_START":
+                mode, _, reason = self.health.evaluate(now)
+                scale, verdict = self.fc.speed_scale(now)
+                if scale == 0 and mode != ABORT:
+                    mode, reason = HOVER, reason or ("forward clearance " + verdict)
+                self.pub_health.publish(String(data="%s fc=%s %s" % (mode, verdict, reason)))
             if self.state == "WAIT_START" and self.odom is not None and \
                     self.get_parameter("autostart_on_offboard").value and self.backend.offboard_active():
                 self._start()
+            # Organizer auto-Offboard requires a recent team setpoint. A zero TWIST
+            # (no pose altitude-floor lift) advertises readiness without progressing.
+            if (self.state == "WAIT_START" and self.get_parameter("autostart_on_offboard").value
+                    and not self.was_active and self.health.evaluate(now)[0] not in (HOVER, ABORT)
+                    and not self.backend.offboard_active() and isinstance(self.backend, SkybetaBackend)):
+                self.backend.send_velocity(0.0, 0.0, 0.0, 0.0)
             return
         if self.state in ("LAND", "RETURN_LAND", "LANDED") and self.backend.can_land:
             # raw-PX4 landing runs in PX4's own LAND mode (not Offboard): no Offboard gating here
@@ -412,34 +468,42 @@ class MissionNode(Node):
                 # Under R5 human input other than abort ends the run: never resume on our own.
                 self._abort("Offboard lost during %s" % self.state)
                 return
-            self.get_logger().warn("waiting for Offboard before commanding (no setpoints published)",
+            if self.health.evaluate(now)[0] not in (HOVER, ABORT):
+                self.backend.send_velocity(0.0, 0.0, 0.0, 0.0)
+            self.get_logger().warn("waiting for Offboard (zero readiness twist; trajectory frozen)",
                                    throttle_duration_sec=2.0)
-            return                                                # Sky Beta: publish NOTHING before Offboard
+            return  # no motion or trajectory progression before authority
         if active_state and not self.was_active:
             self.was_active = True
             self.get_logger().info("Offboard active: taking command authority")
 
         # ---- health -------------------------------------------------------------------------------
         pm, yaw = self._map_pose()
-        in_dark = self._in_dark(pm)
-        self.health.set_in_dark(now, in_dark and self.state == "COURSE")
         mode, h_scale, reason = self.health.evaluate(now)
-        fc_scale, fc_state = self.fc.speed_scale(now, expected_blind=in_dark, expected_range=self._map_range(pm, yaw))
+        capture = self._map_pose_at(self.fc.t_stamp)
+        expected_range = self._map_range(*capture) if capture is not None else None
+        fc_scale, fc_state = self.fc.speed_scale(now, expected_range=expected_range)
+        if self.fc.prm.required and fc_scale > 0.0 and capture is None:
+            fc_scale, fc_state = 0.0, "NO_CAPTURE_POSE"
+        elif self.fc.prm.required and capture is not None and abs(wrap(yaw - capture[1])) > math.radians(15):
+            fc_scale, fc_state = 0.0, "VIEW_CHANGED"
+        # Report the actual command mode, including clearance-caused holds.
+        if fc_scale == 0.0 and mode != ABORT:
+            mode, reason = HOVER, reason or ("forward clearance " + fc_state)
         self.pub_health.publish(String(data="%s fc=%s %s" % (mode, fc_state, reason)))
         if mode == ABORT:
             self._abort(reason)
             return
-        if mode == HOVER:
+        if mode == HOVER or fc_scale == 0.0:
             self.counters["hover_ticks"] += 1
-            self.get_logger().warn("HOVER: " + reason, throttle_duration_sec=1.0)
+            self.get_logger().warn("HOVER: " + (reason or ("forward clearance " + fc_state)), throttle_duration_sec=1.0)
             self._send(np.zeros(3), 0.0)                          # explicit zero velocity; clock frozen
             return
 
         if self.state in FLIGHT_STATES:
             if self.follower is None:
                 self.follower = self._make_follower()
-            blackout = self._blackout_governor(pm, now) if self.state == "COURSE" else 1.0
-            clock_scale = h_scale * blackout * (fc_scale if self.state != "TAKEOFF" else 1.0)
+            clock_scale = h_scale * fc_scale
             self.follower.speed_scale = clock_scale
             v, yr, p_ref, err = self.follower.step(pm, yaw, dt)
             v = self._safety(v, pm, fc_scale)
@@ -463,30 +527,6 @@ class MissionNode(Node):
             self._goto("RETURN")
         elif now - self.state_t0 > 3.0 and not self.get_parameter("enable_return").value:
             self._goto("DONE")
-
-    def _blackout_governor(self, pm, now) -> float:
-        """After leaving a dark zone, creep until the localizer delivers a fresh fix (returns a clock factor).
-
-        Inside the tube visual odometry coasts; the first metres after the exit are
-        where an uncorrected offset would put the drone into the chicane walls.
-        Disabled when post_dark_scale >= 1 or no localizer is running.
-        """
-        if self._in_dark(pm):
-            self._dark_exit_t = None
-            self._was_dark = True
-            return 1.0
-        if getattr(self, "_was_dark", False):
-            self._was_dark = False
-            self._dark_exit_t = now
-        t_exit = getattr(self, "_dark_exit_t", None)
-        scale = self.get_parameter("post_dark_scale").value
-        if t_exit is not None and scale < 1.0:
-            fixed = self.last_fix_t > t_exit
-            if fixed or now - t_exit > self.get_parameter("post_dark_timeout").value:
-                self._dark_exit_t = None
-                return 1.0
-            return scale
-        return 1.0
 
     def _land_step(self, pm, fc_scale: float = 1.0):
         now = self._now()
@@ -537,9 +577,8 @@ class MissionNode(Node):
     # -------------------------------------------------------------- output
     def _publish_pose(self, pm, yaw):
         m = PoseStamped()
-        sec = self.odom[2]
-        m.header.stamp.sec = int(sec)
-        m.header.stamp.nanosec = int(round((sec - int(sec)) * 1e9)) % 1000000000
+        ns = int(round(self.odom[2] * 1e9))
+        m.header.stamp.sec, m.header.stamp.nanosec = divmod(ns, 1000000000)
         m.header.frame_id = "course"
         m.pose.position.x, m.pose.position.y, m.pose.position.z = map(float, pm)
         m.pose.orientation.z, m.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)

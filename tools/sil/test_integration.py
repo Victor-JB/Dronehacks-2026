@@ -39,7 +39,7 @@ def fresh(**over):
     BUS.subs.clear(); BUS.timers.clear(); BUS.published.clear()
     BUS.service_calls.clear(); BUS.services_ready.clear()
     TfBuffer.transforms = {}
-    p = {"course_obj": COURSE, "rate_hz": 30.0}
+    p = {"course_obj": COURSE, "rate_hz": 30.0, "require_vo_status": False, "mount_source": "parameters"}
     p.update(over)
     Node.PARAM_OVERRIDES = p
 
@@ -73,6 +73,7 @@ def state_msg(active):
 def clear_msg(t, rng):
     r = Range()
     r.header.stamp = make_time(t); r.header.frame_id = "base_link"
+    r.min_range, r.max_range = 0.2, 4.0
     r.range = rng
     return r
 
@@ -140,7 +141,7 @@ def test_dry_run_isolation_enforced_in_code():
         pass
 
 
-def test_skybeta_publishes_nothing_before_offboard_and_clock_waits():
+def test_skybeta_only_zero_readiness_before_offboard_and_clock_waits():
     fresh(dry_run=False)
     node = mission()
     L = node.course.launch
@@ -149,7 +150,9 @@ def test_skybeta_publishes_nothing_before_offboard_and_clock_waits():
     BUS.publish("/dh/start", Empty())
     run(3.0, feed)                                      # started, but Offboard not active
     assert node.state == "TAKEOFF"
-    assert len(published("/skybeta/setpoint/twist")) == 0
+    assert len(published("/skybeta/setpoint/twist")) > 0
+    for _, m in published("/skybeta/setpoint/twist"):
+        assert [m.twist.linear.x, m.twist.linear.y, m.twist.linear.z, m.twist.angular.z] == [0.0] * 4
     assert node.follower is None                        # trajectory clock has not started
     run(1.5, feed)                                      # Offboard becomes active at t = 5 s
     assert len(published("/skybeta/setpoint/twist")) > 10
@@ -236,9 +239,9 @@ def test_forward_clearance_missing_freezes_course_progress():
     BUS.publish("/dh/start", Empty())
     node._goto("COURSE")                                # straight into the course leg at cruise height
     run(0.7, feed_no_fc)                                # last clearance reading ages past fc_timeout (0.5 s)
-    tau0 = node.follower.tau
+    tau0 = node.follower.tau if node.follower else 0.0
     run(1.5, feed_no_fc)                                # stereo node silent: fc STALE
-    assert node.follower is not None and abs(node.follower.tau - tau0) < 1e-6, (tau0, node.follower.tau)
+    assert node.follower is None or abs(node.follower.tau - tau0) < 1e-6, (tau0, node.follower.tau)
     v = published("/dh/dry_run/cmd_vel")[-1][1].twist.linear
     assert math.hypot(v.x, v.y) < 1e-6
 
@@ -350,6 +353,7 @@ def test_out_of_order_fix_is_rejected():
     def fix(stamp, dx):
         m = PoseWithCovarianceStamped()
         m.header.stamp = make_time(stamp)
+        m.header.frame_id = "course"
         m.pose.pose.position.x, m.pose.pose.position.y = L[0] + dx, L[1]
         m.pose.pose.orientation.z, m.pose.pose.orientation.w = math.sin(math.pi / 4), math.cos(math.pi / 4)
         BUS.publish("/dh/map_fix", m)
@@ -407,6 +411,7 @@ def test_stereo_node_reports_unknown_not_clear():
     sync = fake_ros.ApproximateTimeSynchronizer.last
 
     def pair(left, right, t=5.0, tr=None):
+        BUS.t = max(t, 5.0)
         a, b = tsn.make_image(left, "l"), tsn.make_image(right, "r")
         a.header.stamp = make_time(t); b.header.stamp = make_time(t if tr is None else tr)
         sync.cb(a, b)

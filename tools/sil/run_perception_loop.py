@@ -42,6 +42,9 @@ ap.add_argument("--drift", type=float, default=0.01)
 ap.add_argument("--dark_err", type=float, default=0.08)
 ap.add_argument("--plot", default="")
 ap.add_argument("--out", default="")
+ap.add_argument("--trace", default="", help="write truth/estimate/clearance diagnostic samples (simulation only)")
+ap.add_argument("--blackout_tube", action="store_true", help="optional sensor-fault injection; real tube is illuminated")
+ap.add_argument("--initial_height", type=float, default=0.20, help="synthetic body centre above floor while resting on landing gear (m); unmeasured hardware assumption")
 args = ap.parse_args()
 COURSE = os.environ.get("DH_COURSE_OBJ", "C:/dhdl/obj/dronehacks-course-v3.obj")
 
@@ -52,7 +55,7 @@ PITCH, CAM_X, CAM_Z = math.radians(20.0), 0.10, -0.02
 K = np.array([[F, 0, CX], [0, F, CY], [0, 0, 1.0]])
 
 common = {"course_obj": COURSE}
-Node.PARAM_OVERRIDES = dict(common, route=args.route, dry_run=False, align_mode="start", v_dark=0.85,
+Node.PARAM_OVERRIDES = dict(common, ground_z=args.initial_height, route=args.route, require_vo_status=False, mount_source="parameters", dry_run=False, align_mode="start", v_dark=0.85,
                             scale=1.0, rectify_source="camera_info", camera_pitch_deg=20.0, camera_x=CAM_X,
                             camera_z=CAM_Z, num_disparities=64)
 import dh_autonomy.mission_node as mn  # noqa: E402
@@ -81,8 +84,8 @@ stereo._on_info("r", info("oak_right_camera_optical_frame", True))
 line._on_info(info("oak_left_camera_optical_frame", False))
 
 # ---- scene: distance field of the walls (full height) + solid texture + guideline + dark zones
-wall_grid = course.occupancy(0.025, 0.05, course.wall_height - 0.05)
-wall_dist = wall_grid.distance()
+from scene import VoxelScene
+scene = VoxelScene.from_course(course)
 zones = dark_zones(course, ("tube", "tunnel"))
 rng_tex = np.random.default_rng(7)
 TEX = rng_tex.uniform(0, 1, (48, 48, 48)).astype(np.float32)
@@ -125,37 +128,16 @@ def render(p_body, yaw, right=False, rng=None):
     Rz = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
     o = p_body + Rz @ np.array([CAM_X, 0.0, CAM_Z]) + (Rz @ RIGHT_OFF if right else 0.0)
     d = DB @ Rz.T
-    n = len(d)
-    t_floor = np.where(d[:, 2] < -1e-6, -o[2] / d[:, 2], np.inf)
-    t = np.zeros(n); hit = np.zeros(n, bool)
-    dxy = np.maximum(np.linalg.norm(d[:, :2], axis=1), 1e-6)
-    alive = np.ones(n, bool)
-    for _ in range(48):
-        idx = np.nonzero(alive)[0]
-        if not len(idx):
-            break
-        P = o[:2] + t[idx, None] * d[idx, :2]
-        ij = np.floor((P - wall_grid.origin) / wall_grid.res).astype(int)
-        r_ = np.clip(ij[:, 1], 0, wall_grid.occ.shape[0] - 1); c_ = np.clip(ij[:, 0], 0, wall_grid.occ.shape[1] - 1)
-        dd = wall_dist[r_, c_]
-        h = dd < 0.02
-        hit[idx[h]] = True; alive[idx[h]] = False
-        step = np.maximum(dd - 0.01, 0.01) / dxy[idx]
-        t[idx] += np.where(h, 0.0, step)
-        gone = (t[idx] > 8.0) | (t[idx] > t_floor[idx])
-        alive[idx[gone]] = False
-    use_floor = (t_floor <= t) | (~hit & np.isfinite(t_floor))
-    tt = np.where(use_floor, t_floor, t)
-    Pw = o + d * np.where(np.isfinite(tt), tt, 8.0)[:, None]
+    Pw, hit, use_floor = scene.raycast(o, d)
     img = 0.25 + 0.6 * solid_texture(Pw)
-    sky = (~use_floor) & ((~hit) | (Pw[:, 2] > course.wall_height))
+    sky = ~hit
     img[sky] = 0.35
     if gl is not None:
         fl = np.nonzero(use_floor)[0]
         on_line = dist_to_polyline(Pw[fl, :2], gl) < 0.0254
         img[fl[on_line]] *= 0.35
     img = img.reshape(H, W)
-    if any(lo[0] <= p_body[0] <= hi[0] and lo[1] <= p_body[1] <= hi[1] for lo, hi in zones):
+    if args.blackout_tube and any(lo[0] <= p_body[0] <= hi[0] and lo[1] <= p_body[1] <= hi[1] for lo, hi in zones):
         img *= 0.03                                       # the dark tube
     img = cv2.GaussianBlur(img, (0, 0), 0.6)
     if rng is not None:
@@ -176,7 +158,7 @@ th0, off = 0.7, np.array([1.2, -0.4, 0.0])
 c0, s0 = math.cos(th0), math.sin(th0)
 map_to_odom = lambda q: np.array([c0 * (q - off)[0] + s0 * (q - off)[1], -s0 * (q - off)[0] + c0 * (q - off)[1], (q - off)[2]])
 odom_vec_to_map = lambda w: np.array([c0 * w[0] - s0 * w[1], s0 * w[0] + c0 * w[1], w[2]])
-p = np.array([course.launch[0], course.launch[1], 0.0]); yaw = math.pi / 2
+p = np.array([course.launch[0], course.launch[1], args.initial_height]); yaw = math.pi / 2
 v = np.zeros(3); acc = np.zeros(3); bias = np.zeros(3); dark_v = None
 cmd = {"v": np.zeros(3), "yr": 0.0}
 
@@ -192,13 +174,14 @@ next_frame = 0.5
 grid = node.plan.grid; dist = grid.distance()
 min_clear, touches, contact, est, t_start, land_t = np.inf, 0, False, [], None, None
 traj = []
+trace = []
 truth_t = []
 render_s = 0.0
 wall0 = time.time()
 while BUS.t < args.t_max:
     t = BUS.t
     if abs((t * 100) % 3.333) < 1.0:
-        in_dark = any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
+        in_dark = args.blackout_tube and any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
         dark_v = (dark_v if dark_v is not None else np.append(rng.normal(0, args.dark_err, 2), rng.normal(0, 0.04))) if in_dark else None
         o = Odometry(); o.header.stamp = make_time(t); o.header.frame_id = "odom"
         po = map_to_odom(p + bias + np.append(rng.normal(0, 0.01, 2), rng.normal(0, 0.005)))
@@ -231,8 +214,8 @@ while BUS.t < args.t_max:
         a_cmd[:2] *= 3.0 / ah
     acc += (a_cmd - acc) * min(1.0, dt / 0.12)
     v += acc * dt; p += v * dt
-    if p[2] < 0:
-        p[2] = 0.0; v[2] = max(v[2], 0.0)
+    if p[2] < args.initial_height:
+        p[2] = args.initial_height; v[2] = max(v[2], 0.0)
     yaw += float(np.clip(cmd["yr"], -1.5, 1.5)) * dt
     bias[:2] += rng.normal(0, args.drift * math.sqrt(np.linalg.norm(v[:2] * dt) + 1e-12), 2)
     if dark_v is not None:
@@ -240,7 +223,11 @@ while BUS.t < args.t_max:
     traj.append(p.copy())
     truth_t.append(t)
     if node.align.valid and int(round(t / dt)) % 10 == 0:
-        pm, _ = node._map_pose(); est.append((t, float(np.linalg.norm(pm[:2] - p[:2]))))
+        pm, ym = node._map_pose(); est.append((t, float(np.linalg.norm(pm[:2] - p[:2]))))
+        trace.append(dict(t=t, truth=p.tolist(), estimate=pm.tolist(), yaw=yaw, estimate_yaw=ym,
+                          clearance=node.fc.range, expected=node._map_range(pm, ym),
+                          tau=None if node.follower is None else node.follower.tau,
+                          state=node.state, health=node.health.evaluate(t)[0]))
     if 0.3 < p[2] < course.wall_height:
         r_, c_ = grid.to_cell(p); clr = dist[r_, c_] - 0.24
         min_clear = min(min_clear, clr)
@@ -266,7 +253,7 @@ from collections import Counter
 reasons = Counter(" ".join(m.data.split(" ")[:2]) + (" | " + " ".join(m.data.split(" ")[2:5]) if m.data.startswith("HOVER") else "")
                   for _, m in BUS.published.get("/dh/health", []))
 res = {
-    "route": args.route, "seed": args.seed, "final_state": node.state, "abort_reason": node.abort_reason,
+    "initial_height_m": args.initial_height, "route": args.route, "route_used": node.plan.route_used, "planned_length_m": node.plan.legs[0].traj.length, "blackout_tube": args.blackout_tube, "seed": args.seed, "final_state": node.state, "abort_reason": node.abort_reason,
     "course_time_s": None if land_t is None or node.state == "ABORTED" else round(land_t - t_start, 2),
     "touches": touches, "min_clearance_m": round(float(min_clear), 3),
     "pad_xy_error_m": round(float(np.linalg.norm(p[:2] - course.pad_center[:2])), 3),
@@ -282,6 +269,9 @@ res = {
     "render_s": round(render_s, 1), "wall_s": round(time.time() - wall0, 1),
 }
 print("RESULT", json.dumps(res))
+if args.trace:
+    with open(args.trace, "w") as f:
+        json.dump(trace, f)
 if args.out:
     with open(args.out, "a", encoding="utf-8") as f:
         f.write(json.dumps(res) + "\n")

@@ -4,3 +4,5 @@ tools/sil/variants/
 build/
 install/
 log/
+
+.pytest_cache/

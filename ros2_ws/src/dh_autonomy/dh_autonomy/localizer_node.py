@@ -29,6 +29,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Float32MultiArray
 
+from dh_core.camera_geom import quat_to_rot
 from dh_core.course import Course
 from dh_core.health import PoseHistory, stamp_to_sec, wrap
 from dh_core.localize import DistanceFieldMatcher
@@ -58,7 +59,8 @@ class LocalizerNode(Node):
         P("consistent_tol", 0.10)       # m; how closely they must agree
         P("consistent_min_inlier", 0.85)
         P("consistent_max_rms", 0.03)   # m
-        P("consistent_max_jump", 1.0)   # m; never jump further than this
+        P("consistent_min_eig", 0.10)
+        P("consistent_max_jump", 0.30)   # m; never jump further than this
         P("max_scan_latency", 0.5)      # s; scans older than this (vs the newest pose) are stale
         P("pose_history_s", 3.0)
         P("min_points", 25)
@@ -75,6 +77,7 @@ class LocalizerNode(Node):
         self.rejected = {"unstamped": 0, "stale": 0, "future": 0, "no_pose": 0, "frame": 0, "few_points": 0,
                          "match": 0, "gate": 0}
         self.n_published = 0
+        self.waiting_scans = []
         try:
             from tf2_ros import Buffer, TransformListener
             self.tf_buffer = Buffer()
@@ -92,21 +95,30 @@ class LocalizerNode(Node):
     def _on_pose(self, m: PoseStamped):
         t = stamp_to_sec(m.header.stamp)
         p = m.pose.position
+        if m.header.frame_id != "course":
+            return
         self.hist.add(t, (p.x, p.y, p.z, quat_to_yaw(m.pose.orientation)))
+        pending, self.waiting_scans = self.waiting_scans, []
+        for scan in pending:
+            self._on_scan(scan)
 
-    def _scan_to_base(self, frame: str):
+    def _scan_to_base(self, frame: str, stamp):
         """(dx, dy, dyaw) of the scan frame in base_frame, or None if it cannot be resolved."""
         g = lambda n: self.get_parameter(n).value
-        if frame in ("", g("base_frame")):
+        if frame == g("base_frame"):
             return (g("sensor_x"), 0.0, 0.0)
         if self.tf_buffer is None:
             return None
         try:
             from rclpy.time import Time
-            tr = self.tf_buffer.lookup_transform(g("base_frame"), frame, Time()).transform
+            tr = self.tf_buffer.lookup_transform(g("base_frame"), frame, Time.from_msg(stamp)).transform
         except Exception:  # noqa: BLE001 - any tf2 failure = unknown frame
             return None
-        return (tr.translation.x, tr.translation.y, quat_to_yaw(tr.rotation))
+        q = tr.rotation
+        R = quat_to_rot(q.x, q.y, q.z, q.w)
+        if not np.all(np.isfinite(R)) or np.linalg.norm(R[2, :2]) > 0.05:
+            return None  # the 2-D map needs a horizontal scan plane
+        return (tr.translation.x, tr.translation.y, quat_to_yaw(q))
 
     def _reject(self, why: str):
         self.rejected[why] += 1
@@ -115,18 +127,23 @@ class LocalizerNode(Node):
     def _on_scan(self, m: LaserScan):
         g = lambda n: self.get_parameter(n).value
         t_scan = stamp_to_sec(m.header.stamp)
-        if t_scan <= 0.0:
+        if not math.isfinite(t_scan) or t_scan <= 0.0:
             return self._reject("unstamped")
+        if t_scan <= (self.last_accept or 0):
+            return self._reject("stale")
         if not len(self.hist):
             return self._reject("no_pose")
-        if t_scan > self.hist.newest + 0.05:
+        if t_scan > self._now() + 0.02:
             return self._reject("future")              # pose for that time has not arrived (or clocks differ)
-        if self.hist.newest - t_scan > g("max_scan_latency"):
+        if max(self.hist.newest - t_scan, self._now() - t_scan) > g("max_scan_latency"):
             return self._reject("stale")
-        prior = self.hist.at(t_scan, future_tol=0.05)
+        if t_scan > self.hist.newest:
+            self.waiting_scans = (self.waiting_scans + [m])[-4:]
+            return  # wait for bracketing odometry, never extrapolate camera priors
+        prior = self.hist.at(t_scan, future_tol=0.0)
         if prior is None:
             return self._reject("no_pose")
-        mount = self._scan_to_base(m.header.frame_id)
+        mount = self._scan_to_base(m.header.frame_id, m.header.stamp)
         if mount is None:
             self.get_logger().warn("scan frame %r not resolvable to %s; rejected" % (m.header.frame_id, g("base_frame")),
                                    throttle_duration_sec=5.0)
@@ -148,17 +165,22 @@ class LocalizerNode(Node):
         self.pub_h.publish(h)
         if not res.ok:
             return self._reject("match")
+        if not np.all(np.isfinite(res.pose)) or not np.isfinite(res.residual_rms):
+            return self._reject("match")
         d = res.pose - prior3
         d[2] = wrap(d[2])
         if self.last_accept is None:
             self.last_accept = t_scan
         allowed = g("max_correction") + g("gate_growth") * max(0.0, t_scan - self.last_accept)
         mag = float(np.linalg.norm(d[:2]))
+        if mag > g("consistent_max_jump"):
+            self.pending, self.recent = None, []
+            return self._reject("gate")
         if mag > allowed or abs(d[2]) > g("max_yaw_correction"):
             self.pending = None
             # Consistency override: several consecutive HIGH-QUALITY matches that agree are strong evidence
             # even when the jump gate is too narrow (e.g. after the dark tube).
-            good = (res.inlier_ratio >= g("consistent_min_inlier") and res.residual_rms <= g("consistent_max_rms")
+            good = (res.min_eig >= g("consistent_min_eig") and res.inlier_ratio >= g("consistent_min_inlier") and res.residual_rms <= g("consistent_max_rms")
                     and abs(d[2]) <= g("max_yaw_correction") and mag <= g("consistent_max_jump"))
             if not good:
                 self.recent = []

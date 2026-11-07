@@ -13,8 +13,9 @@ Both take commands in the ENU `odom` frame (the frame of
 
 Command-gating contract (Sky Beta competitor guide, as recorded in the research handoff section 6.3):
   * the organizers' flight_interface streams OffboardControlMode itself (10 Hz) and never arms or
-    changes mode; team nodes must WAIT FOR `offboard_active` BEFORE COMMANDING. So SkybetaBackend
-    publishes nothing until /skybeta/state reports offboard_active (requires_setpoint_stream = False);
+    changes mode. The fleet-ready auto_offboard.py requires a recent team setpoint to enter
+    Offboard: only zero readiness twists are allowed before fresh authority. Motion and the
+    trajectory clock wait for offboard_active; frozen state is never cleared by this backend;
   * twist setpoints expire after 1.0 s (then the interface holds its last safe position);
   * /skybeta/hold freezes at the last safe position; /skybeta/request_offboard is SITL-only.
   Px4Backend is the raw-PX4 path (SITL only unless the organizers approve): PX4 itself requires a
@@ -93,16 +94,31 @@ class SkybetaBackend(BackendBase):
     def _on_state(self, msg: String):
         try:
             st = json.loads(msg.data)
-        except ValueError:
+        except (ValueError, TypeError):
+            self.state, self.t_state = {}, None
             return
-        if isinstance(st, dict):
-            self.state = st
-            self.t_state = self._now()
+        if not isinstance(st, dict) or type(st.get("offboard_active")) is not bool:
+            self.state, self.t_state = {}, None
+            return
+        self.state = st
+        self.t_state = self._now()
 
     def state_fresh(self) -> bool:
-        return self.t_state is not None and self._now() - self.t_state <= self.state_timeout
+        if self.t_state is None or not 0 <= self._now() - self.t_state <= self.state_timeout:
+            return False
+        stamp = self.state.get("stamp", self.t_state)
+        return isinstance(stamp, (int, float)) and math.isfinite(stamp) and -0.02 <= self._now() - stamp <= self.state_timeout
 
     def send_velocity(self, vx, vy, vz, yaw_rate):
+        values = (vx, vy, vz, yaw_rate)
+        if not all(math.isfinite(v) for v in values):
+            return
+        # The real auto-Offboard handshake needs a recent setpoint before authority.
+        # Only a zero twist is permitted in that state; no altitude-floored poses.
+        if not self.offboard_active() and not (
+                self.state_fresh() and self.state.get("offboard_active") is False
+                and not self.frozen() and all(v == 0.0 for v in values)):
+            return
         m = TwistStamped()
         m.header.stamp = self.node.get_clock().now().to_msg()
         m.header.frame_id = "odom"
@@ -112,6 +128,8 @@ class SkybetaBackend(BackendBase):
         self.n_sent += 1
 
     def send_position(self, x, y, z, yaw):
+        if not self.offboard_active() or not all(math.isfinite(v) for v in (x, y, z)):
+            return
         m = PoseStamped()
         m.header.stamp = self.node.get_clock().now().to_msg()
         m.header.frame_id = "odom"
@@ -138,7 +156,8 @@ class SkybetaBackend(BackendBase):
 
     def offboard_active(self):
         # unknown (no or stale /skybeta/state) counts as NOT active: never command blind
-        return self.state_fresh() and bool(self.state.get("offboard_active", False))
+        return (self.state_fresh() and self.state.get("offboard_active") is True and not self.frozen()
+                and self.state.get("px4_link", True) is True and self.state.get("armed", True) is True)
 
     def frozen(self):
         return bool(self.state.get("frozen", False))
@@ -202,6 +221,9 @@ class DryRunBackend(BackendBase):
         if not self.authority:
             self.authority = True
             self._event("simulated Offboard authority granted (nothing is sent to the flight controller)")
+
+    def revoke_authority(self):
+        self.authority = False
 
     def send_velocity(self, vx, vy, vz, yaw_rate):
         m = TwistStamped()

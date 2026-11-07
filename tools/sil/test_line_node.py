@@ -63,14 +63,19 @@ def render(height, lateral, heading, half_width, floor_g, line_g, wall_g, rng, w
 
 
 def run(node_mod, height, lateral, heading, half_width, floor_g, line_g, wall_g, seed=0):
+    BUS.t = 1.0
+    Node.PARAM_OVERRIDES = {"mount_source": "parameters"}
     BUS.subs.clear(); BUS.published.clear()
     node = node_mod.LineNode()
     ci = CameraInfo(); ci.k = list(K.ravel()); ci.d = [0.0] * 5
+    ci.width, ci.height = W, H
+    ci.header.frame_id = "optical"
     node._on_info(ci)
-    node.height = height
+    node.hist.add(1.0, (0, 0, height, 0))
     img = render(height, lateral, heading, half_width, floor_g, line_g, wall_g, np.random.default_rng(seed))
     m = Image(); m.height, m.width, m.step, m.encoding, m.data = H, W, W, "mono8", img.tobytes()
     m.header.stamp = make_time(1.0)
+    m.header.frame_id = "optical"
     node._on_img(m)
     out = BUS.published.get("/dh/line_obs", [])
     v = out[-1][1].vector if out else None
@@ -121,6 +126,7 @@ def main():
         verdict = ("OK" if good else "WRONG") + ("" if used else " (conf < 0.5: ignored by mission)")
         rows.append("| %s | %+.2f | %+d | %+.3f m / %+.1f deg / conf %.2f | %s |" % (
             name, lat, hdg, e_lat, e_hdg, res[2], verdict))
+    assert not any(word in row for row in rows for word in ("MISSED", "WRONG", "FALSE")), rows
     txt = "\n".join(["# line_node end-to-end test (rendered mono images)", "",
                      "Real node code on ray-cast 1024x640 mono images: camera pitched 20 deg down, body %.2f m above the "
                      "floor, 2-inch guideline, corridor walls. Grey levels: floor 200, line 75 (model colours: light-grey "

@@ -49,14 +49,14 @@ class PoseHistory:
         return len(self.t)
 
     def add(self, t: float, xyzyaw) -> bool:
-        if t <= 0.0:
+        if not math.isfinite(t) or t <= 0.0 or not np.all(np.isfinite(xyzyaw)):
             return False
         k = bisect.bisect_left(self.t, t)
         if k < len(self.t) and abs(self.t[k] - t) < 1e-9:
-            self.v[k] = np.asarray(xyzyaw, float)          # duplicate stamp: keep the newest value
+            self.v[k] = np.asarray(xyzyaw, float).copy()          # duplicate stamp: keep the newest value
         else:
             self.t.insert(k, t)
-            self.v.insert(k, np.asarray(xyzyaw, float))
+            self.v.insert(k, np.asarray(xyzyaw, float).copy())
         while self.t and self.t[-1] - self.t[0] > self.span:
             self.t.pop(0); self.v.pop(0)
         return True
@@ -68,7 +68,7 @@ class PoseHistory:
     def at(self, t: float, future_tol: float = 0.02) -> Optional[np.ndarray]:
         """Pose at time t (linear interpolation, yaw on the circle), or None if t is outside the
         buffered window, in a gap longer than max_gap, or unstamped."""
-        if t <= 0.0 or not self.t:
+        if not math.isfinite(t) or t <= 0.0 or not self.t:
             return None
         if t < self.t[0] - 1e-9:
             return None                                    # older than the history: stale
@@ -97,10 +97,9 @@ class ClearanceParams:
     min_clearance: float = 0.45       # m: stop distance (horizontal command scaled to 0 at this range)
     slow_factor: float = 2.0          # start slowing at slow_factor * min_clearance
     timeout_s: float = 0.5            # message older than this (receipt or stamp) = STALE
-    invalid_scale: float = 0.35       # speed factor while stereo is momentarily invalid (no depth)
-    invalid_grace_s: float = 1.5      # after this long continuously invalid ...
-    invalid_floor_scale: float = 0.2  # ... creep at this factor (unknown != clear, but a dropout must not
-                                      # strand the drone forever); 0.0 = hover instead
+    invalid_scale: float = 0.0        # deprecated compatibility field; invalid always stops
+    invalid_grace_s: float = 1.5       # deprecated; no blind-motion grace
+    invalid_floor_scale: float = 0.0  # deprecated; never enables creep
     required: bool = True             # False only if stereo is deliberately not run (use_stereo:=false)
     hard_stop: float = 0.35           # m: closer than this ahead -> stop, whatever the map says
     unexpected_margin: float = 0.25   # m: measured this much shorter than the map predicts = unexpected obstacle
@@ -117,12 +116,18 @@ class ForwardClearanceMonitor:
         self.prm = prm
         self.range = math.nan
         self.t_stamp = 0.0
+        self.last_valid_stamp = 0.0
         self.t_rx = None
         self.invalid_since = None
 
     def update(self, t_stamp: float, t_rx: float, rng: float) -> None:
-        if t_stamp > 0.0 and t_stamp < self.t_stamp:
-            return                                         # out of order: keep the newer reading
+        if not math.isfinite(t_stamp) or t_stamp <= 0 or t_stamp > t_rx + 0.02:
+            # Invalidate now, but a bad future stamp must not poison recovery high-water mark.
+            self.t_stamp, self.t_rx, self.range = 0.0, t_rx, math.nan
+            return
+        if t_stamp <= self.last_valid_stamp:
+            return  # duplicates/out-of-order cannot refresh receipt freshness
+        self.last_valid_stamp = t_stamp
         self.t_stamp, self.t_rx, self.range = t_stamp, t_rx, float(rng)
         if math.isnan(self.range):
             if self.invalid_since is None:
@@ -133,7 +138,9 @@ class ForwardClearanceMonitor:
     def state(self, now: float) -> str:
         if self.t_rx is None:
             return MISSING
-        if now - self.t_rx > self.prm.timeout_s or self.t_stamp <= 0.0 or now - self.t_stamp > self.prm.timeout_s:
+        if (not math.isfinite(self.t_stamp) or self.t_stamp <= 0.0
+                or now < self.t_rx or self.t_stamp > now + 0.02
+                or now - self.t_rx > self.prm.timeout_s or now - self.t_stamp > self.prm.timeout_s):
             return STALE
         if math.isnan(self.range):
             return INVALID
@@ -144,9 +151,8 @@ class ForwardClearanceMonitor:
     def speed_scale(self, now: float, expected_blind: bool = False,
                     expected_range: Optional[float] = None) -> Tuple[float, str]:
         """Horizontal speed factor in [0, 1] and the state.
-        expected_blind : inside a mapped dark zone, where stereo cannot work by design and the map-planned
-                         path is flown (documented policy).
-        expected_range : forward range the course MAP predicts from the current pose. A reading consistent
+        expected_blind : deprecated, ignored; geometry never waives invalid stereo.
+        expected_range : forward range the course MAP predicts at the measurement capture pose. A reading consistent
                          with the map (a planned wall at a hairpin) is not an obstacle unless it is closer
                          than hard_stop; only readings clearly shorter than the map slow the drone."""
         st = self.state(now)
@@ -162,11 +168,9 @@ class ForwardClearanceMonitor:
                 return 1.0, "MAPPED_WALL"
             return float(np.clip((self.range - mc) / ((self.prm.slow_factor - 1.0) * mc), 0.0, 1.0)), st
         if st == INVALID:
-            if expected_blind:
-                return 1.0, st
-            if now - self.invalid_since > self.prm.invalid_grace_s:
-                return self.prm.invalid_floor_scale, st
-            return self.prm.invalid_scale, st
+            # Unknown depth is never clearance, even in a mapped tube. Legacy tuning parameters
+            # and expected_blind remain accepted for old callers but cannot enable blind motion.
+            return 0.0, st
         return 0.0, st                                     # STALE / MISSING: no trustworthy information
 
 
@@ -179,9 +183,14 @@ class LocHealthParams:
     odom_timeout_s: float = 0.4       # no odometry for this long -> hover (zero velocity)
     odom_abort_s: float = 2.0         # ... for this long -> abort (interface hold)
     vo_lost_states: tuple = (2,)      # VisualSlamStatus.vo_state values meaning "tracking lost"
-    vo_lost_abort_s: float = 3.0      # tracking lost OUTSIDE a mapped dark zone for this long -> abort
-    max_dark_s: float = 4.0           # dead-reckoning inside a dark zone longer than this -> hover
+    vo_lost_abort_s: float = 3.0      # tracking unavailable this long -> abort, anywhere
+    vo_timeout_s: float = 1.0
+    require_vo_status: bool = False
+    jump_yaw_rad: float = 0.35
+    max_dark_s: float = 4.0           # deprecated compatibility field; geometry is not sensor health
     jump_tol_m: float = 0.25          # odometry step larger than v*dt + this = relocalization jump
+    jump_abort_s: float = 3.0
+    recovery_fixes: int = 3
     jump_pause_s: float = 0.6
     big_fix_m: float = 0.30           # map correction larger than this = sudden pose correction
     big_fix_slow_s: float = 1.0
@@ -190,7 +199,7 @@ class LocHealthParams:
 
 
 class LocalizationHealth:
-    """Fuses odometry freshness, VO tracking status, dark-zone dead-reckoning time, odometry jumps,
+    """Fuses capture/receipt freshness, VO tracking status, pose discontinuities,
     map-correction size and reported covariance into a mode and a speed factor."""
 
     def __init__(self, prm: LocHealthParams = LocHealthParams()):
@@ -198,33 +207,51 @@ class LocalizationHealth:
         self.t_odom_rx = None
         self.last_xyz = None
         self.last_odom_t = None
+        self.vo_rx = None
         self.vo_state = None
         self.vo_lost_since = None
         self.dark_since = None
+        self.jump_since = None
+        self.recovery_count = 0
         self.pause_until = -1.0
         self.slow_until = -1.0
         self.pos_std = None
         self.reasons: List[str] = []
 
-    def on_odom(self, t_rx: float, t_stamp: float, xyz, pos_std: Optional[float] = None, v_max: float = 1.5):
+    def on_odom(self, t_rx: float, t_stamp: float, xyz, pos_std: Optional[float] = None, v_max: float = 1.5, yaw=None):
         xyz = np.asarray(xyz, float)
         if self.last_xyz is not None and self.last_odom_t is not None and t_stamp > self.last_odom_t:
             dt = t_stamp - self.last_odom_t
-            if np.linalg.norm(xyz[:2] - self.last_xyz[:2]) > v_max * dt + self.prm.jump_tol_m:
+            if (np.linalg.norm(xyz - self.last_xyz) > v_max * dt + self.prm.jump_tol_m
+                    or (yaw is not None and getattr(self, "last_yaw", None) is not None
+                        and abs(wrap(yaw - self.last_yaw)) > 1.5 * dt + self.prm.jump_yaw_rad)):
+                if self.jump_since is None:
+                    self.jump_since = t_rx
+                self.recovery_count = 0
                 self.pause_until = max(self.pause_until, t_rx + self.prm.jump_pause_s)
                 self.reasons.append("odometry jump %.2f m" % float(np.linalg.norm(xyz[:2] - self.last_xyz[:2])))
         self.last_xyz, self.last_odom_t, self.t_odom_rx = xyz, t_stamp, t_rx
         self.pos_std = pos_std
+        self.last_yaw = yaw
 
     def on_vo_status(self, t: float, vo_state: int):
+        self.vo_rx = t
         self.vo_state = int(vo_state)
-        if self.vo_state in self.prm.vo_lost_states:
+        if self.vo_state != 1:
             if self.vo_lost_since is None:
                 self.vo_lost_since = t
         else:
             self.vo_lost_since = None
 
     def on_map_fix(self, t: float, magnitude: float):
+        if self.jump_since is not None and t >= self.pause_until:
+            if magnitude <= self.prm.big_fix_m:
+                self.recovery_count += 1
+                if self.recovery_count >= self.prm.recovery_fixes:
+                    self.jump_since = None
+                    self.slow_until = max(self.slow_until, t + self.prm.big_fix_slow_s)
+            else:
+                self.recovery_count = 0
         if magnitude > self.prm.big_fix_m:
             self.slow_until = max(self.slow_until, t + self.prm.big_fix_slow_s)
 
@@ -241,23 +268,37 @@ class LocalizationHealth:
         p = self.prm
         if self.t_odom_rx is None:
             return HOVER, 0.0, "no odometry yet"
-        age = now - self.t_odom_rx
+        age = max(now - self.t_odom_rx, now - self.last_odom_t)
+        if self.last_odom_t > now + 0.02 or now < self.t_odom_rx:
+            return HOVER, 0.0, "odometry clock mismatch"
         if age > p.odom_abort_s:
             return ABORT, 0.0, "odometry lost for %.1f s" % age
         if age > p.odom_timeout_s:
             return HOVER, 0.0, "odometry stale (%.2f s)" % age
-        in_dark = self.dark_since is not None
-        if self.vo_lost_since is not None and not in_dark:
+        # The tube is lit. Geometry never waives tracking loss or starts a blind timer.
+        if self.prm.require_vo_status or self.vo_rx is not None:
+            if self.vo_rx is None:
+                return HOVER, 0.0, "no visual tracking status"
+            vo_age = now - self.vo_rx
+            if vo_age < 0 or vo_age > p.vo_timeout_s:
+                if vo_age > p.vo_lost_abort_s:
+                    return ABORT, 0.0, "visual tracking status lost"
+                return HOVER, 0.0, "visual tracking status stale"
+        if self.vo_lost_since is not None:
             lost = now - self.vo_lost_since
             if lost > p.vo_lost_abort_s:
-                return ABORT, 0.0, "visual tracking lost for %.1f s outside a mapped dark zone" % lost
-            return HOVER, 0.0, "visual tracking lost (%.1f s)" % lost
-        if in_dark and now - self.dark_since > p.max_dark_s:
-            return HOVER, 0.0, "dead-reckoning in the dark zone for %.1f s" % (now - self.dark_since)
+                return ABORT, 0.0, "visual tracking lost for %.1f s" % lost
+            return HOVER, 0.0, "visual tracking unavailable (%.1f s)" % lost
+        if self.jump_since is not None:
+            if now - self.jump_since > p.jump_abort_s:
+                return ABORT, 0.0, "pose discontinuity without confirmed map recovery"
+            return HOVER, 0.0, "pose discontinuity: waiting for map recovery"
         if now < self.pause_until:
             return HOVER, 0.0, "odometry jump: pausing"
         if now < self.slow_until:
             return DEGRADED, p.degraded_scale, "large map correction: slowing"
+        if self.pos_std is not None and (not math.isfinite(self.pos_std) or self.pos_std > 2 * p.max_pos_std_m):
+            return HOVER, 0.0, "odometry uncertainty excessive"
         if self.pos_std is not None and self.pos_std > p.max_pos_std_m:
             return DEGRADED, p.degraded_scale, "odometry uncertainty %.2f m" % self.pos_std
         return OK, 1.0, ""

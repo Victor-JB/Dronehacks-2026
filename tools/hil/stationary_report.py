@@ -52,7 +52,7 @@ def main():
                 p = m.pose.position; poses.append((p.x, p.y, p.z))
             elif name == "clearance":
                 r = m.range
-                fc["unknown" if math.isnan(r) else ("clear" if math.isinf(r) else "obstacle")] += 1
+                fc["unknown" if math.isnan(r) else ("clear" if r == math.inf else "obstacle")] += 1
             elif name == "dry_cmd":
                 v = m.twist.linear; cmds.append(math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z))
         return cb

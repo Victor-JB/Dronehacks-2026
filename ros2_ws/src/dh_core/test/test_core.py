@@ -259,10 +259,10 @@ def test_forward_clearance_monitor_states():
     assert m.speed_scale(1.1) == (1.0, "CLEAR")          # valid measurement, nothing ahead
     assert m.speed_scale(1.7)[1] == "STALE" and m.speed_scale(1.7)[0] == 0.0
     m.update(2.0, 2.0, math.nan)
-    assert m.speed_scale(2.1) == (0.35, "INVALID")
-    assert m.speed_scale(2.1, expected_blind=True)[0] == 1.0     # mapped dark zone: blind by design
+    assert m.speed_scale(2.1) == (0.0, "INVALID")
+    assert m.speed_scale(2.1, expected_blind=True)[0] == 0.0     # mapped dark zone: blind by design
     m.update(3.4, 3.4, math.nan)
-    assert m.speed_scale(3.6) == (0.2, "INVALID")        # past the grace period: creep, never full speed
+    assert m.speed_scale(3.6) == (0.0, "INVALID")        # past the grace period: creep, never full speed
     m.update(4.0, 4.0, 0.6)                              # unexpected obstacle (map says 3 m)
     s, st = m.speed_scale(4.1, expected_range=3.0)
     assert st == "OBSTACLE" and abs(s - (0.6 - 0.45) / 0.45) < 1e-9
@@ -286,7 +286,10 @@ def test_localization_health_modes():
     h.on_odom(4.033, 4.033, (0.6, 0, 1))                 # 0.6 m in 33 ms: relocalization jump
     assert h.evaluate(4.1)[0] == "HOVER"
     h.on_odom(4.65, 4.65, (0.6, 0, 1))
-    assert h.evaluate(4.7)[0] == "OK"                    # pause over, odometry fresh
+    assert h.evaluate(4.7)[0] == "HOVER"
+    for t in (4.71, 4.72, 4.73):
+        h.on_map_fix(t, 0.02)
+    assert h.evaluate(4.74)[0] == "DEGRADED"                    # pause over, odometry fresh
     h.on_odom(4.8, 4.8, (0.6, 0, 1))
     h.on_map_fix(4.8, 0.5)
     m, s, _ = h.evaluate(4.9)
@@ -295,14 +298,14 @@ def test_localization_health_modes():
     h.on_vo_status(6.0, 2)                                # tracking lost outside a dark zone
     assert h.evaluate(6.1)[0] == "HOVER"
     h.set_in_dark(6.0, True)                              # ... inside the mapped tube it is expected
-    assert h.evaluate(6.1)[0] == "OK"
+    assert h.evaluate(6.1)[0] == "HOVER"
     h.on_odom(10.5, 10.5, (0.6, 0, 1))
-    assert h.evaluate(10.5)[0] == "HOVER"                 # dead-reckoning too long in the dark
+    assert h.evaluate(10.5)[0] == "ABORT"                 # dead-reckoning too long in the dark
     h.set_in_dark(10.5, False)
     h.on_odom(10.6, 10.6, (0.6, 0, 1))
     assert h.evaluate(10.6)[0] == "ABORT" or h.evaluate(10.6)[0] == "HOVER"
     h.on_vo_status(10.6, 1)
-    h.on_odom(10.7, 10.7, (0.6, 0, 1), pos_std=0.4)
+    h.on_odom(10.7, 10.7, (0.6, 0, 1), pos_std=0.2)
     assert h.evaluate(10.7)[0] == "DEGRADED"
 
 
