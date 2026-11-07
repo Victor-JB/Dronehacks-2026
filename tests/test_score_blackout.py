@@ -60,13 +60,13 @@ class BlackoutScoreTests(unittest.TestCase):
         self.log = SimpleNamespace(start_timestamp=1000000, last_timestamp=6100000,
                                    file_corruption=False, msg_info_dict={}, dropouts=[])
 
-    def score(self):
+    def score(self, expected_fault=blackout.FAULT):
         for name, rows in [('telemetry.jsonl', self.telemetry), ('observer/truth.jsonl', self.truth),
                            ('observer/contacts.jsonl', self.contacts)]:
             (self.run/name).write_text(''.join(json.dumps(row)+'\n' for row in rows))
         self.log.data_list = [self.visual, self.vehicle, self.land]
         with patch.object(blackout, '_load_ulog', return_value=self.log):
-            return blackout.score_blackout(self.run, self.ulog_path)
+            return blackout.score_blackout(self.run, self.ulog_path, expected_fault=expected_fault)
 
     def test_complete_fault_response_passes_separately_from_mission(self):
         report = self.score()
@@ -114,6 +114,57 @@ class BlackoutScoreTests(unittest.TestCase):
         self.log.dropouts = []
         self.log.last_timestamp = 5950000
         self.assertFalse(self.score()['checks']['camera_aid_stopped_through_abort'])
+
+    def prepare_policy_fault(self, actual_fault=blackout.POLICY_FAULT, include_action=True, task='policy',
+                             action_time=2.8):
+        self.telemetry[0]['task'] = task
+        if include_action:
+            self.telemetry.insert(3, {'type': 'policy_action', 'sim_time': action_time, 'capture_usec': 2760000,
+                                      'capture_age_sim_s': .04, 'latency_wall_s': .015})
+        else:
+            self.telemetry = [row for row in self.telemetry if row.get('type') != 'policy_action']
+        fault_event = next(row for row in self.telemetry
+                           if row.get('message', '').startswith('Mission stopped:'))
+        fault_event['message'] = f'Mission stopped: {actual_fault}'
+        next(row for row in self.telemetry if row.get('type') == 'summary')['fault'] = actual_fault
+
+    def test_expected_policy_fault_passes_with_preinjection_policy_action(self):
+        self.prepare_policy_fault()
+        report = self.score(expected_fault=blackout.POLICY_FAULT)
+        self.assertTrue(report['fault_test_passed'], report['checks'])
+        self.assertEqual(report['expected_fault'], blackout.POLICY_FAULT)
+        self.assertTrue(report['checks']['expected_fault_observed'])
+        self.assertTrue(report['checks']['policy_task_and_pre_injection_action_present'])
+        self.assertEqual(report['timeline_sim_s']['expected_fault'], 3.5)
+        self.assertNotIn('stale_capture_fault', report['timeline_sim_s'])
+
+    def test_wrong_policy_fault_does_not_pass_by_observed_fault_inference(self):
+        self.prepare_policy_fault(actual_fault=blackout.FAULT)
+        report = self.score(expected_fault=blackout.POLICY_FAULT)
+        self.assertFalse(report['fault_test_passed'])
+        self.assertFalse(report['checks']['expected_fault_observed'])
+        self.assertFalse(report['checks']['injection_fault_land_ack_disarm_events_ordered'])
+
+    def test_policy_fault_requires_policy_task_and_prior_action(self):
+        self.prepare_policy_fault(task='hover')
+        report = self.score(expected_fault=blackout.POLICY_FAULT)
+        self.assertFalse(report['fault_test_passed'])
+        self.assertFalse(report['checks']['policy_task_and_pre_injection_action_present'])
+
+    def test_policy_action_before_arming_does_not_satisfy_active_policy_evidence(self):
+        self.prepare_policy_fault(action_time=.8)
+        report = self.score(expected_fault=blackout.POLICY_FAULT)
+        self.assertFalse(report['fault_test_passed'])
+        self.assertFalse(report['checks']['policy_task_and_pre_injection_action_present'])
+
+        self.prepare_policy_fault(include_action=False)
+        report = self.score(expected_fault=blackout.POLICY_FAULT)
+        self.assertFalse(report['fault_test_passed'])
+        self.assertFalse(report['checks']['policy_task_and_pre_injection_action_present'])
+
+    def test_expected_fault_rejects_unlisted_values(self):
+        with self.assertRaises(ValueError):
+            blackout.score_blackout(self.run, self.ulog_path, expected_fault='some_other_failure')
 
 
 if __name__ == '__main__':

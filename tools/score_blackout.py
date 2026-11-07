@@ -15,6 +15,8 @@ from tools import score_markerfree as route_score
 ROOT = Path(__file__).resolve().parents[1]
 INJECTION = 'Injected RGBD capture loss; no further measurements sent'
 FAULT = 'rgbd_pose_unavailable:stale_capture'
+POLICY_FAULT = 'stale_policy_action'
+EXPECTED_FAULTS = (FAULT, POLICY_FAULT)
 LAND_REQUEST = 'Requested PX4 Land after mission stop'
 LAND_ACK = 'PX4 command 21: result 0'
 CONFIRMED = 'PX4 confirmed touchdown and disarm after abort'
@@ -31,8 +33,8 @@ def _load_ulog(data):
     return ULog(io.BytesIO(data), list(ULOG_TOPICS))
 
 
-def _ordered_events(events):
-    required = [route_score.ARMED_EVENT, INJECTION, f'Mission stopped: {FAULT}',
+def _ordered_events(events, expected_fault=FAULT):
+    required = [route_score.ARMED_EVENT, INJECTION, f'Mission stopped: {expected_fault}',
                 LAND_REQUEST, LAND_ACK, CONFIRMED]
     positions = []
     for message in required:
@@ -154,7 +156,9 @@ def _displacement(start, end):
     return float(np.linalg.norm(end[:2]-start[:2])) if start is not None and end is not None else None
 
 
-def score_blackout(run_directory, ulog_path):
+def score_blackout(run_directory, ulog_path, expected_fault=FAULT):
+    if expected_fault not in EXPECTED_FAULTS:
+        raise ValueError(f'expected_fault must be one of {EXPECTED_FAULTS!r}')
     directory, ulog_path = Path(run_directory).resolve(), Path(ulog_path).resolve()
     hashes = {}
     telemetry = route_score._load(directory/'telemetry.jsonl', hashes, lines=True)
@@ -164,6 +168,7 @@ def score_blackout(run_directory, ulog_path):
         raise ValueError('telemetry metadata and summary run IDs disagree')
     events = [row for row in telemetry if row.get('type') == 'event']
     samples = [row for row in telemetry if row.get('type') == 'sample']
+    policy_actions = [row for row in telemetry if row.get('type') == 'policy_action']
 
     def stamp(message):
         value = route_score._event(events, message).get('sim_time')
@@ -214,8 +219,9 @@ def score_blackout(run_directory, ulog_path):
                  and fault_pose[2] - launch[2] > route_score.TOUCHDOWN_HEIGHT_TOLERANCE_M
                  and abs(final_pose[2]-launch[2]) <= route_score.TOUCHDOWN_HEIGHT_TOLERANCE_M)
     checks = {
-        'intentional_stale_capture_fault': summary.get('result') == 'failed' and summary.get('fault') == FAULT,
-        'injection_fault_land_ack_disarm_events_ordered': ordered_times and _ordered_events(events),
+        ('intentional_stale_capture_fault' if expected_fault == FAULT else 'expected_fault_observed'):
+            summary.get('result') == 'failed' and summary.get('fault') == expected_fault,
+        'injection_fault_land_ack_disarm_events_ordered': ordered_times and _ordered_events(events, expected_fault),
         'camera_aid_stopped_through_abort': unchanged and valid_aid_log,
         'px4_auto_land_mode_observed': auto_land is not None,
         'px4_ground_and_disarm_confirmed_after_fault': summary.get('landed_after_fault') is True
@@ -225,10 +231,21 @@ def score_blackout(run_directory, ulog_path):
         'no_unexpected_contact_in_received_messages': counts is not None
         and not (counts['obstacle'] or counts['transit_ground']),
     }
+    if expected_fault == POLICY_FAULT:
+        checks['policy_task_and_pre_injection_action_present'] = (
+            metadata.get('task') == 'policy'
+            and armed is not None
+            and injection is not None
+            and any(row.get('sim_time') is not None and armed <= row['sim_time'] < injection
+                    for row in policy_actions)
+        )
 
     model = airframe.X500_SDF
+    runner_path = ROOT/'mission/markerfree_run.py'
+    checked_runner_hash = hashlib.sha256(runner_path.read_bytes()).hexdigest()
+    recorded_runner_hash = metadata.get('runtime_source_sha256', {}).get('mission/markerfree_run.py')
     for path in [Path(__file__), Path(route_score.__file__), Path(sim.__file__), Path(airframe.__file__),
-                 ROOT/'mission/markerfree_run.py', model, model.parents[1]/'flight_x500/model.sdf',
+                 runner_path, model, model.parents[1]/'flight_x500/model.sdf',
                  course.route_path, course.groups_path, *(
                      course.mesh_dir/group['mesh'] for group in course.groups['groups'] if group['collidable'])]:
         hashes[str(path.resolve())] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -236,11 +253,14 @@ def score_blackout(run_directory, ulog_path):
         'run_id': metadata['run_id'],
         'mission_result': summary.get('result', 'incomplete'),
         'mission_fault': summary.get('fault'),
+        'expected_fault': expected_fault,
         'fault_test_passed': all(checks.values()),
         'checks': checks,
         'timeline_sim_s': {
             'controller_armed_offboard': armed, 'injected_camera_aiding_stop': injection,
-            'stale_capture_fault': fault, 'px4_entered_auto_land': auto_land,
+            'expected_fault': fault,
+            **({'stale_capture_fault': fault} if expected_fault == FAULT else {}),
+            'px4_entered_auto_land': auto_land,
             'independent_first_floor_contact': first_floor_stamp, 'px4_disarmed': disarmed,
             'controller_confirmed_ground_and_disarm': confirmed,
         },
@@ -248,9 +268,16 @@ def score_blackout(run_directory, ulog_path):
             'controller_total_vision_measurements_sent': count,
             'controller_send_count_unchanged_in_recorded_samples_after_injection': unchanged,
             'px4_ulog': log,
-            'source_guard': ('The hashed checkout of mission/markerfree_run.py skips Link.vision once '
-                             'blackout is set and disables vision forwarding in observe_abort_landing. '
-                             'The run telemetry does not embed the runner source hash.'),
+            'source_guard': {
+                'recorded_runner_source_sha256': recorded_runner_hash,
+                'checked_runner_source_sha256': checked_runner_hash,
+                'recorded_hash_matches_checked_source': (recorded_runner_hash == checked_runner_hash
+                                                           if recorded_runner_hash is not None else None),
+                'interpretation': ('Telemetry records runtime_source_sha256 when available. A missing hash '
+                                   'means runner-source identity cannot be established for that historical run; '
+                                   'the scorer hashes the currently checked source but does not retroactively '
+                                   'attribute it to the run.'),
+            },
             'interpretation': ('The ULog count measures logged updates. Logger sampling and any unobserved '
                                'records limit absence claims, including when no dropout mark is present.'),
         },
@@ -280,10 +307,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run_directory', type=Path)
     parser.add_argument('--ulog', type=Path, required=True, help='closed PX4 ULog from this run')
+    parser.add_argument('--expected-fault', choices=EXPECTED_FAULTS, default=FAULT,
+                        help='exact fault expected after injection; defaults to legacy stale-capture behavior')
     parser.add_argument('--output', type=Path, help='new report path; defaults to RUN_DIRECTORY/fault-test.json')
     args = parser.parse_args()
     try:
-        result = score_blackout(args.run_directory, args.ulog)
+        result = score_blackout(args.run_directory, args.ulog, expected_fault=args.expected_fault)
     except ModuleNotFoundError as error:
         if error.name == 'pyulog':
             parser.error('install pyulog in this Python environment to read PX4 ULogs')
