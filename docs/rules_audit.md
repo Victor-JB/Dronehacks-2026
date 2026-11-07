@@ -1,5 +1,8 @@
 # Rules audit: every strategy and component against the official rulebook (2026-11-06)
 
+> Historical audit; current source review is in `LOCAL_VALIDATION.md`. The illuminated tube no longer has a blind-motion exemption. VO status is now required by default. Fleet-ready 7efe7e4 requires a recent startup setpoint: only zero readiness twists precede Offboard; motion waits for fresh authority. No physical flight or hardware command is authorized by this document.
+
+
 Rule numbers refer to the official rulebook as summarised in `../stanford_drone_hacks_research_handoff.md` §3–4.
 
 Legend:

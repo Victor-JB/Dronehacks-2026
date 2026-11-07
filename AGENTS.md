@@ -27,3 +27,19 @@ running an automated program, including a notebook or native terminal script.
 The cloud follow-up run without Reset failed; the fresh-world native run passed.
 The web Run button enforces this qualification boundary; terminal Python remains
 ordinary ROS and does not enforce it for you. This is not a VIO fix.
+
+
+# Autonomy development instructions
+
+Read `CODEX_HANDOFF.md`, `AUTONOMY_STATUS.md`, `README.md`, `STRATEGY.md`, the files being edited, and the latest team context on `origin/main` before substantial work. Preserve existing instructions and the team's five-file shared context system; do not replace those files with autonomy-specific notes.
+
+- Work only on `saketh/autonomy`. Preserve all history and uncommitted work. Never force-push or push feature code to main. Fetch and compare the remote branch before publishing; merge histories safely if needed.
+- Claude owns Gazebo on `saketh/gazebo` in a separate worktree. Do not modify that worktree or Gazebo files as part of autonomy work.
+- Physical flight is prohibited. Do not SSH to either Jetson or operate hardware in this task. Stop before the first hardware connection. The drone has no flight battery or propellers; sensors can be powered independently.
+- Keep `dry_run: true` by default. Stationary verification must create no flight-control publishers or service clients. Do not arm, change PX4 parameters/firmware, or send hardware `/skybeta/*` or `/fmu/*` commands.
+- Use portable ROS 2 interfaces, measured calibration and timestamped TF. Simulator truth belongs only in sensor models and test tools, never mission algorithms. Never invent fixes or weaken safety/tests to make a simulation finish.
+- Keep A* + clothoid as the default planner. The tube is illuminated: never infer sensor blindness or waive safety from its geometry.
+- Missing, stale, invalid or uncalibrated clearance is unknown and stops progression. Localization freshness must use capture stamps as well as receipt time.
+- Check the actual organizer source contract and record its revision. Distinguish source-verified compatibility from the event image, which needs stationary verification.
+- Run relevant local tests, preserve failures, and update `AUTONOMY_STATUS.md` with settings, evidence and blockers. Label unit tests, Python SIL, actual ROS 2 integration and hardware validation separately.
+- Keep credentials out of files and Git. Use the current editor identity. Obtain team approval before any later arming mission; that permission is outside this local task.

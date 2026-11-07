@@ -1,5 +1,8 @@
 # DroneHacks 2026 — Points Strategy and Engineering Rationale
 
+> Current correction (2026-11-06): the tube is illuminated. Blackout results below are historical fault-injection experiments, not nominal course predictions. Geometry never waives clearance or VO health. See `docs/LOCAL_VALIDATION.md` and `AUTONOMY_STATUS.md` for current tests and `docs/JETSON_VERIFICATION.md` for the only proposed hardware procedure (stationary, props off, no flight battery). No hardware was accessed. The default remains A* + clothoid. The old PX4 speed value is a historical bench assumption, not a verified event-image parameter.
+
+
 This document answers four questions: how to get the most points, whether to optimize for speed, whether hard-coding is worth it, and which waypoints, algorithms and papers to use. Every number is either from the official rules (see `../stanford_drone_hacks_research_handoff.md`) or produced by the code in this repository; each claim says which. The simulation results are **screening evidence, not proof**. Their noise levels are assumptions and must be re-tuned against real flight logs.
 
 ---

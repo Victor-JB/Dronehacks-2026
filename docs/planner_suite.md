@@ -1,5 +1,8 @@
 # Planner comparison suite (software-in-the-loop, real node code)
 
+> Historical comparison: not rerun after the safety/timing changes. These scores and blackout assumptions do not describe the current revision. See `LOCAL_VALIDATION.md` for the current default-planner regression. No planner algorithm was changed in this takeover.
+
+
 Same seeds (101, 102, 103) for every planner, localizer on, tube flown at full speed, PX4 cap 1.0 m/s unless noted. Simulator: PX4-like velocity loop with a 3 m/s^2 horizontal acceleration limit and 0.12 s attitude lag, altitude drift, ray-cast forward clearance driving the stereo slowdown, and 3-D wall contact at the true height. All planners share one 1.5 m/s^2 total-acceleration budget (fillet: combined limit; SFC: |a| limit; MPL: |u| <= a_max). 'fillet, old (arcs)' is the previous fillet planner, kept for comparison. Points use the official finished-run formula with +5 s per touch; T* = fastest finish in that test (all teams = these runs). 'Clean' = finished on the pad with no wall touch; 'crashed' = wall contact deeper than 10 cm (the sim has no collision physics). Plan time is laptop CPU; expect ~2-3x on the Orin Nano.
 
 ## Test A: nominal conditions

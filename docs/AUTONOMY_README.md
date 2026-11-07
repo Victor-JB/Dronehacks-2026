@@ -1,5 +1,8 @@
 # DroneHacks 2026 autonomy stack (ROS 2 Humble)
 
+> Current status: `AUTONOMY_STATUS.md` and `docs/LOCAL_VALIDATION.md` (paths relative to repository root). Physical flight is prohibited. Dry run is the default; nothing in the historical flight/simulation results below is hardware qualification. Use only `docs/JETSON_VERIFICATION.md` for the later stationary procedure. The tube is illuminated.
+
+
 Fully autonomous, GPS-denied flight through the Stanford DroneHacks 2026 course on the issued "Sky Beta" drone (Jetson Orin Nano + Pixhawk 6C/PX4 v1.16 + OAK-D S2). The route is **planned from the official course file at start-up**, not typed in. The drone follows it with a lag-compensated tracker and corrects drift by matching depth scans against the known course. It lands and disarms on the pad and, where allowed, re-arms and flies the return over the barrier.
 
 > **Read first:**
@@ -19,7 +22,7 @@ cuVSLAM odom ─► mission_node: MapAlignment (course←odom from the launch ma
                               state machine: WAIT_START → TAKEOFF → COURSE → LAND → LANDED → RETURN → RETURN_LAND → DONE
                               backends: skybeta (organizers' /skybeta/setpoint API) | px4 (px4_msgs offboard)
 stereo pair ──► stereo_scan_node (SGBM depth → horizontal pseudo-scan, forward clearance)
-            ──► localizer_node   (scan ↔ signed distance field of the course → /dh/map_correction)
+            ──► localizer_node   (scan ↔ signed distance field of the course → /dh/map_fix)
 mono image ───► line_node        (floor guideline → lateral correction in the maze)
 ```
 
@@ -44,23 +47,9 @@ team_build.sh            # in the skybeta container (or: colcon build --symlink-
 
 The packages need numpy, scipy (optional, for speed) and OpenCV (`python3-opencv`); all are in the Isaac ROS base image. `px4_msgs` is needed only for `backend:=px4`; use the image's own copy and **do not** add `px4_msgs` to the team workspace.
 
-## Run on the drone
+## Stationary verification only
 
-```bash
-# with the organizers' stack running (host/run.sh stack) and the drone on the launch mark facing north:
-ros2 launch dh_autonomy autonomy.launch.py course_obj:=/root/team_ws/course/dronehacks-course-v3.obj backend:=skybeta route:=window
-# the single start command:
-ros2 topic pub --once /dh/start std_msgs/msg/Empty {}
-```
-
-Parameters to **measure** on the issued drone (in `config/competition.yaml`):
-- `robot_radius`: half tip-to-tip span + margin.
-- `camera_pitch_deg`, `camera_x`, `camera_z`: from `/etc/skybeta/drone.env`.
-- `launch_yaw_map`: how you place the drone; +π/2 = facing north, up the first corridor.
-
-Backends:
-- `skybeta` (default): uses the organizers' interface as documented. That interface **cannot arm, change mode or land**, so the mission flies the course and then hovers 0.35 m over the pad.
-- `px4`: publishes `px4_msgs` directly (offboard heartbeat, TrajectorySetpoint velocity, VehicleCommand arm/offboard/land/disarm). This enables the full land → disarm → re-arm → return sequence. **Use it only in SITL, or on the drone if the organizers allow it.** Do not run it together with their `flight_interface`.
+Follow `docs/JETSON_VERIFICATION.md` after a separate authorization for hardware access. No SSH, hardware connection, flight battery, propeller, arming or hardware command was used during local development. Use `dry_run:=true`, measured optical-to-body TF and fresh VO status. The Sky Beta backend cannot land or disarm; its pad state is a hover, not CP5 completion. Raw PX4 code remains simulation-only.
 
 ## Simulate
 
@@ -86,7 +75,7 @@ Backends:
    ros2 topic pub --once /dh/start std_msgs/msg/Empty {}
    ```
 
-## Results so far (simulation only; see `docs/`)
+## Historical results (superseded for the current revision by `docs/LOCAL_VALIDATION.md`)
 
 - **Auto-planned route from the official mesh:** window 16.20 m / 20.2 s; Gate B 16.75 m / 21.5 s at 0.85 m/s. Both include a straight pass along the tube axis and the landing descent ramp. Planning takes about 1.5 s on a laptop.
 - **SIL of the real nodes, 10 seeds per row** (`docs/sil_results_final.md`):
