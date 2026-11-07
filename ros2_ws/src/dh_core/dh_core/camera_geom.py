@@ -36,15 +36,24 @@ def disparity_to_body(disp: np.ndarray, f: float, B: float, cx: float, cy: float
 
 
 def points_to_scan(xb, yb, zb, band_center_z: float, band_half: float, fov: float, n_beams: int,
-                   max_range: float, min_pts: int = 5, pct: float = 10.0):
-    """Horizontal-band pseudo-scan: per angular bin, a low percentile of the ranges (robust nearest)."""
+                   max_range: float, min_pts: int = 5, pct: float = 10.0, return_counts: bool = False):
+    """Horizontal-band pseudo-scan: per angular bin, a low percentile of the ranges (robust nearest).
+
+    Beams with fewer than min_pts points within max_range are +inf. With return_counts, also returns the
+    number of in-band stereo points per beam at ANY range, so callers can tell "measured, nothing within
+    max_range" (many points, all far) from "no stereo data" (no points: textureless, dark, too close)."""
     keep = (np.abs(zb - band_center_z) < band_half) & (xb > 0.05)
     xb, yb = xb[keep], yb[keep]
+    amin, amax = -fov / 2, fov / 2
+    inc = (amax - amin) / (n_beams - 1)
+    counts = np.zeros(n_beams, int)
+    if len(xb):
+        ia = np.round((np.arctan2(yb, xb) - amin) / inc).astype(int)
+        ia = ia[(ia >= 0) & (ia < n_beams)]
+        counts = np.bincount(ia, minlength=n_beams)[:n_beams]
     rng = np.hypot(xb, yb)
     ok = rng < max_range
     xb, yb, rng = xb[ok], yb[ok], rng[ok]
-    amin, amax = -fov / 2, fov / 2
-    inc = (amax - amin) / (n_beams - 1)
     ranges = np.full(n_beams, np.inf)
     if len(xb):
         idx = np.round((np.arctan2(yb, xb) - amin) / inc).astype(int)
@@ -57,7 +66,31 @@ def points_to_scan(xb, yb, zb, band_center_z: float, band_half: float, fov: floa
             seg = rng[bounds[i]:bounds[i + 1]]
             if len(seg) >= min_pts:
                 ranges[i] = float(np.percentile(seg, pct))
+    if return_counts:
+        return ranges, amin, inc, counts
     return ranges, amin, inc
+
+
+def scan_validity(ranges: np.ndarray, counts: np.ndarray, angles: np.ndarray, half_angle: float,
+                  min_pts: int = 5, min_coverage: float = 0.6):
+    """REP-117 encoding of a pseudo-scan plus the forward-clearance verdict.
+
+    Returns (ranges_rep117, forward_range):
+      ranges_rep117 : per beam finite range; +inf = enough stereo points, none within max_range; NaN = no data.
+      forward_range : nearest finite range in |angle| <= half_angle if any (an obstacle is reported even if
+                      coverage is poor); otherwise +inf if at least min_coverage of the forward beams have
+                      data (measured clear); otherwise NaN (cannot vouch for a clear path).
+    """
+    r = np.asarray(ranges, float).copy()
+    has = np.asarray(counts) >= min_pts
+    r[~has] = np.nan
+    fwd = np.abs(angles) <= half_angle
+    fr = r[fwd]
+    finite = fr[np.isfinite(fr)]
+    if len(finite):
+        return r, float(finite.min())
+    cov = float(np.mean(has[fwd])) if fwd.any() else 0.0
+    return r, (math.inf if cov >= min_coverage else math.nan)
 
 
 def rays_to_floor(xn: np.ndarray, yn: np.ndarray, pitch: float, height: float, cam_x: float, cam_z: float):

@@ -1,0 +1,263 @@
+"""Time handling and sensor/localization health for the mission and localizer nodes (numpy only).
+
+Nothing here talks to ROS directly so it can be unit-tested; the nodes convert ROS messages with
+`stamp_to_sec` and feed plain numbers in. All times are seconds on ONE clock: the ROS clock of the
+Jetson (header stamps written by the camera driver and cuVSLAM, and node.get_clock().now()).
+HARDWARE VERIFICATION PENDING: that the OAK driver and cuVSLAM stamp with that same clock.
+"""
+from __future__ import annotations
+
+import bisect
+import math
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
+
+import numpy as np
+
+
+# ----------------------------------------------------------------------------------------- time
+def stamp_to_sec(stamp) -> float:
+    """builtin_interfaces/Time (sec, nanosec) -> float seconds. 0.0 means 'unstamped'."""
+    if stamp is None:
+        return 0.0
+    if isinstance(stamp, (int, float)):
+        return float(stamp)
+    sec = getattr(stamp, "sec", None)
+    if sec is None:
+        return 0.0
+    return float(sec) + 1e-9 * float(getattr(stamp, "nanosec", 0))
+
+
+def wrap(a: float) -> float:
+    return (a + math.pi) % (2 * math.pi) - math.pi
+
+
+class PoseHistory:
+    """Time-stamped (x, y, z, yaw) history with interpolation; robust to out-of-order inserts.
+
+    Used to look up where the drone was when a camera frame was CAPTURED, rather than where it is
+    when the (delayed) measurement arrives.
+    """
+
+    def __init__(self, span_s: float = 3.0, max_gap_s: float = 0.25):
+        self.span = span_s
+        self.max_gap = max_gap_s
+        self.t: List[float] = []
+        self.v: List[np.ndarray] = []
+
+    def __len__(self):
+        return len(self.t)
+
+    def add(self, t: float, xyzyaw) -> bool:
+        if t <= 0.0:
+            return False
+        k = bisect.bisect_left(self.t, t)
+        if k < len(self.t) and abs(self.t[k] - t) < 1e-9:
+            self.v[k] = np.asarray(xyzyaw, float)          # duplicate stamp: keep the newest value
+        else:
+            self.t.insert(k, t)
+            self.v.insert(k, np.asarray(xyzyaw, float))
+        while self.t and self.t[-1] - self.t[0] > self.span:
+            self.t.pop(0); self.v.pop(0)
+        return True
+
+    @property
+    def newest(self) -> float:
+        return self.t[-1] if self.t else 0.0
+
+    def at(self, t: float, future_tol: float = 0.02) -> Optional[np.ndarray]:
+        """Pose at time t (linear interpolation, yaw on the circle), or None if t is outside the
+        buffered window, in a gap longer than max_gap, or unstamped."""
+        if t <= 0.0 or not self.t:
+            return None
+        if t < self.t[0] - 1e-9:
+            return None                                    # older than the history: stale
+        if t > self.t[-1]:
+            return self.v[-1].copy() if t - self.t[-1] <= future_tol else None
+        k = bisect.bisect_left(self.t, t)
+        if abs(self.t[k] - t) < 1e-9:
+            return self.v[k].copy()
+        t0, t1 = self.t[k - 1], self.t[k]
+        if t1 - t0 > self.max_gap:
+            return None
+        a = (t - t0) / (t1 - t0)
+        v0, v1 = self.v[k - 1], self.v[k]
+        out = (1 - a) * v0 + a * v1
+        if len(out) >= 4:
+            out[3] = v0[3] + a * wrap(v1[3] - v0[3])
+        return out
+
+
+# ---------------------------------------------------------------------- forward clearance
+CLEAR, OBSTACLE, INVALID, STALE, MISSING = "CLEAR", "OBSTACLE", "INVALID", "STALE", "MISSING"
+
+
+@dataclass
+class ClearanceParams:
+    min_clearance: float = 0.45       # m: stop distance (horizontal command scaled to 0 at this range)
+    slow_factor: float = 2.0          # start slowing at slow_factor * min_clearance
+    timeout_s: float = 0.5            # message older than this (receipt or stamp) = STALE
+    invalid_scale: float = 0.35       # speed factor while stereo is momentarily invalid (no depth)
+    invalid_grace_s: float = 1.5      # after this long continuously invalid ...
+    invalid_floor_scale: float = 0.2  # ... creep at this factor (unknown != clear, but a dropout must not
+                                      # strand the drone forever); 0.0 = hover instead
+    required: bool = True             # False only if stereo is deliberately not run (use_stereo:=false)
+    hard_stop: float = 0.35           # m: closer than this ahead -> stop, whatever the map says
+    unexpected_margin: float = 0.25   # m: measured this much shorter than the map predicts = unexpected obstacle
+
+
+class ForwardClearanceMonitor:
+    """Distinguishes a measured clear path from missing, stale, invalid and obstacle readings.
+
+    Input convention (sensor_msgs/Range, REP 117): +inf = valid measurement, nothing within max_range;
+    NaN = invalid / insufficient stereo data; finite = nearest obstacle in the forward sector.
+    """
+
+    def __init__(self, prm: ClearanceParams = ClearanceParams()):
+        self.prm = prm
+        self.range = math.nan
+        self.t_stamp = 0.0
+        self.t_rx = None
+        self.invalid_since = None
+
+    def update(self, t_stamp: float, t_rx: float, rng: float) -> None:
+        if t_stamp > 0.0 and t_stamp < self.t_stamp:
+            return                                         # out of order: keep the newer reading
+        self.t_stamp, self.t_rx, self.range = t_stamp, t_rx, float(rng)
+        if math.isnan(self.range):
+            if self.invalid_since is None:
+                self.invalid_since = t_rx
+        else:
+            self.invalid_since = None
+
+    def state(self, now: float) -> str:
+        if self.t_rx is None:
+            return MISSING
+        if now - self.t_rx > self.prm.timeout_s or self.t_stamp <= 0.0 or now - self.t_stamp > self.prm.timeout_s:
+            return STALE
+        if math.isnan(self.range):
+            return INVALID
+        if self.range < self.prm.slow_factor * self.prm.min_clearance:
+            return OBSTACLE
+        return CLEAR
+
+    def speed_scale(self, now: float, expected_blind: bool = False,
+                    expected_range: Optional[float] = None) -> Tuple[float, str]:
+        """Horizontal speed factor in [0, 1] and the state.
+        expected_blind : inside a mapped dark zone, where stereo cannot work by design and the map-planned
+                         path is flown (documented policy).
+        expected_range : forward range the course MAP predicts from the current pose. A reading consistent
+                         with the map (a planned wall at a hairpin) is not an obstacle unless it is closer
+                         than hard_stop; only readings clearly shorter than the map slow the drone."""
+        st = self.state(now)
+        if not self.prm.required:
+            return 1.0, st
+        if st == CLEAR:
+            return 1.0, st
+        if st == OBSTACLE:
+            mc = self.prm.min_clearance
+            if expected_range is not None and self.range >= expected_range - self.prm.unexpected_margin:
+                if self.range < self.prm.hard_stop:
+                    return 0.0, "OBSTACLE_MAPPED_TOO_CLOSE"
+                return 1.0, "MAPPED_WALL"
+            return float(np.clip((self.range - mc) / ((self.prm.slow_factor - 1.0) * mc), 0.0, 1.0)), st
+        if st == INVALID:
+            if expected_blind:
+                return 1.0, st
+            if now - self.invalid_since > self.prm.invalid_grace_s:
+                return self.prm.invalid_floor_scale, st
+            return self.prm.invalid_scale, st
+        return 0.0, st                                     # STALE / MISSING: no trustworthy information
+
+
+# ---------------------------------------------------------------------- localization health
+OK, DEGRADED, HOVER, ABORT = "OK", "DEGRADED", "HOVER", "ABORT"
+
+
+@dataclass
+class LocHealthParams:
+    odom_timeout_s: float = 0.4       # no odometry for this long -> hover (zero velocity)
+    odom_abort_s: float = 2.0         # ... for this long -> abort (interface hold)
+    vo_lost_states: tuple = (2,)      # VisualSlamStatus.vo_state values meaning "tracking lost"
+    vo_lost_abort_s: float = 3.0      # tracking lost OUTSIDE a mapped dark zone for this long -> abort
+    max_dark_s: float = 4.0           # dead-reckoning inside a dark zone longer than this -> hover
+    jump_tol_m: float = 0.25          # odometry step larger than v*dt + this = relocalization jump
+    jump_pause_s: float = 0.6
+    big_fix_m: float = 0.30           # map correction larger than this = sudden pose correction
+    big_fix_slow_s: float = 1.0
+    degraded_scale: float = 0.4
+    max_pos_std_m: float = 0.15       # odometry position std above this -> degraded (if reported)
+
+
+class LocalizationHealth:
+    """Fuses odometry freshness, VO tracking status, dark-zone dead-reckoning time, odometry jumps,
+    map-correction size and reported covariance into a mode and a speed factor."""
+
+    def __init__(self, prm: LocHealthParams = LocHealthParams()):
+        self.prm = prm
+        self.t_odom_rx = None
+        self.last_xyz = None
+        self.last_odom_t = None
+        self.vo_state = None
+        self.vo_lost_since = None
+        self.dark_since = None
+        self.pause_until = -1.0
+        self.slow_until = -1.0
+        self.pos_std = None
+        self.reasons: List[str] = []
+
+    def on_odom(self, t_rx: float, t_stamp: float, xyz, pos_std: Optional[float] = None, v_max: float = 1.5):
+        xyz = np.asarray(xyz, float)
+        if self.last_xyz is not None and self.last_odom_t is not None and t_stamp > self.last_odom_t:
+            dt = t_stamp - self.last_odom_t
+            if np.linalg.norm(xyz[:2] - self.last_xyz[:2]) > v_max * dt + self.prm.jump_tol_m:
+                self.pause_until = max(self.pause_until, t_rx + self.prm.jump_pause_s)
+                self.reasons.append("odometry jump %.2f m" % float(np.linalg.norm(xyz[:2] - self.last_xyz[:2])))
+        self.last_xyz, self.last_odom_t, self.t_odom_rx = xyz, t_stamp, t_rx
+        self.pos_std = pos_std
+
+    def on_vo_status(self, t: float, vo_state: int):
+        self.vo_state = int(vo_state)
+        if self.vo_state in self.prm.vo_lost_states:
+            if self.vo_lost_since is None:
+                self.vo_lost_since = t
+        else:
+            self.vo_lost_since = None
+
+    def on_map_fix(self, t: float, magnitude: float):
+        if magnitude > self.prm.big_fix_m:
+            self.slow_until = max(self.slow_until, t + self.prm.big_fix_slow_s)
+
+    def set_in_dark(self, t: float, in_dark: bool):
+        if in_dark:
+            if self.dark_since is None:
+                self.dark_since = t
+        else:
+            self.dark_since = None
+
+    def evaluate(self, now: float) -> Tuple[str, float, str]:
+        """(mode, speed_scale, reason). HOVER = zero velocity + frozen trajectory clock; ABORT = stop
+        commanding and request the interface's hold."""
+        p = self.prm
+        if self.t_odom_rx is None:
+            return HOVER, 0.0, "no odometry yet"
+        age = now - self.t_odom_rx
+        if age > p.odom_abort_s:
+            return ABORT, 0.0, "odometry lost for %.1f s" % age
+        if age > p.odom_timeout_s:
+            return HOVER, 0.0, "odometry stale (%.2f s)" % age
+        in_dark = self.dark_since is not None
+        if self.vo_lost_since is not None and not in_dark:
+            lost = now - self.vo_lost_since
+            if lost > p.vo_lost_abort_s:
+                return ABORT, 0.0, "visual tracking lost for %.1f s outside a mapped dark zone" % lost
+            return HOVER, 0.0, "visual tracking lost (%.1f s)" % lost
+        if in_dark and now - self.dark_since > p.max_dark_s:
+            return HOVER, 0.0, "dead-reckoning in the dark zone for %.1f s" % (now - self.dark_since)
+        if now < self.pause_until:
+            return HOVER, 0.0, "odometry jump: pausing"
+        if now < self.slow_until:
+            return DEGRADED, p.degraded_scale, "large map correction: slowing"
+        if self.pos_std is not None and self.pos_std > p.max_pos_std_m:
+            return DEGRADED, p.degraded_scale, "odometry uncertainty %.2f m" % self.pos_std
+        return OK, 1.0, ""

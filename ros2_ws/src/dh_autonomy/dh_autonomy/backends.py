@@ -10,6 +10,15 @@ Px4Backend      - direct px4_msgs over uXRCE-DDS (OffboardControlMode,
 
 Both take commands in the ENU `odom` frame (the frame of
 /visual_slam/tracking/odometry). Yaw is ENU (CCW from +x).
+
+Command-gating contract (Sky Beta competitor guide, as recorded in the research handoff section 6.3):
+  * the organizers' flight_interface streams OffboardControlMode itself (10 Hz) and never arms or
+    changes mode; team nodes must WAIT FOR `offboard_active` BEFORE COMMANDING. So SkybetaBackend
+    publishes nothing until /skybeta/state reports offboard_active (requires_setpoint_stream = False);
+  * twist setpoints expire after 1.0 s (then the interface holds its last safe position);
+  * /skybeta/hold freezes at the last safe position; /skybeta/request_offboard is SITL-only.
+  Px4Backend is the raw-PX4 path (SITL only unless the organizers approve): PX4 itself requires a
+  setpoint stream before it accepts Offboard (requires_setpoint_stream = True).
 """
 from __future__ import annotations
 
@@ -20,7 +29,7 @@ from typing import Optional
 
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy, qos_profile_sensor_data
 from std_msgs.msg import String
 
 PX4_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -34,6 +43,7 @@ def yaw_to_quat(yaw: float):
 class BackendBase:
     can_arm = False
     can_land = False
+    requires_setpoint_stream = False   # True: setpoints must stream BEFORE Offboard (raw PX4)
 
     def __init__(self, node: Node):
         self.node = node
@@ -48,7 +58,7 @@ class BackendBase:
     def request_offboard(self) -> bool: return False
 
     # --- status
-    def offboard_active(self) -> bool: return True
+    def offboard_active(self) -> bool: return False
     def armed(self) -> Optional[bool]: return None
     def landed(self) -> Optional[bool]: return None
     def tick(self) -> None: ...
@@ -57,26 +67,40 @@ class BackendBase:
 class SkybetaBackend(BackendBase):
     """Organizers' interface: /skybeta/setpoint/{pose,twist}, /skybeta/state, /skybeta/hold."""
 
-    def __init__(self, node: Node):
+    def __init__(self, node: Node, ns: str = "/skybeta", state_timeout_s: float = 1.0):
         super().__init__(node)
-        self.pub_twist = node.create_publisher(TwistStamped, "/skybeta/setpoint/twist", 10)
-        self.pub_pose = node.create_publisher(PoseStamped, "/skybeta/setpoint/pose", 10)
+        ns = ns.rstrip("/")
+        self.ns = ns
+        self.state_timeout = state_timeout_s
+        self.pub_twist = node.create_publisher(TwistStamped, ns + "/setpoint/twist", 10)
+        self.pub_pose = node.create_publisher(PoseStamped, ns + "/setpoint/pose", 10)
         self.state = {}
-        node.create_subscription(String, "/skybeta/state", self._on_state, 10)
+        self.t_state = None
+        self.n_sent = 0
+        node.create_subscription(String, ns + "/state", self._on_state, qos_profile_sensor_data)
         self._hold_cli = None
         try:
             from std_srvs.srv import Trigger
             self._Trigger = Trigger
-            self._hold_cli = node.create_client(Trigger, "/skybeta/hold")
-            self._off_cli = node.create_client(Trigger, "/skybeta/request_offboard")
+            self._hold_cli = node.create_client(Trigger, ns + "/hold")
+            self._off_cli = node.create_client(Trigger, ns + "/request_offboard")
         except ImportError:
             self._off_cli = None
 
+    def _now(self) -> float:
+        return self.node.get_clock().now().nanoseconds * 1e-9
+
     def _on_state(self, msg: String):
         try:
-            self.state = json.loads(msg.data)
+            st = json.loads(msg.data)
         except ValueError:
-            pass
+            return
+        if isinstance(st, dict):
+            self.state = st
+            self.t_state = self._now()
+
+    def state_fresh(self) -> bool:
+        return self.t_state is not None and self._now() - self.t_state <= self.state_timeout
 
     def send_velocity(self, vx, vy, vz, yaw_rate):
         m = TwistStamped()
@@ -85,6 +109,7 @@ class SkybetaBackend(BackendBase):
         m.twist.linear.x, m.twist.linear.y, m.twist.linear.z = float(vx), float(vy), float(vz)
         m.twist.angular.z = float(yaw_rate)
         self.pub_twist.publish(m)
+        self.n_sent += 1
 
     def send_position(self, x, y, z, yaw):
         m = PoseStamped()
@@ -99,9 +124,11 @@ class SkybetaBackend(BackendBase):
             m.pose.orientation.w = 0.0
         self.pub_pose.publish(m)
 
-    def hold(self):
+    def hold(self) -> bool:
         if self._hold_cli is not None and self._hold_cli.service_is_ready():
             self._hold_cli.call_async(self._Trigger.Request())
+            return True
+        return False
 
     def request_offboard(self):
         if self._off_cli is not None and self._off_cli.service_is_ready():
@@ -110,7 +137,11 @@ class SkybetaBackend(BackendBase):
         return False
 
     def offboard_active(self):
-        return bool(self.state.get("offboard_active", False))
+        # unknown (no or stale /skybeta/state) counts as NOT active: never command blind
+        return self.state_fresh() and bool(self.state.get("offboard_active", False))
+
+    def frozen(self):
+        return bool(self.state.get("frozen", False))
 
     def armed(self):
         return self.state.get("armed")
@@ -119,10 +150,100 @@ class SkybetaBackend(BackendBase):
         return self.state.get("clamped", [])
 
 
+FORBIDDEN_IN_DRY_RUN = ("/skybeta", "/fmu")   # topic/service prefixes of the physical flight-control path
+
+
+def _forbidden(name: str) -> bool:
+    n = "/" + name.lstrip("/")
+    return any(n == p or n.startswith(p + "/") for p in FORBIDDEN_IN_DRY_RUN)
+
+
+class DryRunBackend(BackendBase):
+    """Hardware-in-the-loop dry run: commands go ONLY to /dh/dry_run/* and the log.
+
+    Isolation is enforced in code, not configuration:
+      * this class never creates a publisher or service client on /skybeta/* or /fmu/*
+        (its own topic names are checked against FORBIDDEN_IN_DRY_RUN at construction);
+      * `verify_isolation(node)` (called by the mission node at start-up) inspects every publisher and
+        client the node owns and raises if any reaches the flight-control interface.
+    It may READ /skybeta/state (subscriptions cannot command anything) to report what the real interface
+    shows. "Offboard" is simulated: authority is granted after /dh/start so the pipeline can be exercised
+    on a STATIONARY drone; the generated commands therefore describe a drone that does not move.
+    """
+    can_arm = False
+    can_land = False
+
+    def __init__(self, node: Node, out_ns: str = "/dh/dry_run"):
+        super().__init__(node)
+        out_ns = out_ns.rstrip("/")
+        if _forbidden(out_ns):
+            raise RuntimeError("dry-run output namespace %r is a flight-control namespace" % out_ns)
+        self.pub_cmd = node.create_publisher(TwistStamped, out_ns + "/cmd_vel", 10)
+        self.pub_evt = node.create_publisher(String, out_ns + "/events", 10)
+        self.real_state = {}
+        node.create_subscription(String, "/skybeta/state", self._on_state, qos_profile_sensor_data)
+        self.authority = False
+        self.n_sent = 0
+        self.last_cmd = (0.0, 0.0, 0.0, 0.0)
+
+    def _on_state(self, msg: String):
+        try:
+            st = json.loads(msg.data)
+            if isinstance(st, dict):
+                self.real_state = st
+        except ValueError:
+            pass
+
+    def _event(self, text: str):
+        self.pub_evt.publish(String(data=text))
+        self.node.get_logger().info("[DRY RUN] " + text)
+
+    def grant_authority(self):
+        if not self.authority:
+            self.authority = True
+            self._event("simulated Offboard authority granted (nothing is sent to the flight controller)")
+
+    def send_velocity(self, vx, vy, vz, yaw_rate):
+        m = TwistStamped()
+        m.header.stamp = self.node.get_clock().now().to_msg()
+        m.header.frame_id = "odom"
+        m.twist.linear.x, m.twist.linear.y, m.twist.linear.z = float(vx), float(vy), float(vz)
+        m.twist.angular.z = float(yaw_rate)
+        self.pub_cmd.publish(m)
+        self.n_sent += 1
+        self.last_cmd = (float(vx), float(vy), float(vz), float(yaw_rate))
+
+    def send_position(self, x, y, z, yaw):
+        self._event("position setpoint (not sent): %.2f %.2f %.2f" % (x, y, z))
+
+    def hold(self):
+        self._event("hold requested (not sent)")
+        return True
+
+    def offboard_active(self):
+        return self.authority
+
+
+def verify_isolation(node: Node, dry_run: bool) -> list:
+    """Return the node's publisher/client names; in dry-run raise if any is on the flight-control path."""
+    names = []
+    for pub in getattr(node, "publishers", []):
+        names.append(getattr(pub, "topic_name", getattr(pub, "topic", "")))
+    for cli in getattr(node, "clients", []):
+        names.append(getattr(cli, "srv_name", getattr(cli, "service_name", "")))
+    if dry_run:
+        bad = [n for n in names if n and _forbidden(n)]
+        if bad:
+            raise RuntimeError("DRY RUN ISOLATION VIOLATED: node owns flight-control endpoints %s" % bad)
+    return names
+
+
 class Px4Backend(BackendBase):
-    """Direct PX4 control over uXRCE-DDS (px4_msgs, release/1.16 message set)."""
+    """Direct PX4 control over uXRCE-DDS (px4_msgs, release/1.16 message set).
+    SITL ONLY unless the organizers approve: writes /fmu/in/*, which their guide forbids on the drone."""
     can_arm = True
     can_land = True
+    requires_setpoint_stream = True
 
     def __init__(self, node: Node, yaw_offset_rad: float = 0.0, target_system: int = 1):
         super().__init__(node)

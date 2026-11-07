@@ -37,8 +37,17 @@ def _quat():
     return _msg_class("Q", x=0.0, y=0.0, z=0.0, w=1.0)()
 
 
+Time = _msg_class("Time", sec=0, nanosec=0)
+
+
+def make_time(t: float):
+    """float seconds -> builtin_interfaces/Time-like object (0.0 -> unstamped)."""
+    sec = int(t)
+    return Time(sec=sec, nanosec=int(round((t - sec) * 1e9)) % 1000000000)
+
+
 def _header():
-    return _msg_class("Header", frame_id="", stamp=None)()
+    return _msg_class("Header", frame_id="", stamp=Time)()
 
 
 Pose = _msg_class("Pose", position=_vec3, orientation=_quat)
@@ -46,7 +55,9 @@ PoseStamped = _msg_class("PoseStamped", header=_header, pose=Pose)
 Twist = _msg_class("Twist", linear=_vec3, angular=_vec3)
 TwistStamped = _msg_class("TwistStamped", header=_header, twist=Twist)
 Vector3Stamped = _msg_class("Vector3Stamped", header=_header, vector=_vec3)
-PoseWithCov = _msg_class("PoseWithCovariance", pose=Pose)
+PoseWithCov = _msg_class("PoseWithCovariance", pose=Pose, covariance=lambda: [0.0] * 36)
+PoseWithCovarianceStamped = _msg_class("PoseWithCovarianceStamped", header=_header, pose=PoseWithCov)
+Header = _msg_class("Header", frame_id="", stamp=Time)
 Odometry = _msg_class("Odometry", header=_header, pose=PoseWithCov)
 Path = _msg_class("Path", header=_header, poses=list)
 Empty = _msg_class("Empty")
@@ -54,6 +65,9 @@ Float32 = _msg_class("Float32", data=0.0)
 Float32MultiArray = _msg_class("Float32MultiArray", data=list)
 String = _msg_class("String", data="")
 LaserScan = _msg_class("LaserScan", header=_header, ranges=list)
+Range = _msg_class("Range", header=_header, radiation_type=0, field_of_view=0.0, min_range=0.0, max_range=0.0,
+                   range=0.0)
+Range.ULTRASOUND, Range.INFRARED = 0, 1
 CameraInfo = _msg_class("CameraInfo", header=_header, k=list, d=list, r=list, p=list, width=0, height=0)
 Image = _msg_class("Image", header=_header, data=b"", height=0, width=0, step=0, encoding="mono8")
 
@@ -90,7 +104,7 @@ class Clock:
 
     def now(self):
         t = self.bus.t
-        return types.SimpleNamespace(nanoseconds=int(t * 1e9), to_msg=lambda: t)
+        return types.SimpleNamespace(nanoseconds=int(round(t * 1e9)), to_msg=lambda: make_time(t))
 
 
 class Bus:
@@ -100,6 +114,8 @@ class Bus:
         self.subs = {}
         self.timers = []
         self.published = {}
+        self.service_calls = []
+        self.services_ready = set()
 
     def publish(self, topic, msg):
         self.published.setdefault(topic, []).append((self.t, msg))
@@ -153,13 +169,27 @@ class Node:
         BUS.subs.setdefault(topic, []).append(cb)
 
     def create_publisher(self, _type, topic, _qos):
-        return types.SimpleNamespace(publish=lambda m, t=topic: BUS.publish(t, m))
+        pub = types.SimpleNamespace(publish=lambda m, t=topic: BUS.publish(t, m), topic_name=topic)
+        self.__dict__.setdefault("_pubs", []).append(pub)
+        return pub
+
+    @property
+    def publishers(self):
+        return list(self.__dict__.get("_pubs", []))
+
+    @property
+    def clients(self):
+        return list(self.__dict__.get("_clis", []))
 
     def create_timer(self, period, cb):
         BUS.timers.append([period, 0.0, cb])
 
-    def create_client(self, _t, _name):
-        return types.SimpleNamespace(service_is_ready=lambda: False, call_async=lambda r: None)
+    def create_client(self, _t, name):
+        cli = types.SimpleNamespace(service_is_ready=lambda n=name: n in BUS.services_ready,
+                                    call_async=lambda r, n=name: BUS.service_calls.append((BUS.t, n)),
+                                    srv_name=name)
+        self.__dict__.setdefault("_clis", []).append(cli)
+        return cli
 
     def get_logger(self):
         return self._logger
@@ -179,17 +209,19 @@ def install():
         return m
 
     q = types.SimpleNamespace(BEST_EFFORT=0, TRANSIENT_LOCAL=0, KEEP_LAST=0)
-    mod("rclpy", init=lambda *a, **k: None, shutdown=lambda *a, **k: None, spin=lambda n: None)
+    mod("rclpy", init=lambda *a, **k: None, shutdown=lambda *a, **k: None, spin=lambda n: None, ok=lambda: True)
     mod("rclpy.node", Node=Node)
-    mod("rclpy.qos", QoSProfile=lambda **k: None, ReliabilityPolicy=q, DurabilityPolicy=q, HistoryPolicy=q)
+    mod("rclpy.qos", QoSProfile=lambda **k: None, ReliabilityPolicy=q, DurabilityPolicy=q, HistoryPolicy=q,
+        qos_profile_sensor_data=None)
     mod("geometry_msgs"); mod("geometry_msgs.msg", PoseStamped=PoseStamped, TwistStamped=TwistStamped,
-                              Vector3Stamped=Vector3Stamped)
+                              Vector3Stamped=Vector3Stamped, PoseWithCovarianceStamped=PoseWithCovarianceStamped)
     mod("nav_msgs"); mod("nav_msgs.msg", Odometry=Odometry, Path=Path)
-    mod("std_msgs"); mod("std_msgs.msg", Empty=Empty, Float32=Float32, Float32MultiArray=Float32MultiArray, String=String)
+    mod("std_msgs"); mod("std_msgs.msg", Empty=Empty, Float32=Float32, Float32MultiArray=Float32MultiArray, String=String,
+                         Header=Header)
     mod("std_srvs"); mod("std_srvs.srv", Trigger=_Trigger)
-    mod("sensor_msgs"); mod("sensor_msgs.msg", LaserScan=LaserScan, CameraInfo=CameraInfo, Image=Image)
+    mod("sensor_msgs"); mod("sensor_msgs.msg", LaserScan=LaserScan, CameraInfo=CameraInfo, Image=Image, Range=Range)
     mod("message_filters", ApproximateTimeSynchronizer=ApproximateTimeSynchronizer,
-        Subscriber=lambda node, typ, topic: None)
+        Subscriber=lambda node, typ, topic, **k: None)
     mod("tf2_ros", Buffer=TfBuffer, TransformListener=lambda buf, node: None)
     mod("rclpy.time", Time=lambda *a, **k: 0)
     # px4_msgs (release/1.16 subset used by dh_autonomy)

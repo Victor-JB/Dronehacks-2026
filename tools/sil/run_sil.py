@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(ROOT, "ros2_ws", "src", "dh_core"))
 sys.path.insert(0, os.path.join(ROOT, "ros2_ws", "src", "dh_autonomy"))
 import fake_ros  # noqa: E402
 fake_ros.install()
-from fake_ros import BUS, Node, Odometry, String, Empty, LaserScan, Float32  # noqa: E402
+from fake_ros import BUS, Node, Odometry, String, Empty, LaserScan, Range, make_time  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--route", default="window")
@@ -51,6 +51,7 @@ ap.add_argument("--legacy", action="store_true", help="old idealised simulator")
 ap.add_argument("--corner", default="clothoid", choices=["clothoid", "arc"])
 ap.add_argument("--a_total", type=float, default=1.5, help="combined accel limit (0 = separate along/lateral)")
 ap.add_argument("--window_straight", type=float, default=0.6)
+ap.add_argument("--scan_latency", type=float, default=0.12, help="camera capture -> scan delivery delay (s)")
 args = ap.parse_args()
 
 COURSE = os.environ.get("DH_COURSE_OBJ", "C:/dhdl/obj/dronehacks-course-v3.obj")
@@ -58,10 +59,11 @@ Node.PARAM_OVERRIDES = {"course_obj": COURSE, "backend": args.backend, "route": 
                         "autostart_on_offboard": False, "align_mode": "start", "v_dark": args.v_dark,
                         "enable_return": args.with_return, "sensor_x": 0.10,
                         "v_max": args.v_max, "v_cap": args.v_cap,
-                        "corner": args.corner, "a_total": args.a_total, "window_straight": args.window_straight}   # SIL scans come from a sensor 0.10 m ahead
+                        "corner": args.corner, "a_total": args.a_total, "window_straight": args.window_straight,
+                        "dry_run": False,                       # SIL exercises the real Sky Beta gating on a fake bus
+                        "require_forward_clearance": not args.legacy}   # SIL scans come from a sensor 0.10 m ahead
 
 import dh_autonomy.mission_node as mn  # noqa: E402
-mn.time = types.SimpleNamespace(time=lambda: BUS.t)
 from dh_core.route import dark_zones  # noqa: E402
 from dh_core.localize import raycast_scan  # noqa: E402
 
@@ -73,7 +75,6 @@ plan_compute_s = _walltime.perf_counter() - _t_plan
 loc = None
 if args.localizer:
     import dh_autonomy.localizer_node as ln
-    ln.time = types.SimpleNamespace(time=lambda: BUS.t)
     loc = ln.LocalizerNode()
 
 course = node.course
@@ -134,6 +135,7 @@ events = {}
 dt = 0.01
 traj_true, min_clear, touches, contact = [], np.inf, 0, False
 est_err = []
+scan_queue = []
 max_speed = 0.0
 land_t = None
 t_start = None
@@ -148,6 +150,8 @@ while BUS.t < 150:
         else:
             dark_v = None
         o = Odometry()
+        o.header.stamp = make_time(t)
+        o.header.frame_id = "odom"
         po = map_to_odom(p + bias + np.append(rng.normal(0, 0.01, 2), 0.0 if args.legacy else rng.normal(0, 0.005)))
         o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z = po
         yo = yaw - th0
@@ -157,13 +161,17 @@ while BUS.t < 150:
         BUS.publish("/skybeta/state", String(data=json.dumps({"offboard_active": True, "armed": True})))
         if not args.legacy:
             in_dark_fc = any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
-            fc = math.inf
-            if not in_dark_fc and p[2] > 0.3:          # stereo is blind in the dark tube
+            fc = math.nan                                 # stereo is blind in the dark tube / on the ground
+            if not in_dark_fc and p[2] > 0.15 and p[2] > course.wall_height + 0.1:
+                fc = math.inf                             # above the walls: nothing at camera height
+            elif not in_dark_fc and p[2] > 0.15:
                 pts_fc = raycast_scan(scan_grid, np.array([p[0], p[1], yaw]), 30.0, 9, r_min=0.05, r_max=4.0,
                                       noise=0.02, rng=rng)
-                if len(pts_fc):
-                    fc = float(np.min(np.hypot(pts_fc[:, 0], pts_fc[:, 1])))
-            BUS.publish("/dh/forward_clearance", Float32(data=fc))
+                fc = float(np.min(np.hypot(pts_fc[:, 0], pts_fc[:, 1]))) if len(pts_fc) else math.inf
+            rmsg = Range()
+            rmsg.header.stamp = make_time(t); rmsg.header.frame_id = "base_link"
+            rmsg.range, rmsg.max_range = fc, 4.0
+            BUS.publish("/dh/forward_clearance", rmsg)
         if loc is not None:
             in_dark = any(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] for lo, hi in zones)
             if not in_dark and p[2] > 0.4:
@@ -180,9 +188,12 @@ while BUS.t < 150:
                         if 0 <= i < nb:
                             ranges[i] = min(ranges[i], r)
                     ls = LaserScan()
+                    ls.header.stamp = make_time(t); ls.header.frame_id = "base_link"   # stamped at CAPTURE
                     ls.angle_min, ls.angle_increment = amin, inc
                     ls.ranges = list(ranges); ls.range_min, ls.range_max = 0.2, 4.0
-                    BUS.publish("/dh/stereo_scan", ls)
+                    scan_queue.append((t + args.scan_latency, ls))                    # delivered later
+    while scan_queue and scan_queue[0][0] <= t + 1e-9:
+        BUS.publish("/dh/stereo_scan", scan_queue.pop(0)[1])
     if t_start is None and t >= 1.0:
         BUS.publish("/dh/start", Empty()); t_start = t
     # --- node timers
@@ -246,7 +257,7 @@ while BUS.t < 150:
     max_speed = max(max_speed, float(math.hypot(v[0], v[1])))
     if node.align.valid and node.odom is not None and int(round(t / dt)) % 10 == 0:
         pm_est, _ = node._map_pose()
-        est_err.append((t, float(np.linalg.norm(pm_est[:2] - p[:2])), len(BUS.published.get("/dh/map_correction", []))))
+        est_err.append((t, float(np.linalg.norm(pm_est[:2] - p[:2])), len(BUS.published.get("/dh/map_fix", []))))
     if 0.3 < p[2] < course.wall_height + 0.15:
         if slices:
             g_, d_ = slices[int(np.clip(round((p[2] - SLICE_Z[0]) / 0.10), 0, len(slices) - 1))]
@@ -317,9 +328,10 @@ if args.plot:
 if os.environ.get("DH_DEBUG_CORR"):
     lo, hi = map(float, os.environ["DH_DEBUG_CORR"].split(","))
     ee = {round(t, 1): e for t, e, _ in est_err}
-    for t, m in BUS.published.get("/dh/map_correction", []):
+    for t, m in BUS.published.get("/dh/map_fix", []):
         if lo <= t <= hi:
-            print("t=%.2f corr=(%+.3f,%+.3f) |%.3f| est_err=%.3f" % (t, m.vector.x, m.vector.y, math.hypot(m.vector.x, m.vector.y), ee.get(round(t, 1), float('nan'))))
+            q = m.pose.pose.position
+            print("t=%.2f fix=(%+.3f,%+.3f) est_err=%.3f" % (t, q.x, q.y, ee.get(round(t, 1), float('nan'))))
     for t, m in BUS.published.get("/dh/loc_health", []):
         if lo <= t <= hi and m.data[0] < 0.5:
             print("t=%.2f REJECTED inl=%.2f rms=%.3f eig=%.3f" % (t, m.data[1], m.data[2], m.data[3]))

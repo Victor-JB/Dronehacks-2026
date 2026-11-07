@@ -1,26 +1,41 @@
-"""Map-relative re-localisation node (scan -> known course distance field).
+"""Map-relative re-localisation node (scan -> known course distance field), time-synchronised.
 
-sub  /dh/pose_map        geometry_msgs/PoseStamped  current course-frame estimate (from mission node)
-sub  <scan_topic>        sensor_msgs/LaserScan       body-frame scan (stereo-derived or 2D LiDAR)
-pub  /dh/map_correction  geometry_msgs/Vector3Stamped (dx, dy, dyaw) = matched - estimate
-pub  /dh/loc_health      std_msgs/Float32MultiArray [ok, inlier_ratio, rms, min_eig]
+sub  /dh/pose_map        geometry_msgs/PoseStamped  course-frame estimate from the mission node; its
+                         header.stamp is the ODOMETRY stamp it was computed from (not "now")
+sub  <scan_topic>        sensor_msgs/LaserScan       stereo pseudo-scan (or a 2D LiDAR); header.stamp = capture time
+pub  /dh/map_fix         geometry_msgs/PoseWithCovarianceStamped
+                         ABSOLUTE matched course-frame pose (x, y, yaw) at the scan's capture time
+                         (header.stamp = scan stamp). The mission re-applies it against its own odometry
+                         history at that stamp, so camera latency and corrections that happen in between
+                         cannot produce a wrong correction.
+pub  /dh/loc_health      std_msgs/Float32MultiArray [ok, inlier_ratio, rms, min_eig, latency_s]
 
-Only the observable part of the correction is published (see dh_core.localize).
+Time handling: the prior for a scan is the pose INTERPOLATED AT THE SCAN STAMP from a pose history. Scans
+without a stamp, older than the history, newer than the newest pose, or later than max_scan_latency are
+rejected (counted in self.rejected). Out-of-order scans are each matched against their own time.
+Frames: scans must be in `base_frame`; another frame is accepted only if TF base_frame <- scan frame is
+available (static mount), otherwise rejected.
+Only the observable part of the correction is applied by the matcher (see dh_core.localize).
 """
 from __future__ import annotations
 
 import math
-import time
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped, Vector3Stamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Float32MultiArray
 
 from dh_core.course import Course
+from dh_core.health import PoseHistory, stamp_to_sec, wrap
 from dh_core.localize import DistanceFieldMatcher
+
+
+def quat_to_yaw(q) -> float:
+    return math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
 
 class LocalizerNode(Node):
@@ -29,6 +44,7 @@ class LocalizerNode(Node):
         P = self.declare_parameter
         P("course_obj", "/root/team_ws/course/dronehacks-course-v3.obj")
         P("scan_topic", "/dh/stereo_scan")
+        P("base_frame", "base_link")
         P("res", 0.025)
         P("band_lo", 0.58)
         P("band_hi", 1.12)
@@ -43,87 +59,140 @@ class LocalizerNode(Node):
         P("consistent_min_inlier", 0.85)
         P("consistent_max_rms", 0.03)   # m
         P("consistent_max_jump", 1.0)   # m; never jump further than this
-        P("max_pose_age", 0.15)
+        P("max_scan_latency", 0.5)      # s; scans older than this (vs the newest pose) are stale
+        P("pose_history_s", 3.0)
         P("min_points", 25)
         g = lambda n: self.get_parameter(n).value
         course = Course.from_obj(g("course_obj"))
-        t0 = time.time()
         grid = course.occupancy(g("res"), g("band_lo"), g("band_hi"))
         self.matcher = DistanceFieldMatcher(grid)
-        self.get_logger().info("distance field ready (%.1fs, %s cells)" % (time.time() - t0, grid.shape))
-        self.pose = None
-        self.last_accept = time.time()
+        self.get_logger().info("distance field ready (%s cells)" % (grid.shape,))
+        self.hist = PoseHistory(span_s=g("pose_history_s"), max_gap_s=0.25)
+        self.last_accept = None
         self.pending = None
         self.recent = []
         self.n_consistent = 0
-        self.create_subscription(PoseStamped, "/dh/pose_map", self._on_pose, 10)
-        self.create_subscription(LaserScan, g("scan_topic"), self._on_scan, 5)
-        self.pub = self.create_publisher(Vector3Stamped, "/dh/map_correction", 10)
+        self.rejected = {"unstamped": 0, "stale": 0, "future": 0, "no_pose": 0, "frame": 0, "few_points": 0,
+                         "match": 0, "gate": 0}
+        self.n_published = 0
+        try:
+            from tf2_ros import Buffer, TransformListener
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(self.tf_buffer, self)
+        except ImportError:
+            self.tf_buffer = None
+        self.create_subscription(PoseStamped, "/dh/pose_map", self._on_pose, 50)
+        self.create_subscription(LaserScan, g("scan_topic"), self._on_scan, qos_profile_sensor_data)
+        self.pub = self.create_publisher(PoseWithCovarianceStamped, "/dh/map_fix", 10)
         self.pub_h = self.create_publisher(Float32MultiArray, "/dh/loc_health", 10)
 
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
     def _on_pose(self, m: PoseStamped):
-        q = m.pose.orientation
-        yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
-        self.pose = (np.array([m.pose.position.x, m.pose.position.y, yaw]), time.time())
+        t = stamp_to_sec(m.header.stamp)
+        p = m.pose.position
+        self.hist.add(t, (p.x, p.y, p.z, quat_to_yaw(m.pose.orientation)))
+
+    def _scan_to_base(self, frame: str):
+        """(dx, dy, dyaw) of the scan frame in base_frame, or None if it cannot be resolved."""
+        g = lambda n: self.get_parameter(n).value
+        if frame in ("", g("base_frame")):
+            return (g("sensor_x"), 0.0, 0.0)
+        if self.tf_buffer is None:
+            return None
+        try:
+            from rclpy.time import Time
+            tr = self.tf_buffer.lookup_transform(g("base_frame"), frame, Time()).transform
+        except Exception:  # noqa: BLE001 - any tf2 failure = unknown frame
+            return None
+        return (tr.translation.x, tr.translation.y, quat_to_yaw(tr.rotation))
+
+    def _reject(self, why: str):
+        self.rejected[why] += 1
+        self.get_logger().debug("scan rejected: " + why)
 
     def _on_scan(self, m: LaserScan):
         g = lambda n: self.get_parameter(n).value
-        if self.pose is None or time.time() - self.pose[1] > g("max_pose_age"):
-            return
+        t_scan = stamp_to_sec(m.header.stamp)
+        if t_scan <= 0.0:
+            return self._reject("unstamped")
+        if not len(self.hist):
+            return self._reject("no_pose")
+        if t_scan > self.hist.newest + 0.05:
+            return self._reject("future")              # pose for that time has not arrived (or clocks differ)
+        if self.hist.newest - t_scan > g("max_scan_latency"):
+            return self._reject("stale")
+        prior = self.hist.at(t_scan, future_tol=0.05)
+        if prior is None:
+            return self._reject("no_pose")
+        mount = self._scan_to_base(m.header.frame_id)
+        if mount is None:
+            self.get_logger().warn("scan frame %r not resolvable to %s; rejected" % (m.header.frame_id, g("base_frame")),
+                                   throttle_duration_sec=5.0)
+            return self._reject("frame")
         r = np.asarray(m.ranges, float)
         a = m.angle_min + np.arange(len(r)) * m.angle_increment
         ok = np.isfinite(r) & (r > m.range_min) & (r < m.range_max)
         if ok.sum() < g("min_points"):
-            return
-        pts = np.stack([r[ok] * np.cos(a[ok]) + g("sensor_x"), r[ok] * np.sin(a[ok])], 1)
-        prior = self.pose[0]
-        res = self.matcher.match(pts, prior)
+            return self._reject("few_points")
+        mx, my, myaw = mount
+        aa = a[ok] + myaw
+        pts = np.stack([r[ok] * np.cos(aa) + mx, r[ok] * np.sin(aa) + my], 1)
+        prior3 = np.array([prior[0], prior[1], prior[3]])
+        res = self.matcher.match(pts, prior3)
+        latency = max(0.0, self._now() - t_scan)
         h = Float32MultiArray()
-        h.data = [float(res.ok), res.inlier_ratio, float(min(res.residual_rms, 9.9)), res.min_eig]
+        h.data = [float(res.ok), float(res.inlier_ratio), float(min(res.residual_rms, 9.9)), float(res.min_eig),
+                  float(latency)]
         self.pub_h.publish(h)
         if not res.ok:
-            return
-        d = res.pose - prior
-        d[2] = (d[2] + math.pi) % (2 * math.pi) - math.pi
-        now = time.time()
-        # Allowed jump grows while no fix has been accepted (e.g. after the dark tube),
-        # but a large jump must be confirmed by two consecutive, consistent matches.
-        allowed = g("max_correction") + g("gate_growth") * (now - self.last_accept)
+            return self._reject("match")
+        d = res.pose - prior3
+        d[2] = wrap(d[2])
+        if self.last_accept is None:
+            self.last_accept = t_scan
+        allowed = g("max_correction") + g("gate_growth") * max(0.0, t_scan - self.last_accept)
         mag = float(np.linalg.norm(d[:2]))
         if mag > allowed or abs(d[2]) > g("max_yaw_correction"):
             self.pending = None
-            # Consistency override: after a blackout the gate may still be too narrow (it is reset by any
-            # small accept, and the mission applies only part of each fix). Several consecutive HIGH-QUALITY
-            # matches that agree with each other are strong evidence, so accept their mean (up to a cap).
+            # Consistency override: several consecutive HIGH-QUALITY matches that agree are strong evidence
+            # even when the jump gate is too narrow (e.g. after the dark tube).
             good = (res.inlier_ratio >= g("consistent_min_inlier") and res.residual_rms <= g("consistent_max_rms")
                     and abs(d[2]) <= g("max_yaw_correction") and mag <= g("consistent_max_jump"))
             if not good:
                 self.recent = []
-                return
+                return self._reject("gate")
             self.recent = (self.recent + [d.copy()])[-int(g("consistent_n")):]
             R = np.array(self.recent)
             if len(R) < int(g("consistent_n")) or np.max(np.linalg.norm(R[:, :2] - R[:, :2].mean(0), axis=1)) > g("consistent_tol"):
-                return
+                return self._reject("gate")
             d = R.mean(0)
             self.recent = []
             self.n_consistent += 1
-            self.last_accept = now
-            out = Vector3Stamped()
-            out.header = m.header
-            out.vector.x, out.vector.y, out.vector.z = float(d[0]), float(d[1]), float(d[2])
-            self.pub.publish(out)
-            return
+            return self._publish(m, t_scan, prior3 + d, res)
         self.recent = []
         if mag > g("max_correction"):
             if self.pending is None or np.linalg.norm(self.pending - d[:2]) > g("confirm_tol"):
                 self.pending = d[:2].copy()
-                return
+                return self._reject("gate")
         self.pending = None
-        self.last_accept = now
-        out = Vector3Stamped()
-        out.header = m.header
-        out.vector.x, out.vector.y, out.vector.z = float(d[0]), float(d[1]), float(d[2])
+        return self._publish(m, t_scan, prior3 + d, res)
+
+    def _publish(self, m: LaserScan, t_scan: float, pose3, res):
+        self.last_accept = t_scan
+        out = PoseWithCovarianceStamped()
+        out.header.stamp = m.header.stamp
+        out.header.frame_id = "course"
+        out.pose.pose.position.x, out.pose.pose.position.y = float(pose3[0]), float(pose3[1])
+        out.pose.pose.orientation.z, out.pose.pose.orientation.w = math.sin(pose3[2] / 2), math.cos(pose3[2] / 2)
+        var = float(min(1.0, (res.residual_rms ** 2) / max(res.min_eig, 1e-3)))
+        cov = [0.0] * 36
+        cov[0] = cov[7] = var
+        cov[35] = var
+        out.pose.covariance = cov
         self.pub.publish(out)
+        self.n_published += 1
 
 
 def main():
@@ -131,9 +200,12 @@ def main():
     n = LocalizerNode()
     try:
         rclpy.spin(n)
+    except KeyboardInterrupt:
+        pass
     finally:
         n.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
