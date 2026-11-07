@@ -105,10 +105,10 @@ exits (`exit_when_done: false`): after a run, once PX4 reports disarmed, it star
 
 | Command | Does |
 |---|---|
-| `fly.sh start` | Opens a tmux session `dronehacks` in the container with `bag`, `foxglove`, `map`, `camera`. If the stack's `competitor` window is idle (bench mode, `COMPETITOR_PKG=manual`), it also builds and runs `mission`; never both, or two flight interfaces would fight |
-| `fly.sh status` | The mission's last lines (from the stack's `competitor` window, or the bench `mission` window) and the session's windows |
+| `fly.sh start` | Opens a tmux session `dronehacks` in the container with `bag`, `foxglove`, `map`, `camera` (the live view). Refuses if the stack is not running the mission. Never starts a mission itself: two flight interfaces would fight |
+| `fly.sh status` | The mission's last lines (the stack's `competitor` window) and the session's windows |
 | `fly.sh attach` | Watch the session. `Ctrl-b n` next window, `Ctrl-b d` leave. **Never Ctrl-C the stack's `skybeta` session** |
-| `fly.sh stop` | Ctrl-C to every window of the session (closes the bag cleanly). In bench mode it stops the mission too: **only on the ground** |
+| `fly.sh stop` | Ctrl-C to every window of the session (closes the bag cleanly). The mission keeps running |
 
 ## 4. The mission
 

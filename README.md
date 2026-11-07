@@ -92,10 +92,6 @@ The stack is back in ~10 s; its `competitor` window rebuilds `team_ws` and launc
   only with `fly.sh start --depth` (~4 MB/s). The oldest bags are deleted past 15 GB; `fly.sh clean` also
   deletes old colcon build logs.
 
-**Bench mode** (iterating without restarting the stack): set `COMPETITOR_PKG=manual`, restart the
-stack, and `fly.sh start` builds and runs the mission in its own window. It dies with the stack, so
-switch back before handing the drone to the pilot.
-
 ## Depth (team image)
 
 skybeta ships the OAK with depth off. `skybeta_overrides/` holds a team image that

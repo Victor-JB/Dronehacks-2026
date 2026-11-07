@@ -2,7 +2,7 @@
 # Start / stop one flight session on the drone. Run on the drone's host shell (after ssh), not in
 # the container:
 #
-#   ~/team_ws/src/dronehacks/scripts/fly.sh start    bag + foxglove + map + camera page (+ the mission, bench mode only)
+#   ~/team_ws/src/dronehacks/scripts/fly.sh start    bag + foxglove + map + live view, next to the mission
 #   ~/team_ws/src/dronehacks/scripts/fly.sh start --depth   the same, and the bag records the depth images too (~4 MB/s)
 #   ~/team_ws/src/dronehacks/scripts/fly.sh clean    free disk: old bags past the budget, old colcon build logs
 #   ~/team_ws/src/dronehacks/scripts/fly.sh stop     stop them all (bag closed cleanly). ON THE GROUND.
@@ -16,8 +16,8 @@
 # The mission itself is started by the stack at power-up (COMPETITOR_PKG=dronehacks_nav in
 # /etc/skybeta/drone.env, as the organisers' autonomy_pipeline.md asks): it is already running and
 # READY before the pilot arms on Altitude and switches to Position. `start` adds the recording and
-# the viewers next to it. Bench mode: with COMPETITOR_PKG=manual the stack runs nothing, and `start`
-# builds and launches the mission too (gone at the next stack restart).
+# the viewers next to it. It never starts a mission of its own: two flight_interface nodes would
+# fight over Offboard.
 #
 # The mission never arms. The safety pilot arms on Altitude and switches to Position; only that
 # makes the drone fly. One go per arming: after the pilot lands and disarms, it is READY again.
@@ -53,7 +53,7 @@ BAG_TOPICS=(
   /tf /tf_static /rosout
 )
 FOXGLOVE_TOPICS="['/visual_slam/tracking/odometry','/visual_slam/tracking/vo_path','/map/occupied','/skybeta/state','/skybeta/setpoint/pose','/refnav/status','/fmu/out/vehicle_local_position','/tf','/tf_static','/rosout']"
-WINDOWS=(bag foxglove map camera)        # plus "mission" first, in bench mode
+WINDOWS=(bag foxglove map camera)
 
 die() { echo "[fly] $*" >&2; exit 1; }
 dx() { docker exec "${C}" "$@"; }
@@ -98,20 +98,10 @@ start() {
   docker ps --format '{{.Names}}' | grep -qx "${C}" \
     || die "the stack is not running (sudo systemctl status skybeta-stack). Power on and wait ~1 min."
   running && die "a session is already running. '$0 status' to look, '$0 stop' to end it."
-  # Who runs the mission: the stack's competitor window (normal), or this session (bench mode).
-  # Never both: two flight_interface nodes fight over Offboard.
-  local bench=""
-  if stack_runs_mission; then
-    echo "[fly] the stack runs the mission (skybeta:competitor): adding the recording and viewers"
-  else
-    bench=1
-    echo "[fly] BENCH MODE: the stack's competitor window is idle (COMPETITOR_PKG=manual?), so this"
-    echo "      session runs the mission too. It dies with the stack: for a real run, set"
-    echo "      COMPETITOR_PKG=dronehacks_nav in /etc/skybeta/drone.env (README.md, Deploying)."
-    echo "[fly] building dronehacks_nav"
-    dx bash -ic "team_build.sh --packages-select dronehacks_nav" >/dev/null 2>&1 \
-      || die "build failed: docker exec -it ${C} bash -ic 'team_build.sh --packages-select dronehacks_nav'"
-  fi
+  stack_runs_mission || die "the stack is not running the mission: skybeta:competitor is idle. Check
+      /etc/skybeta/drone.env (COMPETITOR_PKG=dronehacks_nav, COMPETITOR_LAUNCH=mission.launch.py) and
+      the build: docker exec -it ${C} tmux attach -t skybeta (window competitor)"
+  echo "[fly] the stack runs the mission (skybeta:competitor): adding the recording and live view"
 
   mkdir -p "${BAGS_HOST}" && touch "${BAGS_HOST}/COLCON_IGNORE"
   prune_bags
@@ -119,20 +109,19 @@ start() {
   [[ -n "${depth}" ]] && topics+=("${DEPTH_TOPIC}")
   local bag
   bag="${BAGS}/$(date +%Y%m%d-%H%M%S)"
-  [[ -n "${bench}" ]] && window mission "ros2 launch dronehacks_nav mission.launch.py"
   window bag      "ros2 bag record -s mcap -o ${bag} ${topics[*]}"
   window foxglove "ros2 launch foxglove_bridge foxglove_bridge_launch.xml address:=127.0.0.1 port:=${FOXGLOVE_PORT} topic_whitelist:=\"${FOXGLOVE_TOPICS}\""
   window map      "ros2 run dronehacks_nav map_node"
   window camera   "ros2 run dronehacks_nav camera_web --ros-args -p port:=${CAMERA_PORT}"
 
   cat <<EOF
-[fly] started: ${bench:+mission }${WINDOWS[*]}
+[fly] started: ${WINDOWS[*]}
       live view       http://$(host_name):${CAMERA_PORT}/   (position + route, armed/Offboard, mission phase, camera, depth, map)
       foxglove        on the laptop: ssh -N -L ${FOXGLOVE_PORT}:localhost:${FOXGLOVE_PORT} $(whoami)@$(host_name)
                       then connect Foxglove to ws://localhost:${FOXGLOVE_PORT}
       bag             ${BAGS_HOST}/$(basename "${bag}")  ($( [[ -n "${depth}" ]] && echo "with depth, ~4 MB/s" || echo "no depth images: start --depth to add them"))
       watch           $0 attach      (Ctrl-b d to leave; Ctrl-b n for the next window)
-      mission log     $( [[ -n "${bench}" ]] && echo "$0 attach (window mission)" || echo "$0 status, or: docker exec -it ${C} tmux attach -t skybeta (window competitor)")
+      mission log     $0 status, or: docker exec -it ${C} tmux attach -t skybeta (window competitor)
 [fly] wait for READY in the mission log, then the pilot arms on Altitude and switches to Position.
 EOF
 }
@@ -155,16 +144,13 @@ stop() {
 
 status() {
   if stack_runs_mission; then
-    echo "[fly] mission: run by the stack (skybeta:competitor)"
-    echo "--- mission (last lines)"
+    echo "--- mission (skybeta:competitor, last lines)"
     dx tmux capture-pane -p -J -t skybeta:competitor | sed '/^[[:space:]]*$/d' | tail -8
+  else
+    echo "[fly] the stack is NOT running the mission (skybeta:competitor idle): check drone.env and the build"
   fi
-  running || { echo "[fly] no recording/viewer session"; return 0; }
+  running || { echo "[fly] no recording/live-view session ('$0 start')"; return 0; }
   dx tmux list-windows -t "${S}" -F '  #{window_name}: #{pane_current_command}'
-  if dx tmux list-windows -t "${S}" -F '#{window_name}' | grep -qx mission; then
-    echo "--- mission, bench mode (last lines)"
-    dx tmux capture-pane -p -J -t "${S}:mission" | sed '/^[[:space:]]*$/d' | tail -8
-  fi
 }
 
 # free disk on the drone: bags past the budget, and colcon's build logs (one folder per build,
