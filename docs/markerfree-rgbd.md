@@ -107,3 +107,9 @@ python3 -m tools.score_blackout artifacts/markerfree/blackout-01 \
 ```
 
 The command refuses to overwrite an existing report. The public [compact result](blackout-results.json) includes the evidence file hashes and scoring limits.
+
+## Capture continuity
+
+The estimator now rejects an inter-capture gap above 120 ms before matching or updating its reference. The separate maximum capture age at processing remains 300 ms. Tests cover normal 50 ms spacing, one missed frame at 100 ms, an excessive gap, and a delayed but regularly spaced frame. Run metadata records both limits.
+
+The [native-cadence report](native-capture-gap-evidence.json) found a maximum 52.026 ms positive gap across 2,970 ordered adjacent external-vision sample pairs in four closed armed intervals. It found no duplicate or decreasing capture timestamps. These are ULog observations, not proof of every camera callback or a scheduling guarantee. The [read-only analysis script](experiments/analyze_native_capture_gaps.py) identifies its input logs and parser hashes. The 5 Hz image archive cannot validate this limit because its normal spacing is already about 200 ms. Historical flight results, including policy-07, used the earlier 300 ms inter-capture limit.

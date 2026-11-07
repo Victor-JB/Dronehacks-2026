@@ -37,7 +37,7 @@ class Gates:
     min_inliers: int = 24
     min_ratio: float = .65
     max_reprojection: float = 1.5
-    max_gap_s: float = .3
+    max_gap_s: float = .12
     max_age_s: float = .3
     max_speed: float = 3.0
     max_angular_speed: float = 3.0

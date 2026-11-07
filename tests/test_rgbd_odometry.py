@@ -149,6 +149,48 @@ class MotionTests(unittest.TestCase):
         estimator.estimate(rgb, depth, 1_000_000)
         self.assertFalse(estimator.estimate(rgb, depth, 999_999)['valid'])
 
+    def test_capture_gap_gate_accepts_normal_and_single_missed_frame(self):
+        rgb, depth = self.texture()
+        for interval_usec in (50_000, 100_000):
+            with self.subTest(interval_usec=interval_usec):
+                estimator = RGBDOdometry((0, 0, 0), intrinsics=self.k)
+                self.assertTrue(estimator.estimate(rgb, depth, 1_000_000)['valid'])
+                record = estimator.estimate(rgb, depth, 1_000_000+interval_usec)
+                self.assertTrue(record['valid'], record)
+                self.assertEqual(estimator.last_usec, 1_000_000+interval_usec)
+
+    def test_capture_gap_rejects_before_fit_or_reference_update(self):
+        rgb, depth = self.texture()
+        estimator = RGBDOdometry((0, 0, 0), intrinsics=self.k)
+        self.assertTrue(estimator.estimate(rgb, depth, 1_000_000)['valid'])
+        prior = estimator.last_usec
+        with patch.object(estimator, '_update_depth', side_effect=AssertionError('fit must not run')) as fit:
+            record = estimator.estimate(rgb, depth, 1_120_001)
+        self.assertFalse(record['valid'])
+        self.assertIn('capture_gap', record['reason'])
+        fit.assert_not_called()
+        self.assertEqual(estimator.last_usec, prior)
+
+    def test_capture_age_is_independent_of_inter_capture_gap(self):
+        rgb, depth = self.texture()
+        estimator = RGBDOdometry((0, 0, 0), intrinsics=self.k)
+        self.assertTrue(estimator.estimate(rgb, depth, 1_000_000, 1_000_000)['valid'])
+        # A fresh capture 50 ms after the previous one remains usable even
+        # when processing is delayed by 200 ms.
+        delayed = estimator.estimate(rgb, depth, 1_050_000, 1_250_000)
+        self.assertTrue(delayed['valid'], delayed)
+        self.assertEqual(estimator.last_usec, 1_050_000)
+
+        late_estimator = RGBDOdometry((0, 0, 0), intrinsics=self.k)
+        self.assertTrue(late_estimator.estimate(rgb, depth, 2_000_000, 2_000_000)['valid'])
+        prior = late_estimator.last_usec
+        with patch.object(late_estimator, '_update_depth', side_effect=AssertionError('fit must not run')) as fit:
+            too_late = late_estimator.estimate(rgb, depth, 2_050_000, 2_350_001)
+        self.assertFalse(too_late['valid'])
+        self.assertIn('stale_capture', too_late['reason'])
+        fit.assert_not_called()
+        self.assertEqual(late_estimator.last_usec, prior)
+
     def test_exact_pairing_bounded_and_no_replay(self):
         pairs = CapturePairs(capacity=2)
         pairs.push('color', 1001, 'c1')
@@ -267,6 +309,7 @@ class MotionTests(unittest.TestCase):
             def estimate(self, rgb, z, stamp, now, *, downward_range, inertial_tilt):
                 self.lost = 'unobservable_depth_geometry'
                 return dict(reason='tracking_lost:' + self.lost, valid=False,
+                            survey_normals={'method': 'fals7', 'sample_stride_px': 8},
                             rejected_fits={'survey': {'depth_observability': .0035}})
 
         with tempfile.TemporaryDirectory() as directory:
@@ -298,6 +341,7 @@ class MotionTests(unittest.TestCase):
                 self.assertEqual(metadata['capture_stamp_ns'], 100_000_000)
                 self.assertEqual(metadata['tof_stamp_ns'], 100_000_000)
                 self.assertEqual(metadata['tof_range_m'], .92)
+                self.assertEqual(metadata['survey_normals'], {'method': 'fals7', 'sample_stride_px': 8})
                 self.assertEqual(metadata['rejected_fits']['survey']['depth_observability'], .0035)
                 self.assertTrue(np.all(saved['rgb'] == 17))
                 np.testing.assert_allclose(saved['depth_z_m'], .017)

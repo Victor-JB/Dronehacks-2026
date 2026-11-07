@@ -98,6 +98,9 @@ def policy_camera_shift(physical, trained, mode):
 class Log:
     def __init__(self, args, course, launch, camera_translation, boundary_brake=None):
         from vision.depth_odometry import survey_normal_config
+        from vision.rgbd_odometry import Gates
+
+        vision_gates = Gates()
 
         args.output.parent.mkdir(parents=True, exist_ok=True)
         self.file = args.output.open('w', buffering=1)
@@ -113,7 +116,9 @@ class Log:
                            sitl_power_watchdog_enabled=True,
                            policy_boundary_brake_enabled=boundary_brake is not None,
                            policy_checkpoint_sha256=args.policy_sha256,
-                           policy_depth_mode=args.policy_depth_mode if args.task == 'policy' else None)
+                           policy_depth_mode=args.policy_depth_mode if args.task == 'policy' else None,
+                           vision_max_capture_gap_s=vision_gates.max_gap_s,
+                           vision_max_capture_age_s=vision_gates.max_age_s)
         diagnostic_path = Path('/tmp/dronehacks-rgbd-depth-noise.json')
         sensor_diagnostic = (json.loads(diagnostic_path.read_text()) if diagnostic_path.exists()
                              else {'mode': 'off'})
