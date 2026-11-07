@@ -1,0 +1,28 @@
+# Gazebo -> ROS 2. Read by ros_gz_bridge parameter_bridge (config_file).
+- ros_topic_name: /clock
+  gz_topic_name: /world/dronehacks/clock
+  ros_type_name: rosgraph_msgs/msg/Clock
+  gz_type_name: gz.msgs.Clock
+  direction: GZ_TO_ROS
+# Ground truth, ENU world. Only vio_sim reads it (as the stand-in for cuVSLAM).
+- ros_topic_name: /sim/truth/odometry
+  gz_topic_name: /sim/truth/odometry
+  ros_type_name: nav_msgs/msg/Odometry
+  gz_type_name: gz.msgs.Odometry
+  direction: GZ_TO_ROS
+# The rendered OAK: colour, depth (32FC1 metres) and intrinsics. oak_sim turns them into /oak/*.
+- ros_topic_name: /sim/oak/image
+  gz_topic_name: /sim/oak/image
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+- ros_topic_name: /sim/oak/depth_image
+  gz_topic_name: /sim/oak/depth_image
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+- ros_topic_name: /sim/oak/camera_info
+  gz_topic_name: /sim/oak/camera_info
+  ros_type_name: sensor_msgs/msg/CameraInfo
+  gz_type_name: gz.msgs.CameraInfo
+  direction: GZ_TO_ROS

@@ -1,0 +1,29 @@
+# The Sky Beta drone stack in the course sim: ./fly-sim-drone.sh at the repository root runs it.
+name: dronehacks-skybeta
+services:
+  sim:
+    image: dronehacks-skybeta:local
+    build:
+      context: ./skybeta
+    init: true
+    shm_size: 512m
+    command: ["bash", "/workspace/skybeta/start.sh"]
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "2"}
+    environment:
+      SIM_GUI: ${SIM_GUI:-1}
+      SIM_DESKTOP_SIZE: ${SIM_DESKTOP_SIZE:-800x600}
+      SIM_REAL_TIME_FACTOR: ${SIM_REAL_TIME_FACTOR:-1.0}
+      SIM_OAK_WIDTH: ${SIM_OAK_WIDTH:-512}
+      SIM_OAK_HEIGHT: ${SIM_OAK_HEIGHT:-320}
+      GZ_PARTITION: dronehacks_skybeta
+      ROS_DOMAIN_ID: "0"
+    ports:
+      - "127.0.0.1:8082:6080"   # Gazebo (noVNC)
+      - "127.0.0.1:8080:8080"   # the team's camera page, as on the drone
+      - "127.0.0.1:8765:8765"   # Foxglove
+    volumes:
+      - .:/workspace:ro
+      - ./artifacts:/workspace/artifacts
+      - ..:/repo:ro
