@@ -20,7 +20,7 @@ COMPOSE=(docker --context "$CTX" compose -f "$SIM/compose.skybeta.yaml")
 # The same list as the drone's scripts/fly.sh (main), so sim and drone bags compare one to one,
 # plus the sim's ground truth.
 BAG_TOPICS=(
-  /visual_slam/tracking/odometry /visual_slam/status /visual_slam/tracking/vo_path
+  /visual_slam/tracking/odometry /visual_slam/status
   /oak/imu/data /oak/left/camera_info /oak/stereo/camera_info /oak/stereo/image_raw
   /skybeta/state /skybeta/setpoint/pose /skybeta/setpoint/twist /refnav/status
   /fmu/in/vehicle_visual_odometry /fmu/in/trajectory_setpoint /fmu/in/offboard_control_mode
