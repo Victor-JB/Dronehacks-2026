@@ -595,3 +595,39 @@ def test_vault_on_obstacle_climbs_over_wall_mid_route():
     assert m.result == "complete", (m.result, m.why)
     assert min(entry[4][2] for entry in log) < -1.8
     assert px4.pos[0] > 3.5 and not px4.armed and px4.landed
+
+
+# ---- start gate: the live view's START ROUTE
+
+def test_start_gate_hovers_until_start_then_flies_the_route():
+    seen = {}
+
+    def tick(t, m):
+        if m.phase == "await_start":
+            seen.setdefault("gate", (t, tuple(m.sp)))
+            if t - seen["gate"][0] > 5.0 and "start" not in seen:
+                seen["start"] = (t, m.request_start())
+    m, px4, log = fly(C.Params(route=[(2.0, 0.0)], start_gate=True), on_tick=tick)
+    assert m.result == "complete", (m.result, m.why)
+    assert seen["start"][1][0] is True                        # accepted while hovering at the gate
+    t_gate, sp = seen["gate"]
+    held = [pos for t, ph, *_, pos in log if ph == "await_start"]
+    assert held and max(abs(p[0] - held[0][0]) + abs(p[1] - held[0][1]) for p in held) < 0.05   # it hovered
+    assert all(ph in ("climb", "hover", "await_start", "arm", "wait") for t, ph, *_ in log if t < seen["start"][0])
+
+
+def test_start_is_refused_outside_the_gate():
+    m = C.Mission(C.Params(route=[(2.0, 0.0)], start_gate=True))
+    ok, why = m.request_start()
+    assert not ok and "not hovering" in why
+
+
+def test_no_start_ends_the_mission():
+    m, px4, log = fly(C.Params(route=[(2.0, 0.0)], start_gate=True, start_wait_s=5.0))
+    assert m.result == "landed: no START within 5 s", m.result
+    assert m.legs_done == 0
+
+
+def test_start_gate_does_nothing_for_a_plain_hover():
+    m, px4, log = fly(C.Params(route=[], hover_s=2.0, start_gate=True))
+    assert m.result == "complete" and "await_start" not in {ph for t, ph, *_ in log}

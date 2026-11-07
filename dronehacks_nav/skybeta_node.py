@@ -124,6 +124,9 @@ class SkybetaNav(Node):
         self.create_subscription(Odometry, self.odom_topic, self._on_odom, 10)
         self.create_subscription(VisualSlamStatus, "/visual_slam/status", self._on_vo, 10)
         self.create_subscription(String, "/skybeta/state", self._on_state, 10)
+        # operator commands from the live view (camera_web): "start" (leave the start gate and fly the
+        # route) and "stop" (end the mission: hold, the pilot lands)
+        self.create_subscription(String, "/refnav/command", self._on_command, 10)
         self.create_subscription(VehicleLandDetected, "/fmu/out/vehicle_land_detected", self._on_land, PX4_QOS)
         if self.depth_topic:
             self.create_subscription(CameraInfo, self.info_topic, self._on_info, qos_profile_sensor_data)
@@ -166,6 +169,18 @@ class SkybetaNav(Node):
 
     def _on_vo(self, m):
         self.vo = (int(m.vo_state), self._now())
+
+    def _on_command(self, m):
+        cmd = m.data.strip().lower()
+        if cmd == "start":
+            ok, msg = self.mission.request_start()
+            (self.get_logger().info if ok else self.get_logger().warning)(msg)
+        elif cmd == "stop":
+            self.mission.request_land("STOP from the live view")
+            self.get_logger().warning("STOP from the live view: ending the mission (it holds; PILOT, TAKE OVER AND LAND)")
+        else:
+            self.get_logger().warning(f"unknown command on /refnav/command: {m.data!r}")
+        self._publish_status()
 
     def _on_state(self, m):
         try:
@@ -298,6 +313,9 @@ class SkybetaNav(Node):
         out = self.mission.step(now, self._vehicle(now))
         for e in out.events:
             self.get_logger().info(e)
+        if out.events and self.mission.phase == "await_start":
+            self.get_logger().info("HOVERING AT THE START GATE: press START ROUTE in the live view "
+                                   "(or STOP); the pilot can take over any time")
         if self.mission.phase == "wait" and self.mission.t_phase is not None:
             if self._wait_log_t is None or now - self._wait_log_t >= 10.0:   # say why it is not flying, every 10 s
                 if self._wait_log_t is not None:

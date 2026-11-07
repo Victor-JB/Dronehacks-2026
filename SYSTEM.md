@@ -88,7 +88,9 @@ sequenceDiagram
   M->>M: waits: PX4 link, VIO tracking, live depth (3 s quiet each), for as long as it takes
   M-->>P: READY: holds a setpoint; arm on Altitude, then switch to Position
   P->>P: arm, switch to Position within a few seconds
-  Note over M: flight interface enters Offboard; mission takes off and flies
+  Note over M: flight interface enters Offboard; mission takes off and hovers (start gate)
+  P->>M: START ROUTE in the live view (or STOP; none within 60 s ends it)
+  Note over M: flies the active mode's route
   M-->>P: MISSION ENDED / FREEZING: take over and land
   P->>P: throttle to centre, land, disarm
   M->>M: disarmed: a fresh mission, READY again for the next arming
@@ -135,7 +137,7 @@ the adapter around it:
 
 **Phases:** `wait` (all inputs healthy and 3 s of usable depth) -> `arm` (streams a hold so the
 pilot's Position switch can hand over; on the drone it waits for the pilot indefinitely) -> `climb` to `height_m`
--> optional `hover` -> the route (`turn`, `check`, `go`, `hold` per leg) or `explore` -> `land`
+-> optional `hover` -> `await_start` (the start gate: hovers until START ROUTE in the live view; `start_gate`, `start_wait_s`) -> the route (`turn`, `check`, `go`, `hold` per leg) or `explore` -> `land`
 (hold + pilot) -> `done`.
 
 **Safety behaviour** (each is a unit test):

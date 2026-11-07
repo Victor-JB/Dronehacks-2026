@@ -75,13 +75,15 @@ The stack is back in ~10 s; its `competitor` window rebuilds `team_ws` and launc
 1. Power on where the drone will take off; keep it still for the first minute.
 2. On the drone, optional but recommended: `~/team_ws/src/dronehacks/scripts/fly.sh start`
    records a bag and opens the camera page and Foxglove. It does not start a second mission.
-3. Wait for `READY` (`fly.sh status` shows the mission's last lines).
+3. Open the live-view link `fly.sh start` printed (with `?key=`) and wait for **READY**.
 4. Pilot arms on **Altitude**, then switches to **Position within a few seconds** (PX4 disarms 10 s
-   after arming without a takeoff). The mission takes off and flies `modes.json`'s active mode.
-5. It holds position at the end and says `PILOT, TAKE OVER AND LAND`; the pilot raises the throttle
+   after arming without a takeoff). The drone takes off and **hovers at the start gate**.
+5. Press **START ROUTE** on the page: it flies `modes.json`'s active mode. No START within 60 s, or
+   **STOP** at any time, ends the mission. (Modes without a route, like `hover_test`, skip the gate.)
+6. At the end it holds position and says `PILOT, TAKE OVER AND LAND`; the pilot raises the throttle
    to centre (back to Position), lands and disarms. The pilot can take over at any time the same way.
-6. Once disarmed, the mission starts over and is READY for the next arming: **one go per arming**.
-7. `fly.sh stop` closes the bag (on the ground).
+7. Once disarmed, the mission starts over and is READY for the next arming: **one go per arming**.
+8. `fly.sh stop` closes the bag (on the ground).
 
 - **Live view: `http://skybeta-02.local:8080/`** in a browser (`dronehacks_nav/camera_web.py`): where VIO thinks the
   drone is (top-down track, heading, setpoint, planned route), armed / Offboard, the mission's phase and why it

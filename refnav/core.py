@@ -47,7 +47,7 @@ from . import depth as D
 
 NAV_OFFBOARD = 14
 NAV_AUTO_LAND = 18
-AIRBORNE = ("climb", "hover", "turn", "check", "go", "hold", "explore",
+AIRBORNE = ("climb", "hover", "await_start", "turn", "check", "go", "hold", "explore",
             "vault_find", "vault_approach", "vault_climb", "vault_cross", "vault_descend", "vault_settle")
 
 
@@ -71,6 +71,8 @@ class Params:
     climb_tol_m: float = 0.15
     climb_rate_mps: float = 0.5
     hover_s: float = 0.0                        # hold at height_m this long after the climb (0: straight on)
+    start_gate: bool = False                    # after the climb, hover until request_start() (the live view's START)
+    start_wait_s: float = 60.0                  # no START this long after reaching the hover: end the mission (0: never)
     health_quiet_s: float = 3.0                 # healthy this long before arming
     health_stale_s: float = 1.0
     health_bad_land_s: float = 1.0
@@ -214,6 +216,8 @@ class Mission:
         self.clr_hist = []            # [(depth stamp, clearance)] along the current leg, newest last
         self.last_clearance = None
         self.land_request = None      # why an outside landing request was made (request_land), until acted on
+        self.start_requested = False  # request_start() accepted while hovering in await_start
+        self.started = False          # past the start gate (or no gate): the route / explore / vault is running
         self.depth_reject = None      # (key, detail): why the latest refused depth frame was refused
         self.last_valid_frac = None   # fraction of pixels returning depth in the latest decoded frame
         self.vault_target = None      # far-side (North, East) landing target coordinate for wall vault
@@ -221,6 +225,14 @@ class Mission:
         self._vault_seen_n = 0        # consecutive frames confirming the wall during vault_find
         self._vault_clear_n = 0       # consecutive frames confirming clearance above the wall during vault_climb
         self._vault_judged_t = None   # latest depth stamp evaluated by _vault
+
+    def request_start(self):
+        """The operator's START (start_gate): accepted only while hovering in await_start.
+        Returns (accepted, message)."""
+        if self.phase != "await_start":
+            return False, f"START ignored: the mission is in {self.phase}, not hovering at the start gate"
+        self.start_requested = True
+        return True, "START accepted: flying the route"
 
     def request_land(self, why="requested"):
         """An outside request to end the flight through the mission's own landing (no second controller)."""
@@ -428,6 +440,12 @@ class Mission:
         elif ph == "hover":
             if now - self.t_phase >= p.hover_s:
                 self._next_leg(now, out, v)
+        elif ph == "await_start":
+            if self.start_requested:
+                self.started = True
+                self._next_leg(now, out, v)
+            elif p.start_wait_s > 0 and now - self.t_phase > p.start_wait_s:
+                self._land(now, out, f"no START within {p.start_wait_s:.0f} s")
         elif ph == "turn":
             err = _wrap(self.leg_heading - self.sp[3])
             step = math.radians(p.yaw_rate_dps) * dt
@@ -489,11 +507,17 @@ class Mission:
         self._set(phase, now, out, why)
 
     def _next_leg(self, now, out, v):
-        if self.p.vault_only and self.phase in ("climb", "hover"):
+        p = self.p
+        if (p.start_gate and not self.started and self.phase in ("climb", "hover")
+                and (self.targets or p.explore or p.vault_only)):
+            self._set("await_start", now, out, f"hovering at {p.height_m:.2f} m: waiting for START "
+                      + (f"(ends after {p.start_wait_s:.0f} s)" if p.start_wait_s > 0 else ""))
+            return
+        if self.p.vault_only and self.phase in ("climb", "hover", "await_start"):
             self.leg_heading = self.home[3] if self.home is not None else v.heading
             self._start_vault(now, out, "vault_find", None, "climbing to detect wall above bottom gap")
             return
-        if self.p.explore and self.phase in ("climb", "hover"):
+        if self.p.explore and self.phase in ("climb", "hover", "await_start"):
             self.explore_h, self.last_clearance, self._judged_t = None, None, None
             self._set("explore", now, out, "following open space")
             return
@@ -810,7 +834,9 @@ class Mission:
                 self._land(now, out, "vault complete")
 
     def status(self, now):
-        return {"phase": self.phase, "why": self.why, "result": self.result, "started_t": self.t_started, "leg": self.leg,
+        return {"phase": self.phase, "why": self.why, "start_gate": self.p.start_gate,
+                "start_wait_left_s": (round(max(0.0, self.p.start_wait_s - (now - self.t_phase)), 1)
+                                      if self.phase == "await_start" and self.p.start_wait_s > 0 else None), "result": self.result, "started_t": self.t_started, "leg": self.leg,
                 "legs": len(self.targets), "legs_done": self.legs_done, "home": self.home,
                 "targets": [list(t) for t in self.targets], "setpoint": list(self.sp) if self.sp else None,
                 "vault_target": list(self.vault_target) if self.vault_target else None,

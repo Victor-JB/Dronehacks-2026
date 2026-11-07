@@ -112,17 +112,27 @@ start() {
   window bag      "ros2 bag record -s mcap -o ${bag} ${topics[*]}"
   window foxglove "ros2 launch foxglove_bridge foxglove_bridge_launch.xml address:=127.0.0.1 port:=${FOXGLOVE_PORT} topic_whitelist:=\"${FOXGLOVE_TOPICS}\""
   window map      "ros2 run dronehacks_nav map_node"
+  dx rm -f /tmp/dronehacks_live_key                  # the live view writes a new key when it starts
   window camera   "ros2 run dronehacks_nav camera_web --ros-args -p port:=${CAMERA_PORT}"
+  local key=""
+  for _ in $(seq 1 30); do
+    key="$(dx cat /tmp/dronehacks_live_key 2>/dev/null || true)"
+    [[ -n "${key}" ]] && break
+    sleep 0.5
+  done
 
   cat <<EOF
 [fly] started: ${WINDOWS[*]}
-      live view       http://$(host_name):${CAMERA_PORT}/   (position + route, armed/Offboard, mission phase, camera, depth, map)
+      live view       http://$(host_name):${CAMERA_PORT}/?key=${key:-NO-KEY-YET}
+                      START ROUTE / STOP buttons work only with this link (the key changes each start);
+                      without ?key= the page is view-only
       foxglove        on the laptop: ssh -N -L ${FOXGLOVE_PORT}:localhost:${FOXGLOVE_PORT} $(whoami)@$(host_name)
                       then connect Foxglove to ws://localhost:${FOXGLOVE_PORT}
       bag             ${BAGS_HOST}/$(basename "${bag}")  ($( [[ -n "${depth}" ]] && echo "with depth, ~4 MB/s" || echo "no depth images: start --depth to add them"))
       watch           $0 attach      (Ctrl-b d to leave; Ctrl-b n for the next window)
       mission log     $0 status, or: docker exec -it ${C} tmux attach -t skybeta (window competitor)
-[fly] wait for READY in the mission log, then the pilot arms on Altitude and switches to Position.
+[fly] READY on the page -> pilot arms on Altitude, switches to Position -> it takes off and hovers
+      -> press START ROUTE to fly the route (STOP ends the mission any time; the pilot lands).
 EOF
 }
 

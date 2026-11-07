@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """dronehacks_nav.camera_web - the drone's live view on a plain web page, served by the Jetson itself:
 where VIO thinks the drone is (track, heading, setpoint, planned route), the mission's phase, armed /
-Offboard, and the camera, depth and map images. Read-only: subscribes, publishes nothing.
+Offboard, and the camera, depth and map images.
+
+Two buttons drive the mission (start_gate): START ROUTE (leave the hover after takeoff and fly the
+route) and STOP (end the mission: it holds, the pilot lands). They publish "start" / "stop" on
+/refnav/command and work only with the key this node makes at startup (written to key_file; fly.sh
+start prints the link with it), because anyone on the WiFi can open the page. Without the key the
+page is view-only. Arming and the switch to Position stay with the pilot: no button can take off.
 
     http://skybeta-02.local:8080/            everything on one page
     http://skybeta-02.local:8080/state.json  odometry, track, mission status, skybeta state
@@ -19,8 +25,10 @@ Run:  ros2 run dronehacks_nav camera_web --ros-args -p port:=8080
 from __future__ import annotations
 
 import json
+import secrets
 import sys
 import threading
+from urllib.parse import parse_qs, urlparse
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -43,7 +51,12 @@ div{display:flex;flex-wrap:wrap;gap:8px;padding:8px}figure{margin:0;flex:1 1 400
 img{width:100%;image-rendering:pixelated;background:#000}
 .s{font:16px monospace;color:#8f8;white-space:pre}
 #pos{display:flex;flex-wrap:wrap;gap:8px;padding:8px}canvas{background:#000;flex:1 1 420px;max-width:640px;aspect-ratio:1}
-#st{flex:1 1 320px;font:15px monospace;white-space:pre;color:#ddd}.bad{color:#f66}.ok{color:#8f8}.warn{color:#fd5}</style></head><body>
+#st{flex:1 1 320px;font:15px monospace;white-space:pre;color:#ddd}
+#bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 8px;background:#1b1b1b;position:sticky;top:0;z-index:1}
+#banner{flex:1 1 420px;font:bold 22px sans-serif}button{font:bold 20px sans-serif;padding:12px 22px;border:0;border-radius:6px;cursor:pointer}
+#go{background:#2a2;color:#fff}#stop{background:#c22;color:#fff}button:disabled{background:#444;color:#888;cursor:default}#msg{font:14px monospace;color:#fd5}.bad{color:#f66}.ok{color:#8f8}.warn{color:#fd5}</style></head><body>
+<div id="bar"><div id="banner">connecting...</div>
+<button id="go" disabled>START ROUTE</button><button id="stop" disabled>STOP</button><span id="msg"></span></div>
 <div id="pos"><canvas id="c" width="640" height="640"></canvas><div id="st">waiting for /state.json</div></div>
 <div>
 <figure><img src="/camera.mjpg"><figcaption>camera (left)</figcaption><div class="s" id="camera">-</div></figure>
@@ -91,7 +104,32 @@ function text(d){
  if(d.stale)t='<span class="bad">NO DATA from the drone for '+fx(d.stale,0)+" s</span>\\n\\n"+t;
  st.innerHTML=t;
 }
-setInterval(async()=>{try{const d=await (await fetch("/state.json")).json();draw(d);text(d);}catch(e){st.innerHTML='<span class="bad">page cannot reach the drone</span>';}},200);
+// --- the state in plain words, and the two buttons (only with ?key=..., from fly.sh start)
+const KEY=new URLSearchParams(location.search).get("key"),bn=document.getElementById("banner"),
+ go=document.getElementById("go"),sp=document.getElementById("stop"),msg=document.getElementById("msg");
+if(!KEY){go.style.display=sp.style.display="none";msg.textContent="view only: use the link fly.sh start prints for the buttons";}
+const FLY=["turn","check","go","hold"],AIR=["climb","hover","await_start","explore"].concat(FLY);
+function words(d){const m=d.mission||{},sk=d.skybeta||{},ph=m.phase;
+ if(d.stale||!ph)return["#f44","NO DATA from the mission"];
+ if(ph=="wait")return["#fd5","NOT READY: "+(m.why||"")];
+ if(ph=="arm")return sk.armed?["#4af","ARMED: pilot, switch to Position now"]:["#3c3","READY: pilot, arm on Altitude, then switch to Position"];
+ if(ph=="climb")return["#4af","TAKING OFF to "+(m.setpoint?(-m.setpoint[2]).toFixed(2):"?")+" m"];
+ if(ph=="hover")return["#4af","HOVERING"];
+ if(ph=="await_start")return["#3c3","HOVERING: press START ROUTE"+(m.start_wait_left_s!=null?" (ends in "+m.start_wait_left_s.toFixed(0)+" s)":"")];
+ if(FLY.includes(ph))return["#4af","FLYING ROUTE: leg "+Math.min(m.leg+1,m.legs)+" of "+m.legs];
+ if(ph=="explore")return["#4af","EXPLORING"];
+ if(ph.startsWith("vault"))return["#4af","WALL VAULT: "+ph.slice(6)];
+ if(ph=="land")return["#f84","MISSION ENDED: pilot, take over and land"];
+ if(ph=="done")return["#aaa","DONE: "+(m.result||"")+" (ready again once disarmed)"];
+ return["#ddd",ph];}
+function bar(d){const [c,t]=words(d),ph=(d.mission||{}).phase;bn.style.color=c;bn.textContent=t;
+ go.disabled=ph!="await_start";sp.disabled=!(ph=="wait"||ph=="arm"||AIR.includes(ph)||(ph||"").startsWith("vault"));}
+async function send(cmd){
+ if(cmd=="start"&&!confirm("START ROUTE: fly the route now?"))return;
+ try{const r=await fetch("/command?cmd="+cmd+"&key="+encodeURIComponent(KEY),{method:"POST"});
+  const j=await r.json();msg.textContent=j.ok?(cmd.toUpperCase()+" sent"):("refused: "+j.error);}catch(e){msg.textContent="could not send "+cmd;}}
+go.onclick=()=>send("start");sp.onclick=()=>send("stop");
+setInterval(async()=>{try{const d=await (await fetch("/state.json")).json();draw(d);text(d);bar(d);}catch(e){st.innerHTML='<span class="bad">page cannot reach the drone</span>';bn.style.color="#f44";bn.textContent="page cannot reach the drone";}},200);
 </script></body></html>"""
 
 
@@ -156,6 +194,15 @@ class CameraWeb(Node):
         self.create_subscription(Odometry, odom_topic, self._on_odom, qos_profile_sensor_data)
         self.create_subscription(String, "/refnav/status", lambda m: self._on_json("mission_status", m), 10)
         self.create_subscription(String, "/skybeta/state", lambda m: self._on_json("sky", m), 10)
+        # the buttons: a key per run, so only whoever has fly.sh start's link can press them
+        self.pub_cmd = self.create_publisher(String, "/refnav/command", 10)
+        self.key = secrets.token_urlsafe(6)
+        key_file = self.declare_parameter("key_file", "/tmp/dronehacks_live_key").value
+        try:
+            with open(key_file, "w") as f:
+                f.write(self.key + "\n")
+        except OSError as e:
+            self.get_logger().warning(f"cannot write {key_file}: {e}")
         self.get_logger().info(f"camera {camera_topic}, depth {depth_topic}, map {map_topic}: "
                                f"http://{self.address}:{self.port}/")
 
@@ -253,7 +300,33 @@ class CameraWeb(Node):
             def log_message(self, *args):
                 pass
 
+            def _json(self, code, obj):
+                body = json.dumps(obj).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                url = urlparse(self.path)
+                q = parse_qs(url.query)
+                if url.path != "/command":
+                    self.send_error(404)
+                    return
+                if not secrets.compare_digest(q.get("key", [""])[0], node.key):
+                    self._json(403, {"ok": False, "error": "wrong or missing key: use the link fly.sh start prints"})
+                    return
+                cmd = q.get("cmd", [""])[0]
+                if cmd not in ("start", "stop"):
+                    self._json(400, {"ok": False, "error": f"unknown command {cmd!r}"})
+                    return
+                node.pub_cmd.publish(String(data=cmd))
+                node.get_logger().info(f"live view: {cmd.upper()} pressed ({self.client_address[0]})")
+                self._json(200, {"ok": True})
+
             def do_GET(self):
+                self.path = urlparse(self.path).path       # the page's own ?key=... is for the browser
                 if self.path in ("/", "/index.html"):
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html")
