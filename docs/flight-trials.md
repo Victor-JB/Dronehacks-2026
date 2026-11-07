@@ -1,6 +1,6 @@
 # Marker-free flight trials
 
-This inventory contains 26 unique run IDs across 27 flight telemetry archive paths; `current` is an identical alias of `policy-08`. No overall reliability percentage is inferred across changing code, configuration, and diagnostic protocols.
+This inventory contains 28 unique run IDs across 29 flight telemetry archive paths; `current` is an identical alias of `policy-09`. No overall reliability percentage is inferred across changing code, configuration, and diagnostic protocols.
 
 ## Full-route attempts
 
@@ -24,6 +24,7 @@ This inventory contains 26 unique run IDs across 27 flight telemetry archive pat
 | policy-06 | learned policy / `a1919ecd` | rgbd_pose_unavailable:tracking_lost:survey:unobservable_depth_geometry:0.0028333;depth:insufficient_depth_overlap;rgb:insufficient_correspondences | 5/15 | 5/15 | confirmed touchdown and disarm |
 | policy-07 | learned policy / `a1919ecd` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
 | policy-08 | learned policy / `a1919ecd` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
+| policy-09 | learned policy / `a1919ecd` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
 
 ## Independent score details
 
@@ -45,6 +46,7 @@ Only a score file whose run ID matches its telemetry archive is joined. Abort-la
 - **policy-06:** truth 5/15 ordered=False; abort landing 50.896→56.556 s, CAD clear through disarm=True, contact coverage=partial_topic_coverage.
 - **policy-07:** truth 15/15 ordered=True.
 - **policy-08:** truth 15/15 ordered=True.
+- **policy-09:** truth 15/15 ordered=True.
 
 ## Diagnostic hovers
 
@@ -57,6 +59,7 @@ Only a score file whose run ID matches its telemetry archive is joined. Abort-la
 | hover-05 | completed | none | confirmed touchdown and disarm | matched |
 | hover-06 | completed | none | confirmed touchdown and disarm | matched |
 | hover-07 | completed | none | confirmed touchdown and disarm | matched |
+| hover-08 | completed | none | confirmed touchdown and disarm | matched |
 
 ## Blackout diagnostic
 

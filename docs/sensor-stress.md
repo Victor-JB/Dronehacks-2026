@@ -65,6 +65,10 @@ The default image patch starts at pixel `(176, 64)` and spans `32 × 32` pixels.
 
 Proceed to a noisy flight only after the static check passes. Preserve the same `gaussian-10mm` config and compare with a matched `control` flight using the same checkpoint and route. Score waypoint order, envelope clearance, the window crossing, and landing with the independent observer. Keep simulator state separate from navigation.
 
+## Matched runs with the tighter continuity limit
+
+Policy-08 (nominal depth) and policy-09 (10 mm Gaussian depth noise) both used FALS7, the same packaged v1 actor, the boundary guard, patched PX4, and a 120 ms capture-gap limit with a separate 300 ms processing-age limit. Both completed in 78.000 simulated seconds and passed all eight independent route/geometry/landing checks. Minimum modeled aperture clearance was 92.3 mm for the control and 95.3 mm for the noisy trial. PX4 position RMSE against the independent observer was 5.12 mm and 5.01 mm, respectively. The similar outcomes in this pair do not estimate failure probability. [Control evidence](fals7-control-results.json) · [Noisy evidence](fals7-noisy-120ms-results.json) · [Noisy replay](media/window-policy-noisy-120ms.mp4).
+
 ## Structured stereo errors
 
 A separate offline replay tested eight fixed views, five depth perturbations and three small sensor-prior offsets, for 120 cases. Preserved occlusion holes were rejected by the policy. Finite farther-depth substitutions at edges were admitted and produced six survey poses with more than 30 mm error, peaking at 33.17 mm; none exceeded the preregistered 60 mm threshold. Those six cases were three offsets at two window views. Another view changed 14 peripheral actor rays from at most 1.5 m to at least 3 m while raw input coverage remained 1.0. This shows why reported coverage and fit residual alone cannot establish trustworthy stereo depth. The [fixed protocol, complete results and methods](experiments/stereo-stress-01/methods.md) distinguish native captures, archived PNGs, synthetic stereo assumptions and independent scoring.

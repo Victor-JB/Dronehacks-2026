@@ -121,3 +121,7 @@ Some closed local ULogs and independent observer JSONL files are stored as lossl
 ## Contact-sensor controls
 
 The [isolated contact controls](contact-sensors.md) passed for all five body collision boxes, four stationary rotor collision boxes, and a displaced-block negative control with a required reference contact. Each case used its own Gazebo partition and bounded 164 ms gravity drop. This verifies the topic and collider-name wiring under those conditions. Flight contact coverage remains partial; silence during a flight is not a zero-collision result.
+
+## Matched FALS7 route repeat
+
+Policy-08 and policy-09 completed the nominal and Gaussian-noise cases with the 120 ms capture-continuity gate. Both took 78.000 simulated seconds, reached all 15 waypoints in order, and passed all eight independent checks. Their minimum modeled window clearances were 92.3 mm and 95.3 mm. The [paired sensor-stress note](sensor-stress.md#matched-runs-with-the-tighter-continuity-limit) links exact configuration, source hashes and score records. Use `--survey-normals fals7` explicitly for both the hover proof and route to reproduce these trials.

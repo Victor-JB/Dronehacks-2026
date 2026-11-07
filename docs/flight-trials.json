@@ -2,13 +2,13 @@
   "schema": "dronehacks.markerfree-flight-trials.v1",
   "scope": "All marker-free telemetry archives with a flight run ID. Non-flight diagnostics without a run ID are excluded. Hover and injected blackout protocols are separated from full-route attempts. No pooled reliability rate is calculated across changing code/configuration or protocols.",
   "inventory": {
-    "telemetry_archive_paths_seen": 27,
-    "unique_run_ids": 26,
+    "telemetry_archive_paths_seen": 29,
+    "unique_run_ids": 28,
     "duplicate_archive_aliases": [
       {
         "archive": "current",
-        "canonical_archive": "policy-08",
-        "same_run_id": "8897b96383fd493bafc3d033ba78edf7",
+        "canonical_archive": "policy-09",
+        "same_run_id": "08cd4ca1a7b248d19e275ea042628f97",
         "telemetry_byte_identical": true
       }
     ]
@@ -1571,9 +1571,7 @@
       },
       {
         "archive": "artifacts/markerfree/policy-08",
-        "archive_aliases": [
-          "current"
-        ],
+        "archive_aliases": [],
         "run_id": "8897b96383fd493bafc3d033ba78edf7",
         "category": "full_route_attempt",
         "task": "policy",
@@ -1650,6 +1648,103 @@
           },
           {
             "sim_time_s": 30.544,
+            "message": "Sustained takeoff hover verified"
+          },
+          {
+            "sim_time_s": null,
+            "message": "Route complete; requesting PX4 AUTO_LAND"
+          },
+          {
+            "sim_time_s": null,
+            "message": "Disarmed by landing\t"
+          },
+          {
+            "sim_time_s": null,
+            "message": "PX4 confirmed touchdown and disarm inside the modeled pad"
+          }
+        ]
+      },
+      {
+        "archive": "artifacts/markerfree/policy-09",
+        "archive_aliases": [
+          "current"
+        ],
+        "run_id": "08cd4ca1a7b248d19e275ea042628f97",
+        "category": "full_route_attempt",
+        "task": "policy",
+        "controller": "learned policy",
+        "result": "completed",
+        "fault": null,
+        "policy_checkpoint_sha256": "a1919ecdd2149515e4875f4694c52733e269345ef95cad6b074099bfdbff8b26",
+        "policy_boundary_brake_enabled": true,
+        "policy_boundary_brake_flag_recorded": true,
+        "policy_actions_received": 363,
+        "controller_waypoints_reached": 15,
+        "controller_waypoint_count": 15,
+        "landing": {
+          "confirmed": true,
+          "status": "confirmed touchdown and disarm",
+          "landed_and_disarmed": true,
+          "landed_after_fault": false,
+          "confirmation_event": {
+            "sim_time_s": null,
+            "message": "PX4 confirmed touchdown and disarm inside the modeled pad"
+          }
+        },
+        "timestamps_sim_s": {
+          "armed_event": 17.5,
+          "verified_hover_event": 31.604,
+          "route_complete_elapsed_from_arm": 72.304,
+          "summary_elapsed_from_arm": 78.0,
+          "injection_event": null,
+          "mission_stopped_event": null,
+          "route_complete_event": null,
+          "touchdown_disarm_event": null
+        },
+        "score": {
+          "matched_run_id": true,
+          "score_file": "score.json",
+          "mission_result": "completed",
+          "full_route_verified_by_geometry": true,
+          "truth_waypoints_reached": 15,
+          "truth_waypoint_count": 15,
+          "truth_reaches_all_waypoints_in_order": true,
+          "checks": {
+            "controller_reports_all_waypoints": true,
+            "truth_complete_during_flight": true,
+            "truth_reaches_all_waypoints_in_order": true,
+            "truth_crosses_window_with_full_envelope": true,
+            "truth_multipart_path_certified_clear": true,
+            "truth_transit_floor_checked": true,
+            "px4_ground_and_disarm_confirmed": true,
+            "truth_touchdown_inside_pad": true
+          },
+          "window_min_aperture_clearance_m": 0.09534238053425942,
+          "window_full_envelope_crossed": true,
+          "pad_horizontal_envelope_clearance_m": 0.31225069838463343,
+          "landing_truth_inside_pad": true,
+          "landing_confirmed_ground_disarm": true,
+          "abort_landing": null
+        },
+        "reproducibility": {
+          "telemetry_sha256": "882028daee12edcd1e751f3103d1c69d8453d2e34090f48146777b4717e727aa",
+          "metadata_record_sha256": "2bc51c688bd3ba531ae548a57547d581dc55f3bab6ac7f39495acf921eb6b388",
+          "runtime_source_hash_map_sha256": "126488122cb67ee81cae1dc1cb23e5fe82c98ea08101cec24b7700d7a76ac0a5",
+          "runtime_source_hash_count": 37,
+          "summary_sha256": "5d5804de96a4d9cfa43fb1eaa9ad3f844ff23b0cfefee73858013f460c1e6aee",
+          "score_sha256": "ea94dc3ed7b449b0c1b5c5a9fcf4e3f41201c97884ef53660ffbd6bc77ac078a"
+        },
+        "key_events": [
+          {
+            "sim_time_s": null,
+            "message": "Navigation source audit passed"
+          },
+          {
+            "sim_time_s": 17.5,
+            "message": "PX4 armed in Offboard with marker-free RGBD aiding"
+          },
+          {
+            "sim_time_s": 31.604,
             "message": "Sustained takeoff hover verified"
           },
           {
@@ -2281,6 +2376,97 @@
           },
           {
             "sim_time_s": 31.5,
+            "message": "Sustained takeoff hover verified"
+          },
+          {
+            "sim_time_s": null,
+            "message": "Disarmed by landing\t"
+          },
+          {
+            "sim_time_s": null,
+            "message": "PX4 confirmed touchdown and disarm inside the modeled pad"
+          }
+        ]
+      },
+      {
+        "archive": "artifacts/markerfree/hover-08",
+        "archive_aliases": [],
+        "run_id": "f871e087c5214bf6a34954415e79d018",
+        "category": "diagnostic_hover",
+        "task": "hover",
+        "controller": "hover",
+        "result": "completed",
+        "fault": null,
+        "policy_checkpoint_sha256": null,
+        "policy_boundary_brake_enabled": false,
+        "policy_boundary_brake_flag_recorded": true,
+        "policy_actions_received": 0,
+        "controller_waypoints_reached": 1,
+        "controller_waypoint_count": 1,
+        "landing": {
+          "confirmed": true,
+          "status": "confirmed touchdown and disarm",
+          "landed_and_disarmed": true,
+          "landed_after_fault": false,
+          "confirmation_event": {
+            "sim_time_s": null,
+            "message": "PX4 confirmed touchdown and disarm inside the modeled pad"
+          }
+        },
+        "timestamps_sim_s": {
+          "armed_event": 16.408,
+          "verified_hover_event": 30.54,
+          "route_complete_elapsed_from_arm": 14.131999999999998,
+          "summary_elapsed_from_arm": 20.0,
+          "injection_event": null,
+          "mission_stopped_event": null,
+          "route_complete_event": null,
+          "touchdown_disarm_event": null
+        },
+        "score": {
+          "matched_run_id": true,
+          "score_file": "score.json",
+          "mission_result": "completed",
+          "full_route_verified_by_geometry": false,
+          "truth_waypoints_reached": 1,
+          "truth_waypoint_count": 1,
+          "truth_reaches_all_waypoints_in_order": true,
+          "checks": {
+            "controller_reports_all_waypoints": true,
+            "truth_complete_during_flight": true,
+            "truth_reaches_all_waypoints_in_order": true,
+            "truth_crosses_window_with_full_envelope": false,
+            "truth_multipart_path_certified_clear": true,
+            "truth_transit_floor_checked": true,
+            "px4_ground_and_disarm_confirmed": true,
+            "truth_touchdown_inside_pad": true
+          },
+          "window_min_aperture_clearance_m": null,
+          "window_full_envelope_crossed": false,
+          "pad_horizontal_envelope_clearance_m": 0.3508409385478899,
+          "landing_truth_inside_pad": true,
+          "landing_confirmed_ground_disarm": true,
+          "abort_landing": null
+        },
+        "reproducibility": {
+          "telemetry_sha256": "1f9c04ceedc78d4b9130b04a78f365bd76aafa311e851f39f7143e30e748e82c",
+          "metadata_record_sha256": "4714b377ca14700bc7c3c9a311a6639252a0a966720c8b7be241181bf1cde528",
+          "runtime_source_hash_map_sha256": "126488122cb67ee81cae1dc1cb23e5fe82c98ea08101cec24b7700d7a76ac0a5",
+          "runtime_source_hash_count": 37,
+          "summary_sha256": "1173aed1836ed1ee653142ca049507c88844dc655f113df4b464862fbadaec03",
+          "score_sha256": "c915bb95234dec25be53dbe374aeb7d88e057eb3ff16169ad555b2ec6187c051"
+        },
+        "key_events": [
+          {
+            "sim_time_s": null,
+            "message": "Navigation source audit passed"
+          },
+          {
+            "sim_time_s": 16.408,
+            "message": "PX4 armed in Offboard with marker-free RGBD aiding"
+          },
+          {
+            "sim_time_s": 30.54,
             "message": "Sustained takeoff hover verified"
           },
           {
