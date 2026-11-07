@@ -109,6 +109,9 @@ def _inside(archive, frames_dir, max_gap):
     telemetry_path = archive / 'telemetry.jsonl'
     telemetry = _load_jsonl(telemetry_path) if telemetry_path.exists() else []
     mode, result = _mission_label(telemetry)
+    metadata = next((r for r in telemetry if r.get('type') == 'metadata'), {})
+    if mode == 'LEARNED POLICY' and metadata.get('policy_boundary_brake_enabled'):
+        mode = 'LEARNED + BRAKING GUARD'
     events = _events(indexed, telemetry, max_gap)
     font = cv2.FONT_HERSHEY_SIMPLEX
     for i, event in enumerate(events):

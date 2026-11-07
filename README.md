@@ -1,68 +1,64 @@
 # dronehacks-sim
 
-Gazebo Harmonic and PX4 SITL for the DroneHacks window route. The current branch uses forward RGB-D registration against the supplied course survey, downward ToF, and PX4 EKF2. It has no artificial AprilTags and does not use simulator pose for navigation. A separate observer records truth and contacts for offline scoring. The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim).
+Gazebo Harmonic and PX4 SITL for the DroneHacks window route, running locally on an Apple Silicon Mac. Navigation uses rendered forward RGB-D, downward ToF and PX4 EKF2. The active simulator contains no artificial AprilTags and supplies no simulator pose to navigation. A separate observer records truth and contacts for offline scoring.
 
-Course-08 completed the marker-free waypoint baseline: 15/15 waypoints, PX4 landing and disarm after 83.000 simulated seconds, and independent truth scoring of the modeled multipart x500 envelope through the window and onto the pad. The conservative CAD-proxy score reports 0.106299 m minimum window aperture clearance with 15 mm inflation and 0.313969 m horizontal landing-pad envelope clearance. The navigation-source audit found no truth-topic publisher and no artificial landmark models; truth was recorded only for offline scoring. Contact-topic coverage was partial, so this does not establish zero physical collisions. Course-09 repeated the same baseline in 82.000 simulated seconds, with 15/15 independently verified waypoints and 0.109574 m minimum window clearance. These are baseline controller runs, not learned-policy results or real-aircraft validation.
+The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim). The current experiment is on `codex/markerfree-flight`.
 
-![Course-08 baseline window-crossing still](docs/media/window-baseline.png)
+## Verified flights
 
-[Watch the course-08 RGB/depth replay](docs/media/window-baseline.mp4) (100.28 seconds; rendered from recorded simulation-time frames). Policy-02 flew with 127 accepted learned actions and reached 6/15 independently verified waypoints. It overshot the north boundary after the maze, aborted after 34.432 simulated seconds, and landed and disarmed. The full learned-policy route remains unverified. The earlier policy-01 preflight transport failure was fixed using uniquely named response files. Read the [flight evidence, limitations, and commands](docs/markerfree-rgbd.md) before treating any run as a success. Compact machine-readable results and provenance are in [markerfree-results.json](docs/markerfree-results.json).
+| Run | Controller | Arm to landing and disarm | Verified waypoints | Minimum modeled window clearance |
+| --- | --- | ---: | ---: | ---: |
+| Course-08 | Waypoint baseline | 83.000 s | 15/15 | 106.3 mm |
+| Course-09 | Waypoint baseline repeat | 82.000 s | 15/15 | 109.6 mm |
+| Policy-03 | Learned depth policy with boundary braking | 77.000 s | 15/15 | 93.3 mm |
 
-## Run the current experiment
+All three passed the eight independent route, multipart geometry, window and landing checks. Times use simulation timestamps and include takeoff and touchdown. Window clearances include 15 mm inflation of the modeled x500 envelope. Contact-topic coverage was partial; these geometry results do not establish zero physical collisions or hardware readiness.
 
-The Mac setup uses Docker, Colima, the existing `dronehacks-px4:local` image, and a separate Compose project. Once the image is available, start the dedicated simulator and viewer in separate terminals:
+Policy-03 accepted 364 learned actions. Its separate braking guard changed 193 of 4,689 outgoing setpoints, or 4.1%. The earlier unguarded policy-02 overshot the north boundary and aborted after 6/15 waypoints. The padded rotor model also overlapped the north-wall proxy during that abort. The successful result belongs to the combined policy and guard.
+
+[Watch the learned-policy RGB/depth replay](docs/media/window-policy.mp4) or the [baseline replay](docs/media/window-baseline.mp4). The [policy score](docs/markerfree-policy-results.json) records the checkpoint, guard settings, sensor timestamps and source hashes. Read the [flight evidence and reproduction commands](docs/markerfree-rgbd.md), [baseline score](docs/markerfree-results.json), and [braking model and limits](docs/policy-braking.md). Section timings can be reproduced with:
+
+```sh
+python3 -m tools.section_timings artifacts/markerfree/course-08 \
+  artifacts/markerfree/course-09 artifacts/markerfree/policy-03
+```
+
+A separate injected camera-aid blackout passed eight fault-response checks. PX4 entered Auto Land, touched down and disarmed without a logged external-vision update after injection. [Fault-test evidence](docs/blackout-results.json) includes the timestamps, hashes and observation limits.
+
+## Run locally
+
+The Mac setup uses Docker, Colima and the existing `dronehacks-px4:local` image in a separate Compose project. Start the simulator and viewer in separate terminals:
 
 ```sh
 ./runtime/run-markerfree.sh
 python3 -m web.server
 ```
 
-Open [http://127.0.0.1:8083](http://127.0.0.1:8083). Starting the simulator does not arm the vehicle. The [experiment runbook](docs/markerfree-rgbd.md) gives the explicit hover, course, learned-policy and independent-scoring commands. The viewer follows `artifacts/markerfree/current` and labels whether the recorded run used the waypoint baseline or a frozen learned checkpoint.
+Open [http://127.0.0.1:8083](http://127.0.0.1:8083). Starting the simulator does not arm the aircraft. Follow the [runbook](docs/markerfree-rgbd.md) for explicit hover, course, frozen-policy and independent-scoring commands. The viewer follows `artifacts/markerfree/current` and identifies the controller and guard intervention count.
 
-## Bounded Mac learning run
+## Bounded Mac training
 
-The [learning experiment](learning/README.md) trains a small depth policy with supervised imitation and student rollouts. The `x500-transfer` profile uses the centered route, multipart x500 envelope, 0.34 m forward camera, and a velocity-response range measured against PX4. The newer `x500-transfer-delay` profile also samples queued command delay and horizontal response gain. Training uses analytic depth and dynamics; it does not run Gazebo or establish real-camera transfer. Learned Gazebo flights now use an explicitly logged [boundary braking guard](docs/policy-braking.md).
+The [learning experiment](learning/README.md) trains a 30,003-parameter depth policy using teacher-supervised imitation and student rollouts. It is not Dreamer, reinforcement learning or a learned world model. The actor sees depth and estimated state; privileged geometry is used by the training teacher only.
 
-With a native Python environment containing NumPy and PyTorch:
+The current `x500-transfer-delay` profile uses the centered route, multipart x500 envelope, 0.34 m forward camera, queued command delay and randomized velocity response. It trains with analytic depth and dynamics. Policy-03 uses the earlier validation-selected v1 checkpoint; the new v2 training result is evaluated separately.
+
+With NumPy and PyTorch installed in a native Python environment:
 
 ```sh
 python3 runtime/train_overnight.py --python /path/to/venv/bin/python --seconds 18000 -- \
   --profile x500-transfer-delay --device mps --threads 1 --seed 45 --eval-interval 300
 ```
 
-Use the remaining wall-time budget when resuming an interrupted experiment. The supervisor prevents duplicate jobs, caps runtime, and keeps the Mac awake. Results, source hashes and checkpoints stay in `artifacts/learning/`. Keep the Mac plugged in with its lid open. To stop and save:
+Use the remaining wall-time budget when resuming. The supervisor prevents duplicate jobs, caps runtime, monitors free disk and keeps the Mac awake. Keep the Mac plugged in with its lid open. To stop and save:
 
 ```sh
 python3 runtime/train_overnight.py --stop
 ```
 
-See the [competition references and SAND-O status](docs/competition-reuse.md) for the projects investigated and their limits. The local SANDO checkout is a reference; its ROS 2/Gurobi planner is not integrated into this Mac run. The [focused SAND.O assessment](docs/sando-reuse.md) identifies its stopping-distance logic and checks whether it accounts for command delay.
+## Physical transfer and reused work
 
-An injected camera-aid blackout also passed eight independent fault-response checks: PX4 entered Auto Land, touched down and disarmed without a logged vision update after injection. See [the fault-test evidence](docs/blackout-results.json) and the [reproduction command](docs/markerfree-rgbd.md#camera-aid-blackout-test).
+These runs demonstrate transfer from an analytic training model to Gazebo/PX4. Physical-camera transfer remains unvalidated. Gazebo's ideal depth, opaque net proxies, the known static survey and the x500 surrogate differ from the real OAK-D camera and Skybeta aircraft. The [OAK depth handoff](docs/oak-depth-handoff.md) provides passive capture checks and the required calibration evidence.
 
-The [OAK metric-depth handoff](docs/oak-depth-handoff.md) summarizes the pinned physical camera driver, verified depth/confidence semantics, bandwidth constraints, and passive capture requirements. The current course-08 replay uses simulated RGB-D footage only.
+The [competition references](docs/competition-reuse.md) and [local SAND.O review](docs/sando-reuse.md) explain which projects were investigated. SAND.O's full ROS 2/Gurobi planner is not integrated. Its acceleration-limited graph model is useful as a stopping-distance reference, but does not account for this command delay.
 
-## Historical marker-assisted diagnostic
-
-The following explicit opt-in recreates the earlier artificial-marker fixture. Its completed flights verify the PX4 external-vision connection, not navigation on the actual course:
-
-```sh
-SIM_TEST_MARKERS=1 ./runtime/replay-px4.sh course
-SIM_TEST_MARKERS=1 SIM_GUI=0 ./runtime/replay-px4.sh hover --blackout-after 18
-```
-
-See [docs/px4-camera.md](docs/px4-camera.md) for the navigation architecture, verified results, and limitations. See [docs/vision.md](docs/vision.md) for camera calibration and marker-map details.
-
-## Historical PX4 diagnostic results and limits
-
-Verified runs include a hover-height acquisition in 30.040 simulated seconds and a GUI run completing all 15 waypoints in 94.696 simulated seconds at 640×480 camera resolution. The camera-loss check stopped forwarding pose measurements at 18 simulated seconds while the vehicle was climbing at about 0.5 m; the route aborted 0.568 simulated seconds later, and PX4 reported landing and disarming. These runs confirm external-vision position, height, and yaw fusion with GNSS, barometer, range, and optical-flow fusion inactive. Waypoint completion uses PX4 estimated position; collisions and swept clearance were not scored. The native 480×360 camera run also completed all 15 waypoints in 96.376 simulated seconds. See [docs/px4-results.json](docs/px4-results.json) for the recorded runs.
-
-This is a camera-loop baseline, not a complete sim-to-real validation. It adds a downward-facing monocular camera and surveyed AprilTag markers to the Gazebo course. The physical aircraft uses a forward-facing OAK-D-S2 stereo camera with cuVSLAM visual-inertial odometry on Jetson. The stock x500 is not the physical airframe. These runs do not validate the real camera stack, real flight, collision safety, or course clearance.
-
-The camera runs at 30 Hz of simulation time. A 650-response MAVLink time-sync warmup at 50 Hz completes before arming. Software rendering may advance simulation slower than wall time, so use simulation timestamps when comparing camera and vehicle data. The Python course-control core is shared, but this SITL path uses MAVLink and PX4 position feedback; the physical cuVSLAM path uses a ROS 2 bridge.
-
-## Gazebo ground-truth comparison mode
-
-The older non-PX4 demo uses the Open Robotics X3 v4 quadrotor and follows the course from Gazebo ground-truth odometry. To run it, start the simulation with `./runtime/run-mac.sh`, then launch the same viewer with `./web/run.sh`. It also uses [http://localhost:8081](http://localhost:8081), with the Gazebo desktop at [http://localhost:8080/vnc.html?autoconnect=1&resize=scale](http://localhost:8080/vnc.html?autoconnect=1&resize=scale).
-
-That separate baseline completed all 15 waypoints in 61.780 simulated seconds with zero obstacle contacts and 0.0905 m clearance at the padded window check. The optional tuned window profile completed in 47.736 simulated seconds with zero contacts and 0.0906 m clearance. These ground-truth results are not directly comparable to PX4 camera runs: vehicle models, navigation sources, and scoring differ. Setting speed scale to 1 on the default ground-truth route failed the conservative window-clearance check. See [docs/results.json](docs/results.json) for details. Isaac Sim and ROS 2 are not required for this comparison demo. Linux Docker Compose may work, but the setup has been tested on Apple Silicon macOS with Colima.
+Historical marker-assisted and ground-truth diagnostics remain documented in [PX4 camera diagnostics](docs/px4-camera.md) and [older result metadata](docs/results.json). They are separate from the current marker-free results.
