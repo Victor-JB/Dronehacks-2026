@@ -1,8 +1,9 @@
 {
-  "analysis_script_sha256": "bed07f774130273140d3e901913f98ceecd9f7e5652bb3cd7d1a5929c4e37af2",
+  "analysis_script_sha256": "de1c29a5e9d63da653ffbef08850b700853e63ccf76b01906002114594166ba2",
   "definitions": {
     "action_phase_assignment": "Assign each policy_action to the phase on the latest sample whose sim_time is less than or equal to the action sim_time.",
     "archive_frame_gap_sim_ms": "Adjacent capture_sim_s gaps in camera/frames.jsonl. This is the throttled approximately 5 Hz archive recorder, not native camera cadence.",
+    "maximum_capture_gap_context": "For each run, select the last largest capture_interval_sim_s among adjacent accepted policy_action records (ties resolve to the later pair); retain both records, whether waypoint_index changed, their simulator-time acceptance interval, and sample rows within 250 ms before/after the pair. Samples contain only sim_time, phase, waypoint_index, policy_capture_usec, policy_velocity_flu, command_velocity, and policy_actions_received.",
     "policy_capture_age_sim_ms": "1000 * policy_action.capture_age_sim_s; action acceptance sim_time minus originating capture timestamp, in the simulator timestamp domain.",
     "policy_capture_gap_sim_ms": "1000 * policy_action.capture_interval_sim_s; gap between capture timestamps attached to consecutive accepted actions, not direct request-send cadence.",
     "policy_latency_wall_ms": "1000 * policy_action.latency_wall_s; PolicyClient request submission to result acceptance, measured by the mission host monotonic clock. It includes local service/inference, exchange, and polling/scheduling time; it excludes image acquisition and any prior wait for an eligible frame.",
@@ -490,6 +491,157 @@
         "telemetry_samples": 840,
         "vision_measurements_sent": 1840
       },
+      "maximum_capture_gap_context": {
+        "acceptance_interval_sim_ms": 324.0,
+        "capture_gap_sim_ms": 300.0,
+        "current_action": {
+          "capture_age_sim_s": 0.0519999999999996,
+          "capture_interval_sim_s": 0.3,
+          "capture_usec": 58552000,
+          "latency_wall_s": 0.013263159999041818,
+          "sim_time": 58.604,
+          "waypoint_index": 7
+        },
+        "nearby_samples": [
+          {
+            "command_velocity": [
+              -0.029402413079238823,
+              0.03200209320555944,
+              -0.02137950249016285
+            ],
+            "phase": "GATE_A",
+            "policy_actions_received": 160,
+            "policy_capture_usec": 57900000,
+            "policy_velocity_flu": [
+              -0.036733537912368774,
+              0.02322246879339218,
+              -0.02137950249016285
+            ],
+            "sim_time": 58.08,
+            "waypoint_index": 6
+          },
+          {
+            "command_velocity": [
+              -0.051112037133268014,
+              0.025353869735767667,
+              -0.01503024809062481
+            ],
+            "phase": "GATE_A",
+            "policy_actions_received": 161,
+            "policy_capture_usec": 58052000,
+            "policy_velocity_flu": [
+              -0.056094542145729065,
+              0.01042407751083374,
+              -0.01503024809062481
+            ],
+            "sim_time": 58.184,
+            "waypoint_index": 6
+          },
+          {
+            "command_velocity": [
+              -0.051112037133268014,
+              0.025353869735767667,
+              -0.01503024809062481
+            ],
+            "phase": "GATE_A",
+            "policy_actions_received": 162,
+            "policy_capture_usec": 58252000,
+            "policy_velocity_flu": [
+              -0.04544459283351898,
+              0.0008150488138198853,
+              -0.005123409908264875
+            ],
+            "sim_time": 58.3,
+            "waypoint_index": 6
+          },
+          {
+            "command_velocity": [
+              -0.04336656952071306,
+              0.013609407422014937,
+              -0.005123409908264875
+            ],
+            "phase": "GATE_A",
+            "policy_actions_received": 162,
+            "policy_capture_usec": 58252000,
+            "policy_velocity_flu": [
+              -0.04544459283351898,
+              0.0008150488138198853,
+              -0.005123409908264875
+            ],
+            "sim_time": 58.4,
+            "waypoint_index": 6
+          },
+          {
+            "command_velocity": [
+              -0.009992900539042414,
+              0.0031359975268171673,
+              -0.0011805804839965929
+            ],
+            "phase": "TUNNEL_ALIGN",
+            "policy_actions_received": 162,
+            "policy_capture_usec": null,
+            "policy_velocity_flu": null,
+            "sim_time": 58.5,
+            "waypoint_index": 7
+          },
+          {
+            "command_velocity": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "phase": "TUNNEL_ALIGN",
+            "policy_actions_received": 162,
+            "policy_capture_usec": null,
+            "policy_velocity_flu": null,
+            "sim_time": 58.604,
+            "waypoint_index": 7
+          },
+          {
+            "command_velocity": [
+              0.08916851455018907,
+              -0.02565004647254246,
+              0.0017003319879021843
+            ],
+            "phase": "TUNNEL_ALIGN",
+            "policy_actions_received": 163,
+            "policy_capture_usec": 58552000,
+            "policy_velocity_flu": [
+              0.7498602271080017,
+              0.0045562125742435455,
+              0.013741906732320786
+            ],
+            "sim_time": 58.712,
+            "waypoint_index": 7
+          },
+          {
+            "command_velocity": [
+              0.16602582832980053,
+              -0.04781615867616653,
+              0.0029636844310786774
+            ],
+            "phase": "TUNNEL_ALIGN",
+            "policy_actions_received": 164,
+            "policy_capture_usec": 58700000,
+            "policy_velocity_flu": [
+              0.7498409748077393,
+              0.0104270214214921,
+              0.01139140222221613
+            ],
+            "sim_time": 58.816,
+            "waypoint_index": 7
+          }
+        ],
+        "previous_action": {
+          "capture_age_sim_s": 0.027999999999998693,
+          "capture_interval_sim_s": 0.2,
+          "capture_usec": 58252000,
+          "latency_wall_s": 0.012403952001477592,
+          "sim_time": 58.28,
+          "waypoint_index": 6
+        },
+        "waypoint_changed": true
+      },
       "phases": {
         "AUTO_LAND": {
           "sample_vision_age_sim_ms": {
@@ -873,6 +1025,131 @@
         "telemetry_samples": 825,
         "vision_measurements_sent": 1860
       },
+      "maximum_capture_gap_context": {
+        "acceptance_interval_sim_ms": 200.0,
+        "capture_gap_sim_ms": 200.0,
+        "current_action": {
+          "capture_age_sim_s": 0.027999999999991587,
+          "capture_interval_sim_s": 0.2,
+          "capture_usec": 90400000,
+          "latency_wall_s": 0.004697830998338759,
+          "sim_time": 90.428,
+          "waypoint_index": 14
+        },
+        "nearby_samples": [
+          {
+            "command_velocity": [
+              -0.03670581232898705,
+              0.01159734601186754,
+              0.002976261079311371
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 360,
+            "policy_capture_usec": 90052000,
+            "policy_velocity_flu": [
+              -0.051859498023986816,
+              0.021697312593460083,
+              -0.000514104962348938
+            ],
+            "sim_time": 90.092,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              0.017531286726391107,
+              -0.0534119358832394,
+              -0.000514104962348938
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 360,
+            "policy_capture_usec": 90052000,
+            "policy_velocity_flu": [
+              -0.051859498023986816,
+              0.021697312593460083,
+              -0.000514104962348938
+            ],
+            "sim_time": 90.196,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              0.031740652062791204,
+              -0.06731388605315791,
+              -0.0076340362429618835
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 361,
+            "policy_capture_usec": 90200000,
+            "policy_velocity_flu": [
+              -0.07142937183380127,
+              0.020891938358545303,
+              -0.0076340362429618835
+            ],
+            "sim_time": 90.3,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              0.031740652062791204,
+              -0.06731388605315791,
+              -0.0076340362429618835
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 361,
+            "policy_capture_usec": 90200000,
+            "policy_velocity_flu": [
+              -0.07142937183380127,
+              0.020891938358545303,
+              -0.0076340362429618835
+            ],
+            "sim_time": 90.428,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              0.00875306224694527,
+              -0.032953745485900576,
+              -0.019691742956638336
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 362,
+            "policy_capture_usec": 90400000,
+            "policy_velocity_flu": [
+              -0.030196547508239746,
+              0.01583458110690117,
+              -0.019691742956638336
+            ],
+            "sim_time": 90.528,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              -0.009283217849794901,
+              -0.0054188064899584245,
+              -0.02851274237036705
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 363,
+            "policy_capture_usec": 90552000,
+            "policy_velocity_flu": [
+              0.0024158060550689697,
+              0.010474038310348988,
+              -0.02851274237036705
+            ],
+            "sim_time": 90.66,
+            "waypoint_index": 14
+          }
+        ],
+        "previous_action": {
+          "capture_age_sim_s": 0.027999999999991587,
+          "capture_interval_sim_s": 0.148,
+          "capture_usec": 90200000,
+          "latency_wall_s": 0.01388449400110403,
+          "sim_time": 90.228,
+          "waypoint_index": 14
+        },
+        "waypoint_changed": false
+      },
       "phases": {
         "AUTO_LAND": {
           "sample_vision_age_sim_ms": {
@@ -1243,6 +1520,131 @@
         "policy_setpoints_sent_aggregate_only": 4612,
         "telemetry_samples": 847,
         "vision_measurements_sent": 1861
+      },
+      "maximum_capture_gap_context": {
+        "acceptance_interval_sim_ms": 200.0,
+        "capture_gap_sim_ms": 200.0,
+        "current_action": {
+          "capture_age_sim_s": 0.02400000000000091,
+          "capture_interval_sim_s": 0.2,
+          "capture_usec": 88352000,
+          "latency_wall_s": 0.006633436998527031,
+          "sim_time": 88.376,
+          "waypoint_index": 14
+        },
+        "nearby_samples": [
+          {
+            "command_velocity": [
+              0.020603865812405843,
+              -0.05281860418649776,
+              -0.009288430213928223
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 359,
+            "policy_capture_usec": 87852000,
+            "policy_velocity_flu": [
+              -0.05323067307472229,
+              0.019514601677656174,
+              -0.009288430213928223
+            ],
+            "sim_time": 87.992,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              0.004361445956270968,
+              -0.028914232233363184,
+              -0.016235068440437317
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 360,
+            "policy_capture_usec": 88000000,
+            "policy_velocity_flu": [
+              -0.024324700236320496,
+              0.01622849330306053,
+              -0.016235068440437317
+            ],
+            "sim_time": 88.112,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              -0.00985479150366528,
+              -0.008456148850070476,
+              -0.022127896010017467
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 361,
+            "policy_capture_usec": 88152000,
+            "policy_velocity_flu": [
+              0.005626291036605835,
+              0.012229427695274353,
+              -0.023335829377174377
+            ],
+            "sim_time": 88.216,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              -0.012768887899753533,
+              -0.00426257602701258,
+              -0.023335829377174377
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 361,
+            "policy_capture_usec": 88152000,
+            "policy_velocity_flu": [
+              0.005626291036605835,
+              0.012229427695274353,
+              -0.023335829377174377
+            ],
+            "sim_time": 88.328,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              -0.01909868730212775,
+              0.006790609217721468,
+              -0.027098558843135834
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 362,
+            "policy_capture_usec": 88352000,
+            "policy_velocity_flu": [
+              0.018188804388046265,
+              0.008946486748754978,
+              -0.027098558843135834
+            ],
+            "sim_time": 88.448,
+            "waypoint_index": 14
+          },
+          {
+            "command_velocity": [
+              -0.01746777595804491,
+              0.006363375349065545,
+              -0.025622669607400894
+            ],
+            "phase": "LANDING_APPROACH",
+            "policy_actions_received": 363,
+            "policy_capture_usec": 88500000,
+            "policy_velocity_flu": [
+              0.016837142407894135,
+              0.007882028818130493,
+              -0.025622669607400894
+            ],
+            "sim_time": 88.56,
+            "waypoint_index": 14
+          }
+        ],
+        "previous_action": {
+          "capture_age_sim_s": 0.02400000000000091,
+          "capture_interval_sim_s": 0.152,
+          "capture_usec": 88152000,
+          "latency_wall_s": 0.010591016998660052,
+          "sim_time": 88.176,
+          "waypoint_index": 14
+        },
+        "waypoint_changed": false
       },
       "phases": {
         "AUTO_LAND": {
@@ -1626,6 +2028,161 @@
         "policy_setpoints_sent_aggregate_only": 4604,
         "telemetry_samples": 844,
         "vision_measurements_sent": 1857
+      },
+      "maximum_capture_gap_context": {
+        "acceptance_interval_sim_ms": 384.0,
+        "capture_gap_sim_ms": 352.0,
+        "current_action": {
+          "capture_age_sim_s": 0.04800000000000182,
+          "capture_interval_sim_s": 0.352,
+          "capture_usec": 67952000,
+          "latency_wall_s": 0.01359470399984275,
+          "sim_time": 68.0,
+          "waypoint_index": 10
+        },
+        "nearby_samples": [
+          {
+            "command_velocity": [
+              -0.008968338232914997,
+              -0.18554527014231645,
+              0.005269345810261178
+            ],
+            "phase": "TUNNEL",
+            "policy_actions_received": 224,
+            "policy_capture_usec": 67300000,
+            "policy_velocity_flu": [
+              -0.06988823413848877,
+              -0.02705060876905918,
+              0.010477486066520214
+            ],
+            "sim_time": 67.464,
+            "waypoint_index": 9
+          },
+          {
+            "command_velocity": [
+              -0.015773289807058482,
+              -0.10585534230302128,
+              0.005450017610062069
+            ],
+            "phase": "TUNNEL",
+            "policy_actions_received": 225,
+            "policy_capture_usec": 67452000,
+            "policy_velocity_flu": [
+              -0.2256753146648407,
+              -0.04197405278682709,
+              -0.001457206904888153
+            ],
+            "sim_time": 67.568,
+            "waypoint_index": 9
+          },
+          {
+            "command_velocity": [
+              -0.022828550703139987,
+              -0.013400562233443072,
+              0.0025469117316462724
+            ],
+            "phase": "TUNNEL",
+            "policy_actions_received": 226,
+            "policy_capture_usec": 67600000,
+            "policy_velocity_flu": [
+              -0.34584930539131165,
+              -0.032881490886211395,
+              -0.014026490971446037
+            ],
+            "sim_time": 67.684,
+            "waypoint_index": 9
+          },
+          {
+            "command_velocity": [
+              -0.026916610385577612,
+              0.06961025677380842,
+              -0.0012912773958013357
+            ],
+            "phase": "TUNNEL",
+            "policy_actions_received": 226,
+            "policy_capture_usec": 67600000,
+            "policy_velocity_flu": [
+              -0.34584930539131165,
+              -0.032881490886211395,
+              -0.014026490971446037
+            ],
+            "sim_time": 67.784,
+            "waypoint_index": 9
+          },
+          {
+            "command_velocity": [
+              -0.014780937128793085,
+              0.0553824142546304,
+              -0.0015716996465484315
+            ],
+            "phase": "CHICANE",
+            "policy_actions_received": 226,
+            "policy_capture_usec": null,
+            "policy_velocity_flu": null,
+            "sim_time": 67.9,
+            "waypoint_index": 10
+          },
+          {
+            "command_velocity": [
+              -0.0018244398252201851,
+              -0.01266596691530737,
+              0.00029103509169693914
+            ],
+            "phase": "CHICANE",
+            "policy_actions_received": 227,
+            "policy_capture_usec": 67952000,
+            "policy_velocity_flu": [
+              0.6921774744987488,
+              -0.10313565284013748,
+              0.01591598056256771
+            ],
+            "sim_time": 68.016,
+            "waypoint_index": 10
+          },
+          {
+            "command_velocity": [
+              -0.015051628558062073,
+              -0.1044942270512549,
+              0.0024010395064990365
+            ],
+            "phase": "CHICANE",
+            "policy_actions_received": 228,
+            "policy_capture_usec": 68100000,
+            "policy_velocity_flu": [
+              0.6915336847305298,
+              -0.10806763917207718,
+              0.010128449648618698
+            ],
+            "sim_time": 68.128,
+            "waypoint_index": 10
+          },
+          {
+            "command_velocity": [
+              -0.029901577965642398,
+              -0.18309701116382915,
+              0.003440910817586855
+            ],
+            "phase": "CHICANE",
+            "policy_actions_received": 228,
+            "policy_capture_usec": 68100000,
+            "policy_velocity_flu": [
+              0.6915336847305298,
+              -0.10806763917207718,
+              0.010128449648618698
+            ],
+            "sim_time": 68.232,
+            "waypoint_index": 10
+          }
+        ],
+        "previous_action": {
+          "capture_age_sim_s": 0.016000000000005343,
+          "capture_interval_sim_s": 0.148,
+          "capture_usec": 67600000,
+          "latency_wall_s": 0.01429387999814935,
+          "sim_time": 67.616,
+          "waypoint_index": 9
+        },
+        "waypoint_changed": true
       },
       "phases": {
         "AUTO_LAND": {

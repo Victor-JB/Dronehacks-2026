@@ -57,6 +57,7 @@ def main() -> None:
             "policy_capture_age_sim_ms": "1000 * policy_action.capture_age_sim_s; action acceptance sim_time minus originating capture timestamp, in the simulator timestamp domain.",
             "policy_latency_wall_ms": "1000 * policy_action.latency_wall_s; PolicyClient request submission to result acceptance, measured by the mission host monotonic clock. It includes local service/inference, exchange, and polling/scheduling time; it excludes image acquisition and any prior wait for an eligible frame.",
             "policy_capture_gap_sim_ms": "1000 * policy_action.capture_interval_sim_s; gap between capture timestamps attached to consecutive accepted actions, not direct request-send cadence.",
+            "maximum_capture_gap_context": "For each run, select the last largest capture_interval_sim_s among adjacent accepted policy_action records (ties resolve to the later pair); retain both records, whether waypoint_index changed, their simulator-time acceptance interval, and sample rows within 250 ms before/after the pair. Samples contain only sim_time, phase, waypoint_index, policy_capture_usec, policy_velocity_flu, command_velocity, and policy_actions_received.",
             "action_phase_assignment": "Assign each policy_action to the phase on the latest sample whose sim_time is less than or equal to the action sim_time.",
             "archive_frame_gap_sim_ms": "Adjacent capture_sim_s gaps in camera/frames.jsonl. This is the throttled approximately 5 Hz archive recorder, not native camera cadence.",
             "setpoint_counts": "summary.policy_setpoints_sent counts route-loop setpoints emitted while policy_active and an action reply exists. route_elapsed_sim_s starts at arming, before takeoff/hover, so this count divided by route duration is not a setpoint frequency; only the aggregate count is reported.",
@@ -110,6 +111,40 @@ def main() -> None:
         archive_times = [row["capture_sim_s"] for row in frames
                          if row.get("capture_sim_s") is not None]
         archive_gaps = [b - a for a, b in zip(archive_times, archive_times[1:])]
+        adjacent_gaps = [
+            (float(current["capture_interval_sim_s"]), index)
+            for index, current in enumerate(actions)
+            if index > 0 and current.get("capture_interval_sim_s") is not None
+        ]
+        max_gap_context = None
+        if adjacent_gaps:
+            max_gap_s, current_index = max(adjacent_gaps, key=lambda item: (item[0], item[1]))
+            previous_action, current_action = actions[current_index - 1], actions[current_index]
+            window_start = previous_action["sim_time"] - .25
+            window_end = current_action["sim_time"] + .25
+            nearby = [sample for sample in samples
+                      if window_start <= sample["sim_time"] <= window_end]
+            compact_sample_fields = (
+                "sim_time", "phase", "waypoint_index", "policy_capture_usec",
+                "policy_velocity_flu", "command_velocity", "policy_actions_received",
+            )
+            compact_action_fields = (
+                "sim_time", "waypoint_index", "capture_usec", "capture_age_sim_s",
+                "latency_wall_s", "capture_interval_sim_s",
+            )
+            max_gap_context = {
+                "capture_gap_sim_ms": round(max_gap_s * 1000, 3),
+                "previous_action": {key: previous_action.get(key) for key in compact_action_fields},
+                "current_action": {key: current_action.get(key) for key in compact_action_fields},
+                "waypoint_changed": previous_action.get("waypoint_index") != current_action.get("waypoint_index"),
+                "acceptance_interval_sim_ms": round(
+                    (current_action["sim_time"] - previous_action["sim_time"]) * 1000, 3
+                ),
+                "nearby_samples": [
+                    {key: sample.get(key) for key in compact_sample_fields}
+                    for sample in nearby
+                ],
+            }
         result["runs"][run] = {
             "source_sha256": {
                 "telemetry.jsonl": sha256(telemetry_path),
@@ -150,6 +185,7 @@ def main() -> None:
                 for phase, metrics in sorted(per_phase.items())
             },
             "archive_frame_gap_sim_ms": distribution(archive_gaps),
+            "maximum_capture_gap_context": max_gap_context,
         }
         result["per_run_compact"][run] = {
             "accepted_policy_actions": len(actions),
