@@ -48,18 +48,94 @@ class OakDepthTests(unittest.TestCase):
     def test_big_endian_millimetres_with_row_padding(self):
         fields, depth = image(mm(10**9), depth=True)
         self.assertEqual(fields['metres_per_unit'], .001)
-        self.assertEqual(depth, dict(valid_ratio=.75, min_m=1., max_m=2.))
+        self.assertEqual(depth['valid_ratio'], .75)
+        self.assertEqual(depth['min_m'], 1.)
+        self.assertEqual(depth['max_m'], 2.)
+        self.assertEqual(depth['central_roi']['pixel_bounds'], [0, 2, 0, 2])
+        tile_pixels = sum(tile['total_pixels'] for tile in depth['tiles_3x3'])
+        self.assertEqual(tile_pixels, 4)
+        self.assertEqual(sum(tile['valid_pixels'] for tile in depth['tiles_3x3']), 3)
 
     def test_float_metres_exclude_zero_and_nonfinite(self):
         msg = NS(encoding='32FC1', width=3, height=2, step=12, is_bigendian=0,
                  data=struct.pack('<6f', 0., float('inf'), float('nan'), -1., .5, 2.))
         fields, depth = image(msg, depth=True)
         self.assertEqual(fields['metres_per_unit'], 1.)
-        self.assertEqual(depth, dict(valid_ratio=1/3, min_m=.5, max_m=2.))
+        self.assertEqual(depth['valid_ratio'], 1/3)
+        self.assertEqual(depth['min_m'], .5)
+        self.assertEqual(depth['max_m'], 2.)
+        self.assertEqual(depth['valid_pixels'], 2)
+        self.assertEqual(depth['total_pixels'], 6)
         for field, invalid in (('step', 11), ('is_bigendian', 2), ('encoding', '16SC1')):
             broken = NS(**(vars(msg) | {field: invalid}))
             with self.assertRaises(ValueError):
                 image(broken, depth=True)
+
+    def test_localized_hole_is_visible_in_central_roi_and_tiles_without_changing_global_ratio(self):
+        width, height = 9, 9
+        values = [1000] * (width*height)
+        for row in range(3, 6):
+            for col in range(3, 6):
+                values[row*width+col] = 0
+        msg = NS(encoding='16UC1', width=width, height=height, step=width*2,
+                 is_bigendian=0, data=struct.pack('<81H', *values))
+
+        _, stats = image(msg, depth=True)
+
+        self.assertEqual(stats['valid_ratio'], .8888888888888888)
+        self.assertEqual(stats['central_roi'], dict(pixel_bounds=[2, 7, 2, 7],
+                                                    valid_pixels=16, total_pixels=25,
+                                                    valid_ratio=.64))
+        center_tile = stats['tiles_3x3'][4]
+        self.assertEqual((center_tile['row'], center_tile['col']), (1, 1))
+        self.assertEqual(center_tile['pixel_bounds'], [3, 6, 3, 6])
+        self.assertEqual(center_tile['valid_ratio'], 0.)
+
+    def test_spatial_metrics_are_diagnostic_and_legacy_global_preflight_gate_is_unchanged(self):
+        width = height = 9
+        stamp = 10**9
+        raw = [1000] * (width*height)
+        for row in range(3, 6):
+            for col in range(3, 6):
+                raw[row*width+col] = 0
+        depth = NS(header=stamped(stamp), encoding='16UC1', width=width, height=height,
+                   is_bigendian=0, step=width*2, data=struct.pack('<81H', *raw))
+        image_msg = NS(header=stamped(stamp), encoding='mono8', width=width, height=height,
+                       is_bigendian=0, step=width, data=bytes(width*height))
+        camera_info = info(stamp)
+        camera_info.width = width
+        camera_info.height = height
+        camera_info.k[2] = camera_info.p[2] = width/2
+        camera_info.k[5] = camera_info.p[6] = height/2
+        probe = Probe(TOPICS, minimum_pairs=1)
+        for role, msg in (('camera_info', camera_info), ('image', image_msg),
+                          ('depth', depth), ('imu', imu(stamp))):
+            probe.ingest(role, msg, 1.)
+
+        report = probe.report(1.1)
+
+        self.assertTrue(report['passed'], report['problems'])
+        self.assertEqual(report['matched_pairs'], 1)
+        self.assertAlmostEqual(report['latest_depth']['valid_ratio'], 8/9)
+        self.assertEqual(report['latest_depth']['tiles_3x3'][4]['valid_ratio'], 0.)
+        self.assertEqual(report['latest_depth']['min_m'], 1.)
+        self.assertEqual(report['latest_depth']['max_m'], 1.)
+
+    def test_odd_dimensions_tiles_are_disjoint_and_cover_every_pixel(self):
+        width, height = 5, 7
+        msg = NS(encoding='32FC1', width=width, height=height, step=width*4,
+                 is_bigendian=0, data=struct.pack('<35f', *([1.25]*35)))
+
+        _, stats = image(msg, depth=True)
+
+        covered = []
+        for tile in stats['tiles_3x3']:
+            r0, r1, c0, c1 = tile['pixel_bounds']
+            covered.extend((r, c) for r in range(r0, r1) for c in range(c0, c1))
+            self.assertEqual(tile['valid_ratio'], 1.)
+        self.assertEqual(len(covered), width*height)
+        self.assertEqual(set(covered), {(r, c) for r in range(height) for c in range(width)})
+        self.assertEqual(stats['central_roi']['pixel_bounds'], [1, 6, 1, 4])
 
     def test_camera_info_rejects_uncalibrated_or_nonfinite_values(self):
         for broken in (0., float('nan')):

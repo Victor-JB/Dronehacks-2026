@@ -46,11 +46,36 @@ def image(msg, depth=False):
         return fields, None
     values = np.ndarray((msg.height, msg.width), dtype=('>' if msg.is_bigendian else '<')+dtype,
                         buffer=msg.data, strides=(msg.step, width_bytes))
-    finite = values[np.isfinite(values) & (values > 0)]
+    valid = np.isfinite(values) & (values > 0)
+    finite = values[valid]
+
+    def region(r0, r1, c0, c1):
+        count = int(np.count_nonzero(valid[r0:r1, c0:c1]))
+        total = (r1-r0)*(c1-c0)
+        return dict(pixel_bounds=[r0, r1, c0, c1], valid_pixels=count,
+                    total_pixels=total, valid_ratio=count/total if total else None)
+
+    # The center half of each dimension, with integer half-open pixel bounds.
+    center = (msg.height//4, (3*msg.height+3)//4,
+              msg.width//4, (3*msg.width+3)//4)
+    cr0, cr1, cc0, cc1 = center
+    if cr1 <= cr0:
+        cr1 = min(msg.height, cr0+1)
+    if cc1 <= cc0:
+        cc1 = min(msg.width, cc0+1)
+    tiles = []
+    for row in range(3):
+        r0, r1 = row*msg.height//3, (row+1)*msg.height//3
+        for col in range(3):
+            c0, c1 = col*msg.width//3, (col+1)*msg.width//3
+            tiles.append(dict(row=row, col=col, **region(r0, r1, c0, c1)))
     fields['metres_per_unit'] = scale
     return fields, dict(valid_ratio=finite.size/values.size,
+                        valid_pixels=int(finite.size), total_pixels=int(values.size),
                         min_m=float(finite.min())*scale if finite.size else None,
-                        max_m=float(finite.max())*scale if finite.size else None)
+                        max_m=float(finite.max())*scale if finite.size else None,
+                        central_roi=region(cr0, cr1, cc0, cc1),
+                        tiles_3x3=tiles)
 
 
 def calibration(msg):
