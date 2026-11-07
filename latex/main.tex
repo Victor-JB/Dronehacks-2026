@@ -1,0 +1,33 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,booktabs,hyperref}
+\title{DroneHacks 2026 --- Navigation Approaches}
+\author{Team}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+Each approach gets its own file in \texttt{approaches/}: the idea, where it lives in
+\texttt{refnav/}, its assumptions, and what testing in the sim showed.
+Add a row to the table when an approach is added or tested.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Approach & Code & Status \\
+\midrule
+Open-space explore & \texttt{main} & Implemented, not flown \\
+Hardcoded route    & \texttt{hardcoded-route-draft} & Draft, unverified \\
+Wall vault         & \texttt{hardcoded-route-draft} & Draft, untested \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\input{approaches/explore}
+\input{approaches/hardcoded-route}
+\input{approaches/vault}
+
+\end{document}

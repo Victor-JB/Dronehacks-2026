@@ -1,0 +1,17 @@
+\section{Hardcoded route}
+\textbf{Idea.} Plan offline from the course CAD and fly fixed waypoints.
+
+\textbf{How.} On branch \texttt{hardcoded-route-draft} (Aryan). Waypoints were found with A*
+over an occupancy grid built from \texttt{dronehacks-course-v3.obj}, walls inflated by
+30\,cm. 20 waypoints from the launch mark to the landing pad through Gate~B; the window
+bonus is not used. Plotted in \texttt{diagrams/route-plan.html}.
+
+\textbf{Assumptions / risks.}
+\begin{itemize}
+  \item The launch heading faces $+Y$ in the CAD frame. Unverified; if wrong, every waypoint is rotated.
+  \item The sim maze matches the CAD. Unverified.
+  \item 30\,cm margin vs.\ the real airframe span. Unverified.
+  \item Open loop: any VIO drift accumulates over the whole route.
+\end{itemize}
+
+\textbf{Sim results.} None yet.
