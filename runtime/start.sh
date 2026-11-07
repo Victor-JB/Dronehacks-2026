@@ -35,16 +35,22 @@ config = Path.home() / '.gz/sim/8/gui.config'
 config.parent.mkdir(parents=True, exist_ok=True)
 if not config.exists():
     shutil.copy('/usr/share/gz/gz-sim8/gui/gui.config', config)
-tree = ET.parse(config)
-window = tree.getroot().find('window')
-if window is None:
-    window = ET.SubElement(tree.getroot(), 'window')
+# Gazebo GUI configs are XML fragments (window and plugin are siblings),
+# not necessarily a single-root XML document. Preserve all other fragments.
+text = config.read_text()
+window_match = re.search(r'<window(?:\s[^>]*)?>.*?</window>', text, re.S)
+window = ET.fromstring(window_match.group()) if window_match else ET.Element('window')
 for key, value in zip(('width', 'height'), match.groups()):
     field = window.find(key)
     if field is None:
         field = ET.SubElement(window, key)
     field.text = value
-tree.write(config, encoding='utf-8', xml_declaration=True)
+updated = ET.tostring(window, encoding='unicode')
+if window_match:
+    text = text[:window_match.start()] + updated + text[window_match.end():]
+else:
+    text = updated + '\n' + text
+config.write_text(text)
 PY
     start Xvfb "$DISPLAY" -screen 0 "${SIM_DESKTOP_SIZE:-1200x1000}x24" -nolisten tcp
     for ((attempt = 0; attempt < 100; attempt++)); do
