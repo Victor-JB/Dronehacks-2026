@@ -96,6 +96,28 @@ class ObservationTests(unittest.TestCase):
         with self.assertRaisesRegex(PolicyError, 'invalid_or_empty'):
             policy_depth(z)
 
+    def test_localized_invalid_depth_semantics_are_pinned(self):
+        plane = np.full((CAMERA_HEIGHT, CAMERA_WIDTH), 1.4, dtype=np.float32)
+        row_slice, col_slice = slice(96, 160), slice(144, 240)
+        policy_rows, policy_cols = slice(6, 10), slice(9, 15)
+        plane_observation = policy_depth(plane).depth
+
+        for invalid in (0., np.nan):
+            with self.subTest(invalid=invalid):
+                depth = plane.copy()
+                depth[row_slice, col_slice] = invalid
+                with self.assertRaisesRegex(PolicyError, 'invalid_or_empty_policy_depth'):
+                    policy_depth(depth)
+
+        for invalid, expected in ((np.inf, 0.), (-np.inf, 1.)):
+            with self.subTest(invalid=invalid):
+                depth = plane.copy()
+                depth[row_slice, col_slice] = invalid
+                observation = policy_depth(depth)
+                expected_observation = plane_observation.copy()
+                expected_observation[policy_rows, policy_cols] = expected
+                np.testing.assert_array_equal(observation.depth, expected_observation)
+
     def test_raw_mode_requires_checkpoint_camera_to_match(self):
         legacy = checkpoint_camera_forward({})
         self.assertEqual(legacy, .08)
