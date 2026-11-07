@@ -83,7 +83,9 @@ The stack is back in ~10 s; its `competitor` window rebuilds `team_ws` and launc
 6. Once disarmed, the mission starts over and is READY for the next arming: **one go per arming**.
 7. `fly.sh stop` closes the bag (on the ground).
 
-- Camera, depth and map: `http://skybeta-02.local:8080/` in a browser (`dronehacks_nav/camera_web.py`).
+- **Live view: `http://skybeta-02.local:8080/`** in a browser (`dronehacks_nav/camera_web.py`): where VIO thinks the
+  drone is (top-down track, heading, setpoint, planned route), armed / Offboard, the mission's phase and why it
+  waits, then the camera, depth and map images. Any laptop on the drone's WiFi can open it.
 - Foxglove (pose, state, `/map/occupied`; no images): `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local`
   on the laptop, then `ws://localhost:8765`.
 - Bags: `~/team_ws/bags/<date-time>/` (mcap; odometry, state, setpoints, PX4, logs; ~0.1 MB/s). Depth images

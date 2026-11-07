@@ -127,7 +127,7 @@ start() {
 
   cat <<EOF
 [fly] started: ${bench:+mission }${WINDOWS[*]}
-      camera + map    http://$(host_name):${CAMERA_PORT}/   (map also in Foxglove: /map/occupied, frame odom)
+      live view       http://$(host_name):${CAMERA_PORT}/   (position + route, armed/Offboard, mission phase, camera, depth, map)
       foxglove        on the laptop: ssh -N -L ${FOXGLOVE_PORT}:localhost:${FOXGLOVE_PORT} $(whoami)@$(host_name)
                       then connect Foxglove to ws://localhost:${FOXGLOVE_PORT}
       bag             ${BAGS_HOST}/$(basename "${bag}")  ($( [[ -n "${depth}" ]] && echo "with depth, ~4 MB/s" || echo "no depth images: start --depth to add them"))

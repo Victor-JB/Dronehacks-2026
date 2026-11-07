@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""dronehacks_nav.camera_web - the camera and the depth image as MJPEG on a plain web page, served by
-the Jetson itself. Read-only: subscribes to two image topics, publishes nothing.
+"""dronehacks_nav.camera_web - the drone's live view on a plain web page, served by the Jetson itself:
+where VIO thinks the drone is (track, heading, setpoint, planned route), the mission's phase, armed /
+Offboard, and the camera, depth and map images. Read-only: subscribes, publishes nothing.
 
-    http://skybeta-02.local:8080/            both streams side by side
+    http://skybeta-02.local:8080/            everything on one page
+    http://skybeta-02.local:8080/state.json  odometry, track, mission status, skybeta state
     http://skybeta-02.local:8080/camera.mjpg
     http://skybeta-02.local:8080/depth.mjpg
     http://skybeta-02.local:8080/map.mjpg     top-down occupancy map from dronehacks_nav.map_node
@@ -28,14 +30,22 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
+
+from dronehacks_nav import frames as F
 
 PAGE = b"""<!doctype html><html><head><meta charset="utf-8"><title>skybeta camera</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>body{margin:0;background:#111;color:#ddd;font:14px sans-serif}
 div{display:flex;flex-wrap:wrap;gap:8px;padding:8px}figure{margin:0;flex:1 1 400px}
 img{width:100%;image-rendering:pixelated;background:#000}
-.s{font:16px monospace;color:#8f8;white-space:pre}</style></head><body><div>
+.s{font:16px monospace;color:#8f8;white-space:pre}
+#pos{display:flex;flex-wrap:wrap;gap:8px;padding:8px}canvas{background:#000;flex:1 1 420px;max-width:640px;aspect-ratio:1}
+#st{flex:1 1 320px;font:15px monospace;white-space:pre;color:#ddd}.bad{color:#f66}.ok{color:#8f8}.warn{color:#fd5}</style></head><body>
+<div id="pos"><canvas id="c" width="640" height="640"></canvas><div id="st">waiting for /state.json</div></div>
+<div>
 <figure><img src="/camera.mjpg"><figcaption>camera (left)</figcaption><div class="s" id="camera">-</div></figure>
 <figure><img src="/depth.mjpg"><figcaption>depth (black = no return; + = centre)</figcaption><div class="s" id="depth">-</div></figure>
 <figure><img src="/map.mjpg"><figcaption>map from above, north up (grey = unknown, light = free, red = occupied; green + = start, yellow = drone)</figcaption><div class="s" id="map">-</div></figure>
@@ -47,6 +57,41 @@ function f(x){if(!x||!x.fps&&x.fps!==0)return "no messages";
  return t}
 setInterval(async()=>{try{const d=await (await fetch("/stats.json")).json();
  for(const k of ["camera","depth","map"])document.getElementById(k).textContent=f(d[k]);}catch(e){}},500);
+// --- where VIO thinks the drone is: top-down, the odometry frame's +x (the nose at stack start) up, +y left
+const cv=document.getElementById("c"),g=cv.getContext("2d"),st=document.getElementById("st");
+function fx(v,n){return v==null?"-":v.toFixed(n==null?2:n)}
+function draw(d){
+ const pts=[[0,0]].concat(d.trail||[],(d.route||[]).map(p=>[p[0],p[1]]));
+ if(d.pos)pts.push([d.pos[0],d.pos[1]]); if(d.setpoint)pts.push([d.setpoint[0],d.setpoint[1]]);
+ let r=1.5;for(const p of pts)r=Math.max(r,Math.abs(p[0])+0.5,Math.abs(p[1])+0.5);
+ const W=cv.width,s=W/2/r,X=p=>W/2-p[1]*s,Y=p=>W/2-p[0]*s;   // +y left -> screen left, +x up
+ g.clearRect(0,0,W,W);g.strokeStyle="#222";g.lineWidth=1;
+ const step=r>6?2:r>3?1:0.5;
+ for(let v=-Math.ceil(r/step)*step;v<=r;v+=step){g.beginPath();g.moveTo(X([0,v]),0);g.lineTo(X([0,v]),W);g.moveTo(0,Y([v,0]));g.lineTo(W,Y([v,0]));g.stroke();}
+ g.fillStyle="#777";g.font="12px monospace";g.fillText(step+" m grid   +x (nose at stack start) up, +y left",6,14);
+ if(d.route&&d.route.length){g.strokeStyle="#4af";g.setLineDash([6,4]);g.beginPath();
+  const h=d.home?[d.home[0],d.home[1]]:[0,0];g.moveTo(X(h),Y(h));for(const p of d.route)g.lineTo(X(p),Y(p));g.stroke();g.setLineDash([]);
+  g.fillStyle="#4af";d.route.forEach((p,i)=>{g.beginPath();g.arc(X(p),Y(p),4,0,7);g.fill();g.fillText(String(i+1),X(p)+6,Y(p)-6)});}
+ g.strokeStyle="#3c3";g.lineWidth=2;g.beginPath();(d.trail||[]).forEach((p,i)=>i?g.lineTo(X(p),Y(p)):g.moveTo(X(p),Y(p)));g.stroke();
+ g.strokeStyle="#0f0";g.beginPath();g.moveTo(X([0,0])-8,Y([0,0]));g.lineTo(X([0,0])+8,Y([0,0]));g.moveTo(X([0,0]),Y([0,0])-8);g.lineTo(X([0,0]),Y([0,0])+8);g.stroke();
+ if(d.setpoint){g.strokeStyle="#f4f";g.lineWidth=2;g.beginPath();g.arc(X(d.setpoint),Y(d.setpoint),7,0,7);g.stroke();}
+ if(d.pos){const p=d.pos,a=d.yaw||0,L=18;g.fillStyle=d.odom_age>0.5?"#f44":"#fd3";g.save();g.translate(X(p),Y(p));g.rotate(-a);
+  g.beginPath();g.moveTo(0,-L);g.lineTo(-8,8);g.lineTo(8,8);g.closePath();g.fill();g.restore();}
+}
+function text(d){
+ const sk=d.skybeta||{},m=d.mission||{},c=(ok,t)=>`<span class="${ok?"ok":"bad"}">${t}</span>`;
+ let t=`<b>where it thinks it is</b> (VIO odometry, metres)\\n`;
+ t+=d.pos?`x ${fx(d.pos[0])}  y ${fx(d.pos[1])}  z ${fx(d.pos[2])}  yaw ${fx(d.yaw*57.2958,0)} deg\\n`:"no odometry\\n";
+ t+=`speed ${fx(d.speed)} m/s   odometry ${fx(d.odom_hz,1)} Hz, age `+c(d.odom_age!=null&&d.odom_age<0.5,fx(d.odom_age)+" s")+"\\n\\n";
+ t+=`<b>PX4</b>   armed ${c(!!sk.armed,sk.armed?"YES":"no")}   Offboard ${c(!!sk.offboard_active,sk.offboard_active?"YES":"no")}   nav_state ${sk.nav_state??"-"}${sk.clamped?'   <span class="warn">CLAMPED</span>':""}\\n\\n`;
+ t+=`<b>mission</b>   ${(m.phase||"-").toUpperCase()}`+(m.legs?`   leg ${Math.min(m.leg+1,m.legs)}/${m.legs}`:"")+"\\n";
+ if(m.why)t+=m.why+"\\n"; if(m.result)t+=`<span class="warn">result: ${m.result}</span>\\n`;
+ t+=`clearance ${m.clearance_m??"-"} m   depth age ${m.depth_age_s??"-"} s   motion check ${d.motion_check??"-"}\\n`;
+ t+=`\\n<span style="color:#3c3">green</span> track   <span style="color:#fd3">yellow</span> drone + heading   <span style="color:#f4f">pink</span> setpoint   <span style="color:#4af">blue</span> planned route`;
+ if(d.stale)t='<span class="bad">NO DATA from the drone for '+fx(d.stale,0)+" s</span>\\n\\n"+t;
+ st.innerHTML=t;
+}
+setInterval(async()=>{try{const d=await (await fetch("/state.json")).json();draw(d);text(d);}catch(e){st.innerHTML='<span class="bad">page cannot reach the drone</span>';}},200);
 </script></body></html>"""
 
 
@@ -89,7 +134,9 @@ class CameraWeb(Node):
         super().__init__("camera_web")
         self.port = int(self.declare_parameter("port", 8080).value)
         self.address = self.declare_parameter("address", "0.0.0.0").value
-        camera_topic = self.declare_parameter("camera_topic", "/oak/left/image_mono").value
+        # /oak/left/image_raw straight from the driver, not image_mono: that one is the output of the
+        # organisers' GPU converter that also feeds cuVSLAM, and reading it slowed VIO (PICKUP.md 2.6)
+        camera_topic = self.declare_parameter("camera_topic", "/oak/left/image_raw").value
         depth_topic = self.declare_parameter("depth_topic", "/oak/stereo/image_raw").value
         map_topic = self.declare_parameter("map_topic", "/map/image").value
         self.max_fps = float(self.declare_parameter("max_fps", 10.0).value)
@@ -99,8 +146,59 @@ class CameraWeb(Node):
         self.create_subscription(Image, camera_topic, lambda m: self._on_image("camera", m), qos_profile_sensor_data)
         self.create_subscription(Image, depth_topic, lambda m: self._on_image("depth", m), qos_profile_sensor_data)
         self.create_subscription(Image, map_topic, lambda m: self._on_image("map", m), 1)
+        # where VIO thinks the drone is, and what the mission and PX4 are doing (all cheap to read)
+        odom_topic = self.declare_parameter("odometry_topic", "/visual_slam/tracking/odometry").value
+        self.lock = threading.Lock()
+        self.odom = None                   # (t, x, y, z, yaw, speed) ENU
+        self.odom_times = deque(maxlen=60)
+        self.trail = deque(maxlen=4000)    # ENU (x, y), one point per 5 cm moved
+        self.mission_status, self.sky = {}, {}
+        self.create_subscription(Odometry, odom_topic, self._on_odom, qos_profile_sensor_data)
+        self.create_subscription(String, "/refnav/status", lambda m: self._on_json("mission_status", m), 10)
+        self.create_subscription(String, "/skybeta/state", lambda m: self._on_json("sky", m), 10)
         self.get_logger().info(f"camera {camera_topic}, depth {depth_topic}, map {map_topic}: "
                                f"http://{self.address}:{self.port}/")
+
+    def _on_odom(self, m):
+        p, o, v = m.pose.pose.position, m.pose.pose.orientation, m.twist.twist.linear
+        t = time.monotonic()
+        with self.lock:
+            self.odom = (t, p.x, p.y, p.z, F.yaw_from_quat_xyzw(o.x, o.y, o.z, o.w), float(np.hypot(v.x, v.y)))
+            self.odom_times.append(t)
+            if not self.trail or np.hypot(p.x - self.trail[-1][0], p.y - self.trail[-1][1]) >= 0.05:
+                self.trail.append((round(p.x, 3), round(p.y, 3)))
+
+    def _on_json(self, attr, m):
+        try:
+            d = json.loads(m.data)
+        except ValueError:
+            return
+        with self.lock:
+            setattr(self, attr, d)
+            setattr(self, attr + "_t", time.monotonic())
+
+    def state(self):
+        """/state.json: everything the position panel draws, in the odometry frame (ENU)."""
+        now = time.monotonic()
+        with self.lock:
+            od, trail, ms, sky = self.odom, list(self.trail), dict(self.mission_status), dict(self.sky)
+            n, t0 = len(self.odom_times), (self.odom_times[0] if self.odom_times else None)
+        out = {"trail": trail, "skybeta": sky, "mission": ms, "motion_check": ms.get("motion_check")}
+        if od:
+            out.update(pos=od[1:4], yaw=od[4], speed=od[5], odom_age=round(now - od[0], 3),
+                       odom_hz=(n - 1) / (od[0] - t0) if n > 1 and od[0] > t0 else None)
+            out["stale"] = now - od[0] if now - od[0] > 2.0 else None
+        else:
+            out["stale"] = None
+        enu = lambda q: list(F.ned_to_enu(*q[:3]))           # refnav works in NED; the page draws ENU
+        if ms.get("setpoint"):
+            out["setpoint"] = enu(ms["setpoint"])
+        if ms.get("home"):
+            out["home"] = enu(ms["home"])
+        if ms.get("targets") and ms.get("home"):
+            d = ms["home"][2]
+            out["route"] = [enu((n_, e_, d)) for n_, e_ in ms["targets"]]
+        return out
 
     def _depth_stats(self, a):
         """Centre distance (median of a small patch), nearest return, fraction of valid pixels."""
@@ -161,6 +259,14 @@ class CameraWeb(Node):
                     self.send_header("Content-Type", "text/html")
                     self.end_headers()
                     self.wfile.write(PAGE)
+                    return
+                if self.path == "/state.json":
+                    body = json.dumps(node.state()).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    self.wfile.write(body)
                     return
                 if self.path == "/stats.json":
                     now = time.monotonic()
