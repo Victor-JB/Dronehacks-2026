@@ -25,6 +25,7 @@ from .px4_frames import camera_pose_to_px4, enu_to_ned
 from .px4_run import Link, REQUIRED_PARAMS, ROOT
 from .state_history import PolicyStateHistory
 from .sitl_health import SitlHealthMonitor
+from .runtime_provenance import px4_runtime_provenance
 
 NAVIGATION = 'RGBD depth registration to supplied course map + PX4 EKF2'
 REQUIRED_PARAMS.update(EKF2_DELAY_MAX=500., EKF2_EVP_NOISE=.03)
@@ -115,6 +116,7 @@ class Log:
                              else {'mode': 'off'})
         self.write(type='metadata', **self.common,
                    sensor_diagnostic=sensor_diagnostic,
+                   px4_runtime=px4_runtime_provenance(),
                    runtime_source_sha256={str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                                           for folder in ('mission', 'vision', 'learning')
                                           for path in sorted((ROOT/folder).rglob('*.py'))},
