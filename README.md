@@ -86,7 +86,9 @@ The stack is back in ~10 s; its `competitor` window rebuilds `team_ws` and launc
 - Camera, depth and map: `http://skybeta-02.local:8080/` in a browser (`dronehacks_nav/camera_web.py`).
 - Foxglove (pose, state, `/map/occupied`; no images): `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local`
   on the laptop, then `ws://localhost:8765`.
-- Bags: `~/team_ws/bags/<date-time>/` (mcap; depth, odometry, state, setpoints, PX4).
+- Bags: `~/team_ws/bags/<date-time>/` (mcap; odometry, state, setpoints, PX4, logs; ~0.1 MB/s). Depth images
+  only with `fly.sh start --depth` (~4 MB/s). The oldest bags are deleted past 15 GB; `fly.sh clean` also
+  deletes old colcon build logs.
 
 **Bench mode** (iterating without restarting the stack): set `COMPETITOR_PKG=manual`, restart the
 stack, and `fly.sh start` builds and runs the mission in its own window. It dies with the stack, so

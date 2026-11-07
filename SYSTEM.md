@@ -242,7 +242,7 @@ VIO drift smears the map (doubled walls); fly slowly over texture.
 |---|---|
 | Camera, depth, map | browser: `http://skybeta-02.local:8080/` (`camera_web.py`; MJPEG, ≤ 10 fps, encoded only while someone watches; `/stats.json` has rates, resolution, centre depth). Anyone on the same WiFi can open it |
 | Pose, path, map cloud, state | Foxglove: on the laptop `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local` (silent while open), then `ws://localhost:8765`. Fixed frame `odom` |
-| Recording | `~/team_ws/bags/<date-time>/` (mcap): odometry, VIO status, IMU, depth + info, `/skybeta/*`, `/refnav/status`, PX4 in/out, TF, logs. The map is not recorded; it can be rebuilt from depth + odometry |
+| Recording | `~/team_ws/bags/<date-time>/` (mcap, ~0.1 MB/s): odometry, VIO status, IMU, camera info, `/skybeta/*`, `/refnav/status`, PX4 in/out, TF, logs. Depth images only with `fly.sh start --depth` (~4 MB/s). Not recorded: cuVSLAM's `vo_path` (the whole trajectory every frame: 38% of a bag, growing; odometry has the same poses). Oldest bags deleted past 15 GB (`BAG_BUDGET_GB`); `fly.sh clean` also deletes old colcon build logs |
 | The stack itself | `docker exec -it skybeta-stack bash`, then `ros2 topic list`, `ros2 topic echo /skybeta/state`. Read a stack window without attaching: `docker exec skybeta-stack tmux capture-pane -p -t skybeta:slam` |
 
 ## 8. Settings

@@ -3,6 +3,8 @@
 # the container:
 #
 #   ~/team_ws/src/dronehacks/scripts/fly.sh start    bag + foxglove + map + camera page (+ the mission, bench mode only)
+#   ~/team_ws/src/dronehacks/scripts/fly.sh start --depth   the same, and the bag records the depth images too (~4 MB/s)
+#   ~/team_ws/src/dronehacks/scripts/fly.sh clean    free disk: old bags past the budget, old colcon build logs
 #   ~/team_ws/src/dronehacks/scripts/fly.sh stop     stop them all (bag closed cleanly). ON THE GROUND.
 #   ~/team_ws/src/dronehacks/scripts/fly.sh status   what is running, and the mission's last lines
 #   ~/team_ws/src/dronehacks/scripts/fly.sh attach   watch it live (Ctrl-b d leaves, Ctrl-b n next window)
@@ -25,14 +27,21 @@ C=skybeta-stack
 S=dronehacks
 BAGS_HOST="${HOME}/team_ws/bags"
 BAGS=/root/team_ws/bags                 # the same folder, inside the container
+# Bag size (measured 2026-11-07): the depth images were 60% of the bytes and cuVSLAM's vo_path 38%
+# (a Path holding the whole trajectory, republished every frame, so it grows the longer the stack
+# runs). vo_path is not recorded (odometry has the same poses); depth only with `start --depth`.
+# Without depth a bag is ~0.1 MB/s. Before each recording the oldest bags are deleted until all
+# of them fit in BAG_BUDGET_GB.
+DEPTH_TOPIC=/oak/stereo/image_raw
+BAG_BUDGET_GB="${BAG_BUDGET_GB:-15}"
 FOXGLOVE_PORT=8765
 CAMERA_PORT=8080
 
 # Kept identical to the sim's fly-sim.sh (sim branch) so drone and sim bags compare one to
 # one (sim/skybeta/compare.py). Only vehicle_status is versioned (_v1) in px4_msgs release/1.16.
 BAG_TOPICS=(
-  /visual_slam/tracking/odometry /visual_slam/status /visual_slam/tracking/vo_path
-  /oak/imu/data /oak/left/camera_info /oak/stereo/camera_info /oak/stereo/image_raw
+  /visual_slam/tracking/odometry /visual_slam/status
+  /oak/imu/data /oak/left/camera_info /oak/stereo/camera_info
   /skybeta/state /skybeta/setpoint/pose /skybeta/setpoint/twist /refnav/status
   /fmu/in/vehicle_visual_odometry /fmu/in/trajectory_setpoint /fmu/in/offboard_control_mode
   /fmu/in/vehicle_command
@@ -70,7 +79,22 @@ stack_runs_mission() {
   [[ -n "${busy}" && "${busy}" != "bash" ]]
 }
 
+# delete the oldest bags until the rest fit in BAG_BUDGET_GB (the newest one is always kept). Bags are
+# written by the container's root, so the deleting happens in the container.
+prune_bags() {
+  dx bash -c "cd ${BAGS} 2>/dev/null || exit 0
+    budget=\$(( ${BAG_BUDGET_GB} * 1024 * 1024 ))
+    for d in \$(ls -1d 20*/ 2>/dev/null | sort | head -n -1); do
+      total=\$(du -sk . | cut -f1)
+      (( total > budget )) || break
+      echo \"[fly] bag budget ${BAG_BUDGET_GB} GB: deleting the oldest bag, \${d%/} (\$(du -sh \$d | cut -f1))\"
+      rm -rf \"\$d\"
+    done"
+}
+
 start() {
+  local depth=""
+  [[ "${1:-}" == --depth ]] && depth=1
   docker ps --format '{{.Names}}' | grep -qx "${C}" \
     || die "the stack is not running (sudo systemctl status skybeta-stack). Power on and wait ~1 min."
   running && die "a session is already running. '$0 status' to look, '$0 stop' to end it."
@@ -90,10 +114,13 @@ start() {
   fi
 
   mkdir -p "${BAGS_HOST}" && touch "${BAGS_HOST}/COLCON_IGNORE"
+  prune_bags
+  local topics=("${BAG_TOPICS[@]}")
+  [[ -n "${depth}" ]] && topics+=("${DEPTH_TOPIC}")
   local bag
   bag="${BAGS}/$(date +%Y%m%d-%H%M%S)"
   [[ -n "${bench}" ]] && window mission "ros2 launch dronehacks_nav mission.launch.py"
-  window bag      "ros2 bag record -s mcap -o ${bag} ${BAG_TOPICS[*]}"
+  window bag      "ros2 bag record -s mcap -o ${bag} ${topics[*]}"
   window foxglove "ros2 launch foxglove_bridge foxglove_bridge_launch.xml address:=127.0.0.1 port:=${FOXGLOVE_PORT} topic_whitelist:=\"${FOXGLOVE_TOPICS}\""
   window map      "ros2 run dronehacks_nav map_node"
   window camera   "ros2 run dronehacks_nav camera_web --ros-args -p port:=${CAMERA_PORT}"
@@ -103,7 +130,7 @@ start() {
       camera + map    http://$(host_name):${CAMERA_PORT}/   (map also in Foxglove: /map/occupied, frame odom)
       foxglove        on the laptop: ssh -N -L ${FOXGLOVE_PORT}:localhost:${FOXGLOVE_PORT} $(whoami)@$(host_name)
                       then connect Foxglove to ws://localhost:${FOXGLOVE_PORT}
-      bag             ${BAGS_HOST}/$(basename "${bag}")
+      bag             ${BAGS_HOST}/$(basename "${bag}")  ($( [[ -n "${depth}" ]] && echo "with depth, ~4 MB/s" || echo "no depth images: start --depth to add them"))
       watch           $0 attach      (Ctrl-b d to leave; Ctrl-b n for the next window)
       mission log     $( [[ -n "${bench}" ]] && echo "$0 attach (window mission)" || echo "$0 status, or: docker exec -it ${C} tmux attach -t skybeta (window competitor)")
 [fly] wait for READY in the mission log, then the pilot arms on Altitude and switches to Position.
@@ -140,10 +167,28 @@ status() {
   fi
 }
 
+# free disk on the drone: bags past the budget, and colcon's build logs (one folder per build,
+# kept forever) except the last 3. build/ and install/ are overwritten in place by each build, so
+# they do not pile up. Docker images left behind by team-image rebuilds are reported, not removed.
+clean() {
+  docker ps --format '{{.Names}}' | grep -qx "${C}" || die "the stack is not running: clean needs its container"
+  prune_bags
+  dx bash -c 'cd /root/team_ws/log 2>/dev/null || exit 0
+    old=$(ls -1d build_*/ 2>/dev/null | sort | head -n -3)
+    [[ -z "$old" ]] && exit 0
+    echo "[fly] deleting $(echo "$old" | wc -l) old colcon build logs ($(du -shc $old | tail -1 | cut -f1))"
+    rm -rf $old'
+  local dangling
+  dangling="$(docker images -f dangling=true -q | wc -l)"
+  (( dangling > 0 )) && echo "[fly] ${dangling} untagged docker image(s) from old team-image builds: 'docker image prune' frees them (on the ground; check 'docker images' first)"
+  df -h "${HOME}" | tail -1 | awk '{print "[fly] disk: " $4 " free of " $2}'
+}
+
 case "${1:-}" in
-  start) start ;;
+  start) start "${2:-}" ;;
+  clean) clean ;;
   stop) stop ;;
   status) status ;;
   attach) exec docker exec -it "${C}" tmux attach -t "${S}" ;;
-  *) sed -n '2,21p' "$0"; exit 2 ;;
+  *) sed -n '2,23p' "$0"; exit 2 ;;
 esac
