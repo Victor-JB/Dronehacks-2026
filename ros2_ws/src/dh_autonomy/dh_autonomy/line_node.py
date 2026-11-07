@@ -101,8 +101,8 @@ class LineNode(Node):
             return
         pose = self.hist.at(t, future_tol=0.0)
         if pose is None:
-            if t > self.hist.newest and t - self.hist.newest < 0.1:
-                self.waiting_images = (self.waiting_images + [m])[-2:]
+            if t > self.hist.newest:
+                self.waiting_images = (self.waiting_images + [m])[-16:]
             return
         self.height = float(pose[2])
         if self.height < 0.1:

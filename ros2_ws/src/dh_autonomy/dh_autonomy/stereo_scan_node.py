@@ -100,6 +100,7 @@ class StereoScanNode(Node):
         P("min_points_per_beam", 5)      # stereo points a beam needs to count as measured
         P("forward_min_coverage", 0.6)   # fraction of forward beams that must be measured to report "clear"
         P("dark_mean_level", 12.0)       # mean left-image grey level below which stereo is declared blind
+        P("pair_queue_size", 4)        # unit profiles may retain more frames under measured transport jitter
         P("max_pair_dt", 0.005)          # s; left/right stamps must agree to this (OAK is hardware-synced)
         P("base_frame", "base_link")
         P("mount_source", "tf")  # tf (measured organizer mount) | parameters (offline fixtures)
@@ -124,7 +125,7 @@ class StereoScanNode(Node):
                                           mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY)
         sync = ApproximateTimeSynchronizer(
             [Subscriber(self, Image, g("left_image"), qos_profile=qos_profile_sensor_data),
-             Subscriber(self, Image, g("right_image"), qos_profile=qos_profile_sensor_data)], 4, g("max_pair_dt"))
+             Subscriber(self, Image, g("right_image"), qos_profile=qos_profile_sensor_data)], int(g("pair_queue_size")), g("max_pair_dt"))
         sync.registerCallback(self._on_pair)
         self.pub_scan = self.create_publisher(LaserScan, "/dh/stereo_scan", 5)
         self.pub_clear = self.create_publisher(Range, "/dh/forward_clearance", 5)

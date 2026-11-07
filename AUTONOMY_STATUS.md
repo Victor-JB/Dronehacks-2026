@@ -46,3 +46,15 @@ Detailed commands, results, prior failures, source revisions and limitations: `d
 Next operation boundary: stop before SSH/hardware. The later procedure is `docs/JETSON_VERIFICATION.md`: user/organizer approval, Nano sensor-only environment, build + isolated ROS launch tests, real camera/TF/time checks, stationary dry-run and command-isolation checks. No flight or arming is part of it.
 
 Known limitations: event image and numpy<2/ARM untested; measured mount/radius/resting height and Nano CPU throughput needed; limited stereo height coverage; small synthetic clearance margins; conservative timing can slow or hold; Sky Beta cannot land/disarm; substantial localization resets may require restart. Older planner-suite scores remain historical.
+
+## Read-only Jetson compatibility audit — 2026-11-07
+
+The user authorized read-only SSH to skybeta-02. Inspection completed and the audit connection closed; no remote installs, deployment, service/config changes, feature autonomy launch or physical command publication. Full report: JETSON_COMPATIBILITY_REPORT.md. The earlier no-SSH boundary was superseded for inspection only. The baseline 0ec8c81 branch was published in the prior task.
+
+Observed: Orin Nano Super reference kit, 7.4GiB RAM, L4T36.5.0, Ubuntu22.04.5/ARM64. Existing skybeta-team:0.3.3 container: Humble/domain2, Python3.10.12, numpy1.26.4, OpenCV4.5.4, cuVSLAM3.2.6, depthai3.10.0. Live raw/mono960x600, on-device depth320x200, IMU, VO odom->base_link/status1, Sky Beta state and factory TF7.53cm baseline match expected message contracts. No missing core ROS dependency identified. Raw receipt pairing/load and VO age spikes require validation; max observed VO age422ms exceeds our400ms hold guard, which remains unchanged. Downward dist_bottom_valid=false.
+
+Local fixes: dedicated stationary_mission hard-locks DryRunBackend despite false/px4 overrides; stationary.launch.py and unit02 mono/mount profile; bounded16 camera/scan retention for delayed odometry without relaxing capture slop/age; graph checker requires positive mission and dry publisher evidence. Normal A*+clothoid planner and tracker remain unchanged. Profile/launch is not deployed or executed on hardware.
+
+Validation: 47 unit, 12 existing fake-bus, 16 safety/compatibility tests, 12 stereo scenarios and14 line scenarios pass in the isolated numpy1.26.4/OpenCV4.10 environment; standalone current-runtime core/safety checks also pass. Python3.10 grammar/compile checks pass. Real ROS observation/TF lookup was exercised read-only on hardware; feature launch/build/processing/integration and physical command isolation have NOT been tested there. Exact OpenCV4.5.4 processing remains pending.
+
+Next boundary: controlled-deployment review, not permission to deploy. Reconfirm physical props/battery conditions and controller ownership, review package transfer/build and isolated-domain synthetic ROS tests, then a separately authorized live stationary run with stationary.launch.py. No flight/arming or physical zero-command test is authorized.

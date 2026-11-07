@@ -56,6 +56,8 @@ def quat_to_yaw(q) -> float:
 
 
 class MissionNode(Node):
+    force_dry_run = False
+
     def __init__(self):
         super().__init__("dh_mission")
         P = self.declare_parameter
@@ -124,7 +126,7 @@ class MissionNode(Node):
                                % (self.plan.route_used, self.plan.info.get("planner"), main.length, main.duration,
                                   self.plan.info["route_lengths"]))
         self.fprm = FollowerParams(v_cap=g("v_cap"))
-        self.dry_run = bool(g("dry_run"))
+        self.dry_run = self.force_dry_run or bool(g("dry_run"))
         if self.dry_run:
             self.backend = DryRunBackend(self)
             self.get_logger().warn("DRY RUN: no publisher to /skybeta/* or /fmu/*; commands -> /dh/dry_run/cmd_vel")
@@ -596,9 +598,18 @@ class MissionNode(Node):
         self.pub_path.publish(path)
 
 
-def main():
+class StationaryMissionNode(MissionNode):
+    """Read real sensors but never construct a physical command backend, regardless of parameters."""
+    force_dry_run = True
+
+
+def stationary_main():
+    main(node_class=StationaryMissionNode)
+
+
+def main(node_class=MissionNode):
     rclpy.init()
-    node = MissionNode()
+    node = node_class()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

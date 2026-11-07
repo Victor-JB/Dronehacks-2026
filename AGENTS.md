@@ -43,3 +43,7 @@ Read `CODEX_HANDOFF.md`, `AUTONOMY_STATUS.md`, `README.md`, `STRATEGY.md`, the f
 - Check the actual organizer source contract and record its revision. Distinguish source-verified compatibility from the event image, which needs stationary verification.
 - Run relevant local tests, preserve failures, and update `AUTONOMY_STATUS.md` with settings, evidence and blockers. Label unit tests, Python SIL, actual ROS 2 integration and hardware validation separately.
 - Keep credentials out of files and Git. Use the current editor identity. Obtain team approval before any later arming mission; that permission is outside this local task.
+
+## Read-only compatibility audit authorization (2026-11-07)
+
+The user explicitly superseded the earlier SSH stop boundary for read-only inspection of skybeta-02. Read-only SSH/ROS graph and sensor observations are authorized. Installing, deploying files, changing system/PX4 configuration, starting autonomy or publishing physical command topics (including zeros) remain prohibited. Never save credentials. Local fixes/tests and normal pushes to saketh/autonomy are authorized. The stationary entrypoint must remain hard-locked to DryRunBackend regardless of parameter overrides.

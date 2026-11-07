@@ -20,6 +20,14 @@ def forbidden(name: str) -> bool:
     return any(name == p or name.startswith(p + "/") for p in FORBIDDEN)
 
 
+def result_code(ours, bad, dry):
+    if bad:
+        return 1
+    if not any(name == "dh_mission" for name, _ in ours) or "dh_mission" not in dry:
+        return 2
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wait", type=float, default=5.0, help="seconds to let graph discovery settle")
@@ -52,12 +60,13 @@ def main():
     print("\n/dh/dry_run/cmd_vel publishers:", dry or "none (mission not running or not in dry run)")
     node.destroy_node()
     rclpy.shutdown()
-    if not ours:
-        print("RESULT: no dh_* nodes found - start the stack first")
-        sys.exit(2)
-    if bad:
+    result = result_code(ours, bad, dry)
+    if result == 1:
         print("RESULT: FAIL - our nodes own flight-control endpoints: %s" % bad)
         sys.exit(1)
+    if result == 2:
+        print("RESULT: INCOMPLETE - require dh_mission and its dry-run command publisher; allow discovery to settle")
+        sys.exit(2)
     print("RESULT: PASS - no dh_* publisher or client on /skybeta/* or /fmu/*")
     sys.exit(0)
 

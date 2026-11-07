@@ -1,0 +1,72 @@
+# skybeta-02 observed mount profile, 2026-11-07. Explicit opt-in; TF remains authoritative.
+# No ground_z/radius calibration inferred. Data-path and stationary hardware tests remain pending.
+# Default parameters. Values marked (MEASURE) must be checked on the issued drone.
+dh_mission:
+  ros__parameters:
+    course_obj: /root/team_ws/course/dronehacks-course-v3.obj   # download from the Challenge page
+    dry_run: true                 # DEFAULT: commands only to /dh/dry_run/cmd_vel; set false ONLY for authorised flight
+    backend: skybeta              # skybeta = organizers' API; px4 = direct (SITL / only if allowed)
+    route: window                 # gate | window | auto
+    planner: fillet               # fillet (fastest in tests) | sfc (corridor + min-jerk QP) | mpl (motion primitives)
+    corner: clothoid              # fillet corners: clothoid (continuous curvature, 0 touches in SIL) | arc (old)
+    a_total: 1.5                  # combined along+lateral acceleration limit (m/s^2)
+    window_straight: 0.6          # m of straight path required each side of the window plane
+    cruise_z: 0.85                # inside window (0.305-1.219 m); tube widest at 0.94 m
+    robot_radius: 0.27            # (MEASURE) half tip-to-tip span + margin
+    v_max: 0.85                   # planned speed; keep below v_cap for tracking headroom
+    v_cap: 1.0                    # PX4 MPC_XY_VEL_MAX on the bench drone
+    v_narrow: 0.5
+    v_dark: 0.85                  # legacy tube geometry speed cap; tube is illuminated
+    a_max: 1.5
+    a_lat: 1.5
+    launch_yaw_map: 1.5708        # drone placed on the launch mark facing north (+Y)
+    align_mode: start             # first_odom if the stack is started with the drone on the mark
+    autostart_on_offboard: false
+    enable_return: false          # needs autonomous re-arm (backend px4) - see STRATEGY.md
+    return_z: 2.05
+    correction_gain: 0.5
+    line_gain: 0.3
+    min_forward_clearance: 0.45
+    fc_timeout: 0.5               # s: forward clearance older than this = STALE -> hover
+    fc_invalid_scale: 0.0        # legacy field; invalid depth always stops
+    fc_invalid_grace_s: 1.5
+    fc_invalid_floor_scale: 0.0   # legacy field; cannot enable blind creep
+    require_vo_status: true      # unavailable/unknown/stale VO status stops motion
+    vo_timeout: 1.0
+    max_measurement_age: 0.5
+    odom_frame: odom              # expected frame_id of /visual_slam/tracking/odometry (VERIFY on the Jetson)
+    odom_timeout: 0.4             # s without odometry -> hover
+    odom_abort_s: 2.0             # s without odometry -> abort (interface hold)
+    vo_status_topic: /visual_slam/status   # VERIFY: vo_state 2 = tracking lost (organizer guide)
+    vo_lost_abort_s: 3.0
+    max_dark_s: 4.0               # legacy, ignored; no geometry-based tracking exemption
+    land_hover_z: 0.35
+dh_localizer:
+  ros__parameters:
+    course_obj: /root/team_ws/course/dronehacks-course-v3.obj
+    scan_topic: /dh/stereo_scan   # or a 2D LiDAR's /scan
+    sensor_x: 0.0                 # 0 for stereo_scan (body-relative); set to the LiDAR x offset if scan_topic is a LiDAR
+    max_scan_latency: 0.5         # s: scans older than this (vs newest pose) are rejected
+dh_stereo_scan:
+  ros__parameters:
+    camera_pitch_deg: 0.0        # (MEASURE) from /etc/skybeta/drone.env camera mount
+    camera_x: 0.1053
+    camera_z: 0.0304
+    pair_queue_size: 16           # bounded retention; 5 ms capture slop and 0.5 s age limit stay unchanged
+    left_image: /oak/left/image_mono
+    right_image: /oak/right/image_mono
+    scale: 0.5
+    num_disparities: 64
+    mount_source: tf             # measured base_link <- left optical TF at capture time
+    allow_assumed_baseline: false
+    rectify_source: auto          # calibrated camera_info -> TF; otherwise unknown (no assumed baseline)
+    dark_mean_level: 12.0         # mean grey level below which stereo is declared blind (NaN clearance)
+    forward_min_coverage: 0.6     # fraction of forward beams with stereo data needed to report 'clear'
+    max_pair_dt: 0.005            # s: left/right stamps must match (OAK pair is hardware-synced) - VERIFY
+    baseline: 0.0                 # >0 forces the baseline (m); OAK-D S2 nominal 0.075
+dh_line:
+  ros__parameters:
+    image: /oak/left/image_mono
+    camera_pitch_deg: 0.0        # (MEASURE)
+    mount_source: tf
+    dark_delta: 25                # black-hat threshold; check on the real floor (echo /dh/line_obs over the line)

@@ -29,10 +29,12 @@ def _bool(name):
     return PythonExpression(["'", LaunchConfiguration(name), "'.lower() == 'true'"])
 
 
-def generate_launch_description():
-    cfg = os.path.join(get_package_share_directory("dh_autonomy"), "config", "competition.yaml")
+def generate_launch_description(mission_executable="mission"):
+    cfg = LaunchConfiguration("params_file")
     common = {"course_obj": LaunchConfiguration("course_obj"), "use_sim_time": _bool("use_sim_time")}
     return LaunchDescription([
+        DeclareLaunchArgument("params_file", default_value=os.path.join(
+            get_package_share_directory("dh_autonomy"), "config", "competition.yaml")),
         DeclareLaunchArgument("course_obj", default_value="/root/team_ws/course/dronehacks-course-v3.obj"),
         DeclareLaunchArgument("dry_run", default_value="true",
                               description="true: NO publisher to /skybeta or /fmu; commands -> /dh/dry_run/cmd_vel"),
@@ -49,7 +51,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim_time", default_value="false", description="true for ros2 bag play --clock"),
         DeclareLaunchArgument("odom_topic", default_value="/visual_slam/tracking/odometry"),
         DeclareLaunchArgument("enable_return", default_value="false"),
-        Node(package="dh_autonomy", executable="mission", name="dh_mission", output="screen",
+        Node(package="dh_autonomy", executable=mission_executable, name="dh_mission", output="screen",
              parameters=[cfg, common, {
                  "dry_run": _bool("dry_run"),
                  "backend": LaunchConfiguration("backend"),

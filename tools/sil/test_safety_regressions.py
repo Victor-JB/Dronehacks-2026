@@ -248,6 +248,82 @@ def test_real_opencv_with_timestamped_optical_to_body_tf():
     assert result is not None and abs(result["x_med"] - 1.5) < 0.06
 
 
+def test_stationary_entrypoint_cannot_enable_physical_backends():
+    from dh_autonomy.mission_node import StationaryMissionNode
+    from dh_autonomy.backends import DryRunBackend
+    for requested in ("skybeta", "px4"):
+        fresh(dry_run=False, backend=requested)
+        node = StationaryMissionNode()
+        assert node.dry_run and isinstance(node.backend, DryRunBackend)
+        assert not any(name.startswith(("/fmu", "/skybeta")) for name in node.endpoints)
+        L = node.course.launch
+        run(1, stationary_feed(node, (*L[:2], 0), math.pi / 2))
+        BUS.publish("/dh/start", Empty())
+        run(0.3, stationary_feed(node, (*L[:2], 0), math.pi / 2))
+        assert published("/dh/dry_run/cmd_vel")
+        assert not published("/skybeta/setpoint/twist")
+        assert not BUS.service_calls
+
+
+def test_isolation_checker_requires_positive_mission_evidence():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "hil" / "check_command_isolation.py"
+    spec = importlib.util.spec_from_file_location("isolation_checker", path)
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+    assert checker.result_code([("dh_line", "/")], [], []) == 2
+    assert checker.result_code([("dh_mission", "/")], [], []) == 2
+    assert checker.result_code([("dh_mission", "/")], [], ["dh_mission"]) == 0
+    assert checker.result_code([("dh_mission", "/")], [("dh_mission", "publisher", "/fmu/in/x")], []) == 1
+
+
+def test_line_waits_for_delayed_odometry_without_extrapolation():
+    import dh_autonomy.line_node as ln
+    import test_line_node as renderer
+    from fake_ros import CameraInfo, Image
+    fresh()
+    BUS.t = 2.0
+    node = ln.LineNode()
+    ci = CameraInfo()
+    ci.k, ci.d = list(renderer.K.ravel()), [0.] * 5
+    ci.width, ci.height, ci.header.frame_id = renderer.W, renderer.H, "optical"
+    node._on_info(ci)
+    node.hist.add(1.6, (0, 0, 0.85, 0))
+    arr = renderer.render(0.85, 0.2, 0, 0.48, 200, 75, 215, np.random.default_rng(0))
+    m = Image()
+    m.height, m.width, m.step, m.encoding, m.data = renderer.H, renderer.W, renderer.W, "mono8", arr.tobytes()
+    m.header.frame_id, m.header.stamp = "optical", make_time(1.8)
+    node._on_img(m)
+    assert len(node.waiting_images) == 1 and not published("/dh/line_obs")
+    pose = PoseStamped()
+    pose.header.frame_id, pose.header.stamp = "course", make_time(1.8)
+    pose.pose.position.z = 0.85
+    node._on_pose(pose)
+    assert abs(published("/dh/line_obs")[-1][1].vector.x - 0.2) < 0.01
+
+
+def test_unit02_observed_calibration_selects_factory_tf():
+    import dh_autonomy.stereo_scan_node as ssn
+    from dh_core.camera_geom import quat_to_rot
+    from fake_ros import CameraInfo
+    fresh(rectify_source="auto")
+    node = ssn.StereoScanNode()
+    for side,k,p03 in [("l",[595.195068359375,0,487.35308837890625,0,595.3043212890625,305.8476867675781,0,0,1],-44.8249474391155),("r",[597.6473388671875,0,481.54364013671875,0,597.5056762695312,298.5870361328125,0,0,1],0)]:
+        ci = CameraInfo()
+        ci.width,ci.height = 960,600
+        ci.header.frame_id = "oak_"+("left" if side=="l" else "right")+"_camera_optical_frame"
+        ci.k,ci.d,ci.r = k,[0.]*14,list(np.eye(3).ravel())
+        ci.p = [k[0],0,k[2],p03,0,k[4],k[5],0,0,0,1,0]
+        node._on_info(side,ci)
+    R=quat_to_rot(-0.0011172620574881663,0.00011568005459286838,-0.00159471026885414916,0.9999980976195801)
+    T=np.array([-0.07531135559082058,0.000600247979164914,0.00023905953392322488])
+    node._extrinsics_from_tf=lambda:(R,T)
+    assert node._rectification((960,600))[-1]=="tf"
+    assert node._build_maps(960,600)
+    assert abs(node.B - np.linalg.norm(T))<1e-6
+
+
 if __name__ == "__main__":
     import traceback
     failed = 0

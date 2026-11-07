@@ -17,6 +17,7 @@ setup(
     license="MIT",
     entry_points={"console_scripts": [
         "mission = dh_autonomy.mission_node:main",
+        "stationary_mission = dh_autonomy.mission_node:stationary_main",
         "localizer = dh_autonomy.localizer_node:main",
         "stereo_scan = dh_autonomy.stereo_scan_node:main",
         "line = dh_autonomy.line_node:main",

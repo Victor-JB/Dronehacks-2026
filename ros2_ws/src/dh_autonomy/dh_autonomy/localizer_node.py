@@ -138,7 +138,7 @@ class LocalizerNode(Node):
         if max(self.hist.newest - t_scan, self._now() - t_scan) > g("max_scan_latency"):
             return self._reject("stale")
         if t_scan > self.hist.newest:
-            self.waiting_scans = (self.waiting_scans + [m])[-4:]
+            self.waiting_scans = (self.waiting_scans + [m])[-16:]
             return  # wait for bracketing odometry, never extrapolate camera priors
         prior = self.hist.at(t_scan, future_tol=0.0)
         if prior is None:

@@ -16,3 +16,13 @@ _Update this file every time your agent context changes. See `shared-context/REA
 - Source interfaces inspected: organizer fleet-ready 7efe7e4, NVIDIA release-3.2 e31f4cc. Event image still needs stationary verification. Sky Beta cannot land/disarm; raw PX4 stays simulation-only.
 - Details: AUTONOMY_STATUS.md, docs/LOCAL_VALIDATION.md, docs/JETSON_VERIFICATION.md. Next session is sensor-only Nano, props off and flight battery absent, after separate approval; verify ROS/TF/timestamps, run isolated real ROS tests, then stationary dry-run isolation and board/lens checks. No arming/flight or AGX access.
 - Preserve all five shared-context files. User's branch-only/no-publish instructions override shared-context README's direct-main push workflow; this file is updated locally on the autonomy branch. Other teammates' context files are unchanged.
+
+## Read-only Jetson audit in progress — 2026-11-07
+
+User authorized read-only SSH to skybeta-02, superseding the prior SSH stop. Observed Humble/Python3.10/numpy1.26.4/OpenCV4.5.4, 960x600 camera streams, active VO and a 7.53 cm TF baseline. No remote installation/deployment/settings changes/autonomy launch/physical commands. Local stationary hard-lock and bounded timing buffers under test; report will distinguish observed data from remaining calibration/performance checks.
+
+## Audit checkpoint complete — 2026-11-07
+
+Read-only hardware audit completed; separate audit SSH session closed. No remote install/deploy/settings/service changes, feature launch or physical commands. Details: JETSON_COMPATIBILITY_REPORT.md and AUTONOMY_STATUS.md. Humble/domain2/960x600 stereo/mono/TF7.53cm and VO contracts observed. OpenCV is4.5.4; real processing still pending. Existing on-device depth uses RGB-labelled frame and was not substituted for raw stereo. VO age spikes422ms and limited received raw pairs are pending performance risks, not grounds to loosen safety.
+
+Local stationary backend hard-lock, optional unit02 mono/mount profile, bounded capture queues and positive graph isolation evidence are validated. Tests:47 unit+12 integration+16 safety; stereo12/line14 scenarios pass locally under numpy1.26.4/OpenCV4.10. No actual feature pipeline has run on the Nano. Normal branch push only; controlled deployment requires next-stage review.
