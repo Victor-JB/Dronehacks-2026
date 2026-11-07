@@ -6,7 +6,7 @@ Course-08 completed the marker-free waypoint baseline: 15/15 waypoints, PX4 land
 
 ![Course-08 baseline window-crossing still](docs/media/window-baseline.png)
 
-[Watch the course-08 RGB/depth replay](docs/media/window-baseline.mp4) (100.28 seconds; rendered from recorded simulation-time frames). Policy-01 failed during preflight with `invalid_policy_exchange_record:response.json`; elapsed flight time was zero, it did not arm, and no learned-policy flight occurred. The learned-policy result remains unverified. Read the [flight evidence, limitations, and commands](docs/markerfree-rgbd.md) before treating any run as a success. Compact machine-readable results and provenance are in [markerfree-results.json](docs/markerfree-results.json).
+[Watch the course-08 RGB/depth replay](docs/media/window-baseline.mp4) (100.28 seconds; rendered from recorded simulation-time frames). Policy-02 flew with 127 accepted learned actions and reached 6/15 independently verified waypoints. It overshot the north boundary after the maze, aborted after 34.432 simulated seconds, and landed and disarmed. The full learned-policy route remains unverified. The earlier policy-01 preflight transport failure was fixed using uniquely named response files. Read the [flight evidence, limitations, and commands](docs/markerfree-rgbd.md) before treating any run as a success. Compact machine-readable results and provenance are in [markerfree-results.json](docs/markerfree-results.json).
 
 ## Run the current experiment
 
@@ -37,6 +37,8 @@ python3 runtime/train_overnight.py --stop
 ```
 
 See the [competition references and SAND-O status](docs/competition-reuse.md) for the projects investigated and their limits. The local SANDO checkout is a reference; its ROS 2/Gurobi planner is not integrated into this Mac run.
+
+An injected camera-aid blackout also passed eight independent fault-response checks: PX4 entered Auto Land, touched down and disarmed without a logged vision update after injection. See [the fault-test evidence](docs/blackout-results.json) and the [reproduction command](docs/markerfree-rgbd.md#camera-aid-blackout-test).
 
 The [OAK metric-depth handoff](docs/oak-depth-handoff.md) summarizes the pinned physical camera driver, verified depth/confidence semantics, bandwidth constraints, and passive capture requirements. The current course-08 replay uses simulated RGB-D footage only.
 

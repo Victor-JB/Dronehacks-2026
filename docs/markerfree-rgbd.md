@@ -57,7 +57,7 @@ The score is an offline estimate/error, route, proxy-clearance, contact-observat
 
 **Course-08 is the first completed marker-free full-route baseline.** The waypoint controller reached 15/15 waypoints; PX4 confirmed landing and disarm 83.000 simulated seconds after arming. Independent scoring used 12,950 truth samples and verified the route, the full modeled x500 envelope crossing the window once in the forward direction, and the modeled touchdown inside the pad. Minimum window aperture clearance was 0.106299 m with the score's 15 mm support inflation. Horizontal modeled-envelope clearance inside the 0.762 m-radius pad was 0.313969 m. The CAD-proxy path check certified takeoff, transit, and landing clear with the same 15 mm inflation.
 
-The navigation audit passed for course-08: no artificial landmark models, zero publishers on `/model/course_quad/odometry_with_covariance`, and the recorder states simulator truth was not used for navigation. Truth from `/world/dronehacks/dynamic_pose/info` was consumed by the independent observer for scoring only. This was the waypoint **baseline**, with zero learned-policy actions. Policy-01 failed preflight with `invalid_policy_exchange_record:response.json`; elapsed flight time was zero and it did not arm. No learned-policy flight occurred, so its result remains unverified.
+The navigation audit passed for course-08: no artificial landmark models, zero publishers on `/model/course_quad/odometry_with_covariance`, and the recorder states simulator truth was not used for navigation. Truth from `/world/dronehacks/dynamic_pose/info` was consumed by the independent observer for scoring only. This was the waypoint **baseline**, with zero learned-policy actions. Policy-02 then flew with 127 accepted learned actions, reaching 6/15 waypoints independently verified against observer truth. At 34.432 simulated seconds after arming it exceeded the conservative north boundary after the maze. The controller aborted; PX4 landed and disarmed. The estimated and independent trajectories agree that the boundary was crossed. This is a failed learned-policy flight, not a completed route. The earlier policy-01 preflight transport error was fixed with unique response filenames; policy-02 had no transport fault.
 
 Contact coverage was partial. The observer received base-link contact messages and advertised rotor sensor publishers, but observed no rotor messages. The score records no unexpected contact observation; it does not claim zero collisions. Do not interpret contact-sensor silence as proof of no collision.
 
@@ -91,3 +91,19 @@ The [course-08 replay](media/window-baseline.mp4) and [window-crossing still](me
 The optional `--use-px4-tilt` adapter brackets capture-time PX4 roll and pitch within 60 ms. It adds no position or yaw pseudo-measurement and keeps the depth observability gate. Because PX4 attitude can correlate with visual position through EKF state updates, it is treated as a conservative prior, not an independent camera observation. PX4's [EV fusion bitmask](https://docs.px4.io/v1.16/en/advanced_config/parameter_reference.html#EKF2_EV_CTRL) enables position and yaw here.
 
 The SITL power watchdog directly reads battery and system-power uORB publications on a background thread. It requires advancing timestamps before arming and rejects stale or invalid feeds in flight. This was added after an earlier run exposed stale simulator power publications; resetting the dedicated container restored updates, but the underlying scheduler failure has not been isolated. No PX4 battery check was disabled.
+
+## Camera-aid blackout test
+
+Blackout-01 intentionally stopped forwarding RGB-D measurements at simulation time 35.480 s. The stale-capture fault followed at 36.008 s, PX4 entered Auto Land at 36.036 s, the independent observer recorded floor contact at 37.472 s, and PX4 disarmed at 49.224 s. Horizontal movement from injection to confirmed disarm was 0.501 m. The mission remains an intentional failure; the separate fault test passed all eight checks.
+
+The closed PX4 ULog spans injection through disarm, reports no corruption or overlapping dropout, and contains zero logged external-vision updates after injection. These are logged-message observations, not a guarantee about every unrecorded publication. The modeled multipart envelope stayed clear of course obstacles; received contacts were expected floor contact. Contact-topic coverage remained partial.
+
+With PyULog and NumPy installed, reproduce the score from the preserved local artifacts:
+
+```sh
+python3 -m tools.score_blackout artifacts/markerfree/blackout-01 \
+  --ulog artifacts/px4/log/2026-11-07/12_52_53.ulg \
+  --output /tmp/blackout-recheck.json
+```
+
+The command refuses to overwrite an existing report. The public [compact result](blackout-results.json) includes the evidence file hashes and scoring limits.
