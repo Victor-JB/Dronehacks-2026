@@ -11,3 +11,4 @@ services:
       SIM_CAMERA_HEIGHT: "256"
       GZ_PARTITION: dronehacks_markerfree
       SIM_REAL_TIME_FACTOR: ${SIM_REAL_TIME_FACTOR:-0.3}
+      SIM_RGBD_DEPTH_NOISE: ${SIM_RGBD_DEPTH_NOISE:-off}

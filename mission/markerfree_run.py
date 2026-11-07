@@ -110,7 +110,11 @@ class Log:
                            policy_boundary_brake_enabled=boundary_brake is not None,
                            policy_checkpoint_sha256=args.policy_sha256,
                            policy_depth_mode=args.policy_depth_mode if args.task == 'policy' else None)
+        diagnostic_path = Path('/tmp/dronehacks-rgbd-depth-noise.json')
+        sensor_diagnostic = (json.loads(diagnostic_path.read_text()) if diagnostic_path.exists()
+                             else {'mode': 'off'})
         self.write(type='metadata', **self.common,
+                   sensor_diagnostic=sensor_diagnostic,
                    runtime_source_sha256={str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                                           for folder in ('mission', 'vision', 'learning')
                                           for path in sorted((ROOT/folder).rglob('*.py'))},

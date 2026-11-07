@@ -8,6 +8,20 @@ if [[ ${SIM_VISION_BACKEND:-legacy} == rgbd ]]; then
 fi
 python3 -m "$scene_module" --world "${SIM_WORLD:-worlds/course.sdf}" --output /tmp/dronehacks-px4.sdf
 
+unset SIM_MARKERFREE_GZ_SEED
+noise_case=${SIM_RGBD_DEPTH_NOISE:-off}
+if [[ $noise_case != off ]]; then
+    if [[ $scene_module != vision.rgbd_scene || ${DRONEHACKS_SITL:-} != 1 ||
+          ${GZ_PARTITION:-} != dronehacks_markerfree ]]; then
+        echo 'RGBD depth noise requires the isolated marker-free PX4 SITL.' >&2
+        exit 1
+    fi
+    SIM_MARKERFREE_GZ_SEED=$(python3 -m tools.check_gazebo_depth_noise configure "$noise_case" \
+        --world /tmp/dronehacks-px4.sdf --manifest /tmp/dronehacks-rgbd-depth-noise.json)
+    export SIM_MARKERFREE_GZ_SEED
+    cat /tmp/dronehacks-rgbd-depth-noise.json
+fi
+
 pids=()
 cleanup() {
     trap - EXIT

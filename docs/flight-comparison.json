@@ -1,0 +1,585 @@
+{
+  "schema": "dronehacks.flight-comparison.v1",
+  "clock": "simulation time",
+  "scope": "Four completed individual runs; not a statistical reliability estimate.",
+  "timing_definition": "Armed flight starts at the PX4 armed event. Route begins at verified hover and ends at route-complete event; landing follows. Total is recorded armed-flight duration through completed landing.",
+  "runs": [
+    {
+      "run": "course-08",
+      "run_id": "a7f96b9588a441b393cf9289d921a953",
+      "controller": "waypoint controller",
+      "result": "completed",
+      "route_profile": {
+        "file": "mission/course-window-x500.json",
+        "sha256": "d75381bce0876018544c25e40d10a7bd8864d3ec521b61eb5881a8b3d2acef7a",
+        "matches_launch_waypoints": true
+      },
+      "policy_checkpoint_sha256": null,
+      "policy_boundary_brake_enabled": false,
+      "policy_boundary_brake_flag_recorded": false,
+      "policy_actions_received": 0,
+      "timing_sim_s": {
+        "arm_to_verified_hover": 14.032,
+        "verified_hover_to_route_complete": 63.832,
+        "route_complete_to_landing": 5.136,
+        "total_armed_flight": 83.0,
+        "arm_sim_time": 18.364,
+        "verified_hover_sim_time": 32.396,
+        "route_complete_sim_time": 96.228,
+        "landing_sim_time": 101.364,
+        "timing_basis": "simulation timestamps only; contiguous sample labels are held to the next sample; gaps over max_sample_gap_s are unobserved; route ends at success event or is censored at fault"
+      },
+      "route": {
+        "controller_waypoints_reached": 15,
+        "waypoints_required": 15,
+        "truth_waypoints_reached": 15,
+        "truth_waypoints_required": 15,
+        "full_route_verified_by_geometry": true,
+        "checks": {
+          "controller_reports_all_waypoints": true,
+          "truth_complete_during_flight": true,
+          "truth_reaches_all_waypoints_in_order": true,
+          "truth_crosses_window_with_full_envelope": true,
+          "truth_multipart_path_certified_clear": true,
+          "truth_transit_floor_checked": true,
+          "px4_ground_and_disarm_confirmed": true,
+          "truth_touchdown_inside_pad": true
+        },
+        "window": {
+          "full_envelope_crossed": true,
+          "min_aperture_clearance_m": 0.10629901882610049
+        },
+        "pad": {
+          "truth_touchdown_inside_pad": true,
+          "horizontal_envelope_clearance_m": 0.3139686632305629
+        }
+      },
+      "sections": [
+        {
+          "phase": "HOVER_CHECK",
+          "waypoint_index": 1,
+          "duration_s": 0.1
+        },
+        {
+          "phase": "FIRST_CORRIDOR",
+          "waypoint_index": 1,
+          "duration_s": 5.2
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 2,
+          "duration_s": 4.136
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 3,
+          "duration_s": 4.732
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 4,
+          "duration_s": 4.2
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 5,
+          "duration_s": 5.0
+        },
+        {
+          "phase": "GATE_A",
+          "waypoint_index": 6,
+          "duration_s": 4.4
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 7,
+          "duration_s": 4.332
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 8,
+          "duration_s": 3.068
+        },
+        {
+          "phase": "TUNNEL",
+          "waypoint_index": 9,
+          "duration_s": 4.964
+        },
+        {
+          "phase": "CHICANE",
+          "waypoint_index": 10,
+          "duration_s": 3.4
+        },
+        {
+          "phase": "WINDOW_APPROACH",
+          "waypoint_index": 11,
+          "duration_s": 6.332
+        },
+        {
+          "phase": "WINDOW_ALIGN",
+          "waypoint_index": 12,
+          "duration_s": 4.036
+        },
+        {
+          "phase": "WINDOW_CROSS",
+          "waypoint_index": 13,
+          "duration_s": 5.268
+        },
+        {
+          "phase": "LANDING_APPROACH",
+          "waypoint_index": 14,
+          "duration_s": 4.664
+        }
+      ],
+      "input_sha256": {
+        "artifacts/markerfree/course-08/telemetry.jsonl": "26495dfb204e4adf4808d5bef131f2589a72ab53dc9a9b42a192c4a19cb46a3c",
+        "artifacts/markerfree/course-08/telemetry.summary.json": "46b06d0e16107d035c43a3a084273022bede440d768885b4f8fd16896999c18c",
+        "artifacts/markerfree/course-08/score.json": "9ae82f020fa294c3ac926e55dbc77420a9f7ab2cc90a2197482e8348c434fd57",
+        "artifacts/markerfree/course-08/recording.json": "ad9e3ad182c858f6aeeac6f7cb2f0a1f658b4bed98146aff6ca7321fae60724b",
+        "mission/course-window-x500.json": "d75381bce0876018544c25e40d10a7bd8864d3ec521b61eb5881a8b3d2acef7a",
+        "tools/section_timings.py": "0ebab770febc2f67303afbe48a71d9942f67151b627cb0c7bae7d60910f3264c"
+      },
+      "aggregate_section_timings_s": {
+        "maze": 18.068,
+        "gate_a": 4.4,
+        "tunnel_and_chicane": 15.764,
+        "window": 15.636,
+        "landing_approach": 4.664
+      }
+    },
+    {
+      "run": "course-09",
+      "run_id": "c832c9292ca3457aaf2b89ac7bd661a5",
+      "controller": "waypoint controller",
+      "result": "completed",
+      "route_profile": {
+        "file": "mission/course-window-x500.json",
+        "sha256": "d75381bce0876018544c25e40d10a7bd8864d3ec521b61eb5881a8b3d2acef7a",
+        "matches_launch_waypoints": true
+      },
+      "policy_checkpoint_sha256": null,
+      "policy_boundary_brake_enabled": false,
+      "policy_boundary_brake_flag_recorded": false,
+      "policy_actions_received": 0,
+      "timing_sim_s": {
+        "arm_to_verified_hover": 13.312,
+        "verified_hover_to_route_complete": 63.86,
+        "route_complete_to_landing": 4.828,
+        "total_armed_flight": 82.0,
+        "arm_sim_time": 23.512,
+        "verified_hover_sim_time": 36.824,
+        "route_complete_sim_time": 100.684,
+        "landing_sim_time": 105.512,
+        "timing_basis": "simulation timestamps only; contiguous sample labels are held to the next sample; gaps over max_sample_gap_s are unobserved; route ends at success event or is censored at fault"
+      },
+      "route": {
+        "controller_waypoints_reached": 15,
+        "waypoints_required": 15,
+        "truth_waypoints_reached": 15,
+        "truth_waypoints_required": 15,
+        "full_route_verified_by_geometry": true,
+        "checks": {
+          "controller_reports_all_waypoints": true,
+          "truth_complete_during_flight": true,
+          "truth_reaches_all_waypoints_in_order": true,
+          "truth_crosses_window_with_full_envelope": true,
+          "truth_multipart_path_certified_clear": true,
+          "truth_transit_floor_checked": true,
+          "px4_ground_and_disarm_confirmed": true,
+          "truth_touchdown_inside_pad": true
+        },
+        "window": {
+          "full_envelope_crossed": true,
+          "min_aperture_clearance_m": 0.10957369037847739
+        },
+        "pad": {
+          "truth_touchdown_inside_pad": true,
+          "horizontal_envelope_clearance_m": 0.3173853598855277
+        }
+      },
+      "sections": [
+        {
+          "phase": "UNOBSERVED",
+          "waypoint_index": null,
+          "duration_s": 0.036
+        },
+        {
+          "phase": "FIRST_CORRIDOR",
+          "waypoint_index": 1,
+          "duration_s": 5.1
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 2,
+          "duration_s": 4.132
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 3,
+          "duration_s": 5.2
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 4,
+          "duration_s": 4.1
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 5,
+          "duration_s": 5.0
+        },
+        {
+          "phase": "GATE_A",
+          "waypoint_index": 6,
+          "duration_s": 4.436
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 7,
+          "duration_s": 4.284
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 8,
+          "duration_s": 2.912
+        },
+        {
+          "phase": "TUNNEL",
+          "waypoint_index": 9,
+          "duration_s": 5.0
+        },
+        {
+          "phase": "CHICANE",
+          "waypoint_index": 10,
+          "duration_s": 3.6
+        },
+        {
+          "phase": "WINDOW_APPROACH",
+          "waypoint_index": 11,
+          "duration_s": 6.288
+        },
+        {
+          "phase": "WINDOW_ALIGN",
+          "waypoint_index": 12,
+          "duration_s": 3.98
+        },
+        {
+          "phase": "WINDOW_CROSS",
+          "waypoint_index": 13,
+          "duration_s": 5.132
+        },
+        {
+          "phase": "LANDING_APPROACH",
+          "waypoint_index": 14,
+          "duration_s": 4.66
+        }
+      ],
+      "input_sha256": {
+        "artifacts/markerfree/course-09/telemetry.jsonl": "750122eee5b5a6024455937c8d061d0b4ee7edd5dc280d1a06898f6ad26cd813",
+        "artifacts/markerfree/course-09/telemetry.summary.json": "ff4c10e9c59e6455b2496c68ca63c1014f5cef3579682146ecac6bad33ead355",
+        "artifacts/markerfree/course-09/score.json": "18c6195e27947118f71ba151d42d7e37d8618dbd512ff91bc09937ff3c053181",
+        "artifacts/markerfree/course-09/recording.json": "ad9e3ad182c858f6aeeac6f7cb2f0a1f658b4bed98146aff6ca7321fae60724b",
+        "mission/course-window-x500.json": "d75381bce0876018544c25e40d10a7bd8864d3ec521b61eb5881a8b3d2acef7a",
+        "tools/section_timings.py": "0ebab770febc2f67303afbe48a71d9942f67151b627cb0c7bae7d60910f3264c"
+      },
+      "aggregate_section_timings_s": {
+        "maze": 18.432,
+        "gate_a": 4.436,
+        "tunnel_and_chicane": 15.796,
+        "window": 15.4,
+        "landing_approach": 4.66
+      }
+    },
+    {
+      "run": "course-10",
+      "run_id": "dfa48ddec0d94b42badec092e300a685",
+      "controller": "waypoint controller",
+      "result": "completed",
+      "route_profile": {
+        "file": "mission/course-window-x500-tuned.json",
+        "sha256": "f4f834da84648e4657154ffe47d5d516b98e39288ae24bc9b36b3f6b13b43ca0",
+        "matches_launch_waypoints": true
+      },
+      "policy_checkpoint_sha256": null,
+      "policy_boundary_brake_enabled": false,
+      "policy_boundary_brake_flag_recorded": true,
+      "policy_actions_received": 0,
+      "timing_sim_s": {
+        "arm_to_verified_hover": 14.132,
+        "verified_hover_to_route_complete": 62.636,
+        "route_complete_to_landing": 5.232,
+        "total_armed_flight": 82.0,
+        "arm_sim_time": 18.54,
+        "verified_hover_sim_time": 32.672,
+        "route_complete_sim_time": 95.308,
+        "landing_sim_time": 100.54,
+        "timing_basis": "simulation timestamps only; contiguous sample labels are held to the next sample; gaps over max_sample_gap_s are unobserved; route ends at success event or is censored at fault"
+      },
+      "route": {
+        "controller_waypoints_reached": 15,
+        "waypoints_required": 15,
+        "truth_waypoints_reached": 15,
+        "truth_waypoints_required": 15,
+        "full_route_verified_by_geometry": true,
+        "checks": {
+          "controller_reports_all_waypoints": true,
+          "truth_complete_during_flight": true,
+          "truth_reaches_all_waypoints_in_order": true,
+          "truth_crosses_window_with_full_envelope": true,
+          "truth_multipart_path_certified_clear": true,
+          "truth_transit_floor_checked": true,
+          "px4_ground_and_disarm_confirmed": true,
+          "truth_touchdown_inside_pad": true
+        },
+        "window": {
+          "full_envelope_crossed": true,
+          "min_aperture_clearance_m": 0.10845887255242762
+        },
+        "pad": {
+          "truth_touchdown_inside_pad": true,
+          "horizontal_envelope_clearance_m": 0.3129742689023261
+        }
+      },
+      "sections": [
+        {
+          "phase": "UNOBSERVED",
+          "waypoint_index": null,
+          "duration_s": 0.032
+        },
+        {
+          "phase": "FIRST_CORRIDOR",
+          "waypoint_index": 1,
+          "duration_s": 5.064
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 2,
+          "duration_s": 4.296
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 3,
+          "duration_s": 4.808
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 4,
+          "duration_s": 4.0
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 5,
+          "duration_s": 4.668
+        },
+        {
+          "phase": "GATE_A",
+          "waypoint_index": 6,
+          "duration_s": 4.288
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 7,
+          "duration_s": 4.5
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 8,
+          "duration_s": 2.908
+        },
+        {
+          "phase": "TUNNEL",
+          "waypoint_index": 9,
+          "duration_s": 5.092
+        },
+        {
+          "phase": "CHICANE",
+          "waypoint_index": 10,
+          "duration_s": 3.572
+        },
+        {
+          "phase": "WINDOW_APPROACH",
+          "waypoint_index": 11,
+          "duration_s": 6.068
+        },
+        {
+          "phase": "WINDOW_ALIGN",
+          "waypoint_index": 12,
+          "duration_s": 4.0
+        },
+        {
+          "phase": "WINDOW_CROSS",
+          "waypoint_index": 13,
+          "duration_s": 4.772
+        },
+        {
+          "phase": "LANDING_APPROACH",
+          "waypoint_index": 14,
+          "duration_s": 4.568
+        }
+      ],
+      "input_sha256": {
+        "artifacts/markerfree/course-10/telemetry.jsonl": "02e66e97879cf77fc5aba75ebf8a9a4c2943a4b76ce0c8bc5118b21bdd627ceb",
+        "artifacts/markerfree/course-10/telemetry.summary.json": "43953a7b5c56810f821731888d49484110e28649db925ee0832c7608a1089a06",
+        "artifacts/markerfree/course-10/score.json": "31fe3da281092869225b8ae61082ea9890f76470371209dd1c2bb38fc62d7a78",
+        "artifacts/markerfree/course-10/recording.json": "ad9e3ad182c858f6aeeac6f7cb2f0a1f658b4bed98146aff6ca7321fae60724b",
+        "mission/course-window-x500-tuned.json": "f4f834da84648e4657154ffe47d5d516b98e39288ae24bc9b36b3f6b13b43ca0",
+        "tools/section_timings.py": "0ebab770febc2f67303afbe48a71d9942f67151b627cb0c7bae7d60910f3264c"
+      },
+      "aggregate_section_timings_s": {
+        "maze": 17.772,
+        "gate_a": 4.288,
+        "tunnel_and_chicane": 16.072,
+        "window": 14.84,
+        "landing_approach": 4.568
+      }
+    },
+    {
+      "run": "policy-03",
+      "run_id": "38958b31e4a4456f8f522164f823342b",
+      "controller": "learned policy",
+      "result": "completed",
+      "route_profile": {
+        "file": "mission/course-window-x500.json",
+        "sha256": "d75381bce0876018544c25e40d10a7bd8864d3ec521b61eb5881a8b3d2acef7a",
+        "matches_launch_waypoints": true
+      },
+      "policy_checkpoint_sha256": "3602a898cad3f3ec91be78786c0811aa1ab0bd2f2d3a6b8f909edcf64c0cdf56",
+      "policy_boundary_brake_enabled": true,
+      "policy_boundary_brake_flag_recorded": true,
+      "policy_actions_received": 364,
+      "timing_sim_s": {
+        "arm_to_verified_hover": 13.332,
+        "verified_hover_to_route_complete": 58.16,
+        "route_complete_to_landing": 5.508,
+        "total_armed_flight": 77.0,
+        "arm_sim_time": 26.54,
+        "verified_hover_sim_time": 39.872,
+        "route_complete_sim_time": 98.032,
+        "landing_sim_time": 103.54,
+        "timing_basis": "simulation timestamps only; contiguous sample labels are held to the next sample; gaps over max_sample_gap_s are unobserved; route ends at success event or is censored at fault"
+      },
+      "route": {
+        "controller_waypoints_reached": 15,
+        "waypoints_required": 15,
+        "truth_waypoints_reached": 15,
+        "truth_waypoints_required": 15,
+        "full_route_verified_by_geometry": true,
+        "checks": {
+          "controller_reports_all_waypoints": true,
+          "truth_complete_during_flight": true,
+          "truth_reaches_all_waypoints_in_order": true,
+          "truth_crosses_window_with_full_envelope": true,
+          "truth_multipart_path_certified_clear": true,
+          "truth_transit_floor_checked": true,
+          "px4_ground_and_disarm_confirmed": true,
+          "truth_touchdown_inside_pad": true
+        },
+        "window": {
+          "full_envelope_crossed": true,
+          "min_aperture_clearance_m": 0.0932627394813233
+        },
+        "pad": {
+          "truth_touchdown_inside_pad": true,
+          "horizontal_envelope_clearance_m": 0.311355781995304
+        }
+      },
+      "sections": [
+        {
+          "phase": "UNOBSERVED",
+          "waypoint_index": null,
+          "duration_s": 0.068
+        },
+        {
+          "phase": "FIRST_CORRIDOR",
+          "waypoint_index": 1,
+          "duration_s": 5.224
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 2,
+          "duration_s": 4.108
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 3,
+          "duration_s": 4.668
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 4,
+          "duration_s": 3.436
+        },
+        {
+          "phase": "MAZE",
+          "waypoint_index": 5,
+          "duration_s": 5.164
+        },
+        {
+          "phase": "GATE_A",
+          "waypoint_index": 6,
+          "duration_s": 3.96
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 7,
+          "duration_s": 3.368
+        },
+        {
+          "phase": "TUNNEL_ALIGN",
+          "waypoint_index": 8,
+          "duration_s": 2.54
+        },
+        {
+          "phase": "TUNNEL",
+          "waypoint_index": 9,
+          "duration_s": 3.932
+        },
+        {
+          "phase": "CHICANE",
+          "waypoint_index": 10,
+          "duration_s": 2.456
+        },
+        {
+          "phase": "WINDOW_APPROACH",
+          "waypoint_index": 11,
+          "duration_s": 5.904
+        },
+        {
+          "phase": "WINDOW_ALIGN",
+          "waypoint_index": 12,
+          "duration_s": 4.096
+        },
+        {
+          "phase": "WINDOW_CROSS",
+          "waypoint_index": 13,
+          "duration_s": 4.808
+        },
+        {
+          "phase": "LANDING_APPROACH",
+          "waypoint_index": 14,
+          "duration_s": 4.428
+        }
+      ],
+      "input_sha256": {
+        "artifacts/markerfree/policy-03/telemetry.jsonl": "9d99eeef259055483e31805bff9067122b9b54b8feeb2545e8b4a77e0aee979a",
+        "artifacts/markerfree/policy-03/telemetry.summary.json": "a55978a894ca40f9428794d4f8d525e349c1c29f7cee36211fbfb2efbd1eb44b",
+        "artifacts/markerfree/policy-03/score.json": "f078aac57ce07722908e7ec698b0b2f0f8f0132bbaa8602b604fb3b43d8f045e",
+        "artifacts/markerfree/policy-03/recording.json": "ad9e3ad182c858f6aeeac6f7cb2f0a1f658b4bed98146aff6ca7321fae60724b",
+        "mission/course-window-x500.json": "d75381bce0876018544c25e40d10a7bd8864d3ec521b61eb5881a8b3d2acef7a",
+        "tools/section_timings.py": "0ebab770febc2f67303afbe48a71d9942f67151b627cb0c7bae7d60910f3264c"
+      },
+      "aggregate_section_timings_s": {
+        "maze": 17.376,
+        "gate_a": 3.96,
+        "tunnel_and_chicane": 12.296,
+        "window": 14.808,
+        "landing_approach": 4.428
+      },
+      "limitations": [
+        "Simulation evidence only, not a physical-flight or official competition result.",
+        "Independent route and clearance checks use offline simulated truth and modeled CAD envelopes.",
+        "Results are individual runs and do not estimate statistical reliability."
+      ]
+    }
+  ]
+}

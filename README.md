@@ -16,7 +16,7 @@ All three passed the eight independent route, multipart geometry, window and lan
 
 Policy-03 accepted 364 learned actions. Its separate braking guard changed 193 of 4,689 outgoing setpoints, or 4.1%. The earlier unguarded policy-02 overshot the north boundary and aborted after 6/15 waypoints. The padded rotor model also overlapped the north-wall proxy during that abort. The successful result belongs to the combined policy and guard.
 
-[Watch the learned-policy RGB/depth replay](docs/media/window-policy.mp4) or the [baseline replay](docs/media/window-baseline.mp4). The [policy score](docs/markerfree-policy-results.json) records the checkpoint, guard settings, sensor timestamps and source hashes. Read the [flight evidence and reproduction commands](docs/markerfree-rgbd.md), [baseline score](docs/markerfree-results.json), and [braking model and limits](docs/policy-braking.md). Section timings can be reproduced with:
+[Watch the learned-policy RGB/depth replay](docs/media/window-policy.mp4) or the [baseline replay](docs/media/window-baseline.mp4). The [policy score](docs/markerfree-policy-results.json) records the checkpoint, guard settings, sensor timestamps and source hashes. Read the [flight evidence and reproduction commands](docs/markerfree-rgbd.md), [baseline score](docs/markerfree-results.json), and [braking model and limits](docs/policy-braking.md). The [section comparison](docs/flight-comparison.md) separates cruise time from takeoff and landing. Timings can be reproduced with:
 
 ```sh
 python3 -m tools.section_timings artifacts/markerfree/course-08 \
