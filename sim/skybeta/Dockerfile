@@ -1,6 +1,6 @@
 # The Sky Beta drone stack on top of the PX4 + Gazebo sim image.
 #   docker --context colima-dronehacks-sim build -t dronehacks-skybeta:local sim/skybeta
-# (fly-sim-drone.sh builds it the first time.) Needs dronehacks-px4:local: sim/build.sh.
+# (fly-sim.sh builds it, and the images under it, the first time.)
 #
 # The drone runs ROS 2 Humble on Ubuntu 22.04. This image is Ubuntu 24.04 (the sim's Gazebo
 # Harmonic), so it gets ROS 2 Jazzy, the release paired with Harmonic. The ROS code is the same

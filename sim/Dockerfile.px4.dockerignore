@@ -3,5 +3,3 @@
 !px4/**
 !runtime/
 !runtime/start.sh
-!runtime/px4-start.sh
-!runtime/px4-sitl.sh

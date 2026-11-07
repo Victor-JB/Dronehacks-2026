@@ -1,3 +1,0 @@
-# Lightweight dependencies for the repository's CPU-only unit-test suite.
-numpy==1.26.4
-opencv-contrib-python-headless==4.10.0.84

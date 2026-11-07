@@ -1,3 +1,0 @@
-# Unified-diff context prefixes are part of the patch format, not source indent.
-# Apply checks still validate whitespace in the resulting PX4 source.
-patches/*.patch -whitespace

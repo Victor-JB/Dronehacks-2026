@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Container entrypoint: Gazebo + PX4 SITL + the drone's always-on stack. The mission is not started
-# here; fly-sim-drone.sh starts it per run, as fly.sh does on the drone.
+# here; fly-sim.sh starts it per run, as fly.sh does on the drone.
 #
 #   gazebo     the course with the Sky Beta (skybeta/scene.py)
 #   px4        PX4 v1.16.2 SITL, gz_x500 airframe, Sky Beta parameters (skybeta/px4_params.py)

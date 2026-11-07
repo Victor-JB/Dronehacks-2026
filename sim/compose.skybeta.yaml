@@ -1,4 +1,4 @@
-# The Sky Beta drone stack in the course sim: ./fly-sim-drone.sh at the repository root runs it.
+# The Sky Beta drone stack in the course sim: ./fly-sim.sh at the repository root runs it.
 name: dronehacks-skybeta
 services:
   sim:

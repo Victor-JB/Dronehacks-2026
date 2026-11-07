@@ -18,13 +18,6 @@ start() {
 }
 
 args=(-r -v 3)
-if [[ -n ${SIM_MARKERFREE_GZ_SEED:-} ]]; then
-    if [[ ${GZ_PARTITION:-} != dronehacks_markerfree || ! $SIM_MARKERFREE_GZ_SEED =~ ^[1-9][0-9]*$ ]]; then
-        echo 'Invalid marker-free Gazebo seed or partition.' >&2
-        exit 1
-    fi
-    args+=(--seed "$SIM_MARKERFREE_GZ_SEED")
-fi
 world=${SIM_WORLD:-worlds/course.sdf}
 gui_args=()
 if [[ ${SIM_GUI:-1} == 1 ]]; then
@@ -116,12 +109,5 @@ else
     start gz sim "${args[@]}" "${gui_args[@]}" "$world"
 fi
 services=("${pids[@]}")
-if [[ ${SIM_MISSION:-1} == 1 ]]; then
-    mkdir -p artifacts/gazebo
-    start python3 -m mission.run \
-        --course="${SIM_COURSE:-mission/course.json}" \
-        --speed-scale="${SIM_SPEED_SCALE:-0.65}" \
-        --output /workspace/artifacts/gazebo/telemetry.jsonl
-fi
 
 wait -n "${services[@]}"

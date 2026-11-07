@@ -5,8 +5,10 @@ Prints `export PX4_PARAM_<NAME>=<value>` lines for PX4's startup (run from sim/)
 
 Order, later wins:
   1. skybeta px4/params stage files 03a (height), 03b (vision), 07 (geometry), 08 (no flow), 09 (takeover)
-  2. the flying drone's full dump (params/drone16-vio-2026-11-03.params), only the groups that set how
-     it estimates and flies: estimator, controllers, allocation, commander, navigator, failsafes
+  2. OUR drone's full dump, params/skybeta-02.params (QGroundControl: Vehicle Setup > Parameters >
+     Tools > Save to file). Until it exists: drone 16's (same frame and fleet tuning, another unit).
+     Only the groups that set how it estimates and flies: estimator, controllers, allocation,
+     commander, navigator, failsafes
   3. SIM_OVERRIDES below: things that are physically different in SITL, each with its reason
 """
 from pathlib import Path
@@ -15,7 +17,8 @@ import sys
 HERE = Path(__file__).resolve().parent / 'params'
 STAGES = ['03a_height_reference', '03b_ekf2_vision', '07_airframe_geometry', '08_no_optical_flow',
           '09_autonomy_takeover']
-FLEET = 'drone16-vio-2026-11-03'
+OURS = 'skybeta-02'
+FALLBACK = 'drone16-vio-2026-11-03'
 GROUPS = ('EKF2_', 'MPC_', 'MC_', 'CA_ROTOR', 'COM_', 'NAV_', 'GF_', 'LNDMC_', 'MIS_',
           'IMU_GYRO_', 'IMU_DGYRO_', 'IMU_ACC', 'THR_MDL_FAC', 'MAN_', 'SYS_HAS_')
 SKIP = ('EKF2_MULTI_', 'COM_RC_IN_MODE')    # one SITL IMU/mag; RC input is replaced below
@@ -51,7 +54,11 @@ def params():
     merged = {}
     for stage in STAGES:
         merged.update(read(HERE / f'{stage}.params'))
-    fleet = read(HERE / f'{FLEET}.params')
+    dump = HERE / f'{OURS}.params'
+    if not dump.exists():
+        print(f'# WARNING: no params/{OURS}.params: using {FALLBACK} (another Sky Beta)', file=sys.stderr)
+        dump = HERE / f'{FALLBACK}.params'
+    fleet = read(dump)
     merged.update({k: v for k, v in fleet.items() if k.startswith(GROUPS) and not k.startswith(SKIP)})
     merged.update({k: str(v) for k, v in SIM_OVERRIDES.items()})
     return merged

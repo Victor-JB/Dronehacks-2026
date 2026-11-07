@@ -16,7 +16,6 @@ ENV PATH=/opt/px4-python/bin:/opt/px4/bin:$PATH \
     DRONEHACKS_SITL=1
 
 COPY runtime/start.sh /usr/local/bin/dronehacks-start
-COPY runtime/px4-start.sh runtime/px4-sitl.sh /usr/local/bin/
 CMD ["/usr/local/bin/px4-start.sh"]
 
 FROM dronehacks-sim:local AS px4-build

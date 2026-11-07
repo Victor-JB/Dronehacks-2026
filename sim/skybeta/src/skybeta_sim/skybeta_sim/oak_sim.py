@@ -5,9 +5,11 @@
   /sim/oak/image (rgb8)           -> /oak/left/image_mono   mono8 (what the camera page shows)
 
 Frame ids and the TF chain base_link -> oak_parent_frame -> oak_{left,right}_camera_optical_frame
-follow the drone: skybeta's launch puts oak_parent_frame AT base_link (camera_x/y/z default 0),
-and depthai hangs the cameras off it 7.5 cm apart. The rendered camera itself sits where the
-OAK is on the airframe (sim/models/skybeta). Values are converted, never perturbed.
+follow the drone: skybeta's launch publishes base_link -> oak_parent_frame from CAMERA_X/Y/Z in
+/etc/skybeta/drone.env, and depthai hangs the cameras off it 7.5 cm apart. The defaults here are
+the OAK's measured position on the Sky Beta (CAD), the values drone.env must hold too
+(sim/skybeta/AIRFRAME.md). The rendered camera sits at the lens (sim/models/skybeta).
+Values are converted, never perturbed.
 """
 import math
 
@@ -46,6 +48,10 @@ class OakSim(Node):
         self.static = StaticTransformBroadcaster(self)
         rig = TransformStamped()
         rig.header.frame_id, rig.child_frame_id = 'base_link', 'oak_parent_frame'
+        # = CAMERA_X / CAMERA_Y / CAMERA_Z in the drone's /etc/skybeta/drone.env
+        rig.transform.translation.x = float(self.declare_parameter('camera_x', 0.089).value)
+        rig.transform.translation.y = float(self.declare_parameter('camera_y', 0.0).value)
+        rig.transform.translation.z = float(self.declare_parameter('camera_z', 0.043).value)
         rig.transform.rotation.w = 1.0
         self.static.sendTransform([rig, optical('oak_parent_frame', DEPTH_FRAME, -BASELINE/2),
                                    optical('oak_parent_frame', LEFT_FRAME, BASELINE/2)])

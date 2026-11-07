@@ -13,7 +13,7 @@ the CAD origin (frame centre, about the Pixhawk's height), 0.052 m above the flo
 | Parts | X2807 1500KV, 7 in props, 4S 5000 mAh, AERO SELFIE 45A 4-in-1, Jetson Orin Nano, OAK-D S2, Pixhawk 6C | STEP product names |
 | OAK-D S2 | right camera at (0.103, -0.0375, 0.043), facing forward, no tilt; HFOV 80 deg; depth 0.35-10 m, 30 Hz | STEP; skybeta sim (fx 762.69 at 1280 px); DroneHacks page |
 | VL53L1X | (0, 0.027, -0.0345), downward, 0.04-4 m | fleet `EKF2_RNG_POS_Y/Z`; DroneHacks page |
-| PX4 parameters | estimator, control, allocation, commander, navigator from drone 16 | `params/drone16-vio-2026-11-03.params`, see `px4_params.py` |
+| PX4 parameters | estimator, control, allocation, commander, navigator | `params/skybeta-02.params` (our drone's dump, to add); until then drone 16's. See `px4_params.py` |
 
 ## Estimated: replace with measurements
 
@@ -25,11 +25,29 @@ the CAD origin (frame centre, about the Pixhawk's height), 0.052 m above the flo
 | Motor response | 12.5 ms up / 25 ms down | x500 values | Same log: step responses |
 | Rangefinder rate | 5 Hz | skybeta `params/03a` ("one reading per 200 ms") | `listener distance_sensor` on the drone |
 
-## Not the airframe, but differs from the drone today
+## The camera transform on the drone (fix it there)
 
-- skybeta's launch publishes `base_link -> oak_parent_frame` at **zero** (camera_x/y/z default 0), so
-  on the drone the depth is placed as if the camera sat at the frame centre; it is 0.10 m forward and
-  0.04 m up. The sim publishes the same zero transform (parity), and renders from the true position.
-- Depth size: the team camera config gives 512 x 320 (1024 x 640 eyes, 2x decimation), but
-  `config/drone.yaml` says 320 x 200. The sim uses 512 x 320; check the drone's camera page and set
-  `SIM_OAK_WIDTH` / `SIM_OAK_HEIGHT` if it differs.
+skybeta publishes `base_link -> oak_parent_frame` from `CAMERA_X/Y/Z` in `/etc/skybeta/drone.env`,
+and the shipped values are 0: the drone believes the OAK sits at the frame centre. It is
+**0.089 m forward and 0.043 m up** (STEP: OAK centre (0.2, -89.1, 94.6) mm, frame centre at
+Pixhawk height 52 mm). Two things go wrong with 0:
+
+- cuVSLAM reports the camera's motion as base_link's, so a pure yaw turn reads as a 9 cm swing, and
+  PX4 fuses it as body motion (03b keeps `EKF2_EV_POS_*` = 0 because the TF is meant to carry this).
+- Depth points are placed 9 cm too far back and 4 cm too low in the body frame.
+
+On skybeta-02, on the ground (restarting the stack re-zeroes VIO):
+
+```sh
+sudo sed -i 's/^CAMERA_X=.*/CAMERA_X=0.089/; s/^CAMERA_Z=.*/CAMERA_Z=0.043/' /etc/skybeta/drone.env
+sudo systemctl restart skybeta-stack
+docker exec skybeta-stack bash -ic 'ros2 run tf2_ros tf2_echo base_link oak_parent_frame'   # expect 0.089 0 0.043
+```
+
+The sim publishes the same values (`oak_sim` parameters `camera_x/y/z`).
+
+## Depth size
+
+The team camera config gives 512 x 320 (1024 x 640 eyes, 2x decimation), but `config/drone.yaml`
+says 320 x 200. The sim uses 512 x 320; check the drone's camera page and set `SIM_OAK_WIDTH` /
+`SIM_OAK_HEIGHT` if it differs.

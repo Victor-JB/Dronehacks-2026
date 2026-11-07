@@ -1,6 +1,6 @@
 # Sky Beta drone stack in the course sim
 
-`./fly-sim-drone.sh` at the repository root. It runs the drone's software as the drone runs it:
+Run with `./fly-sim.sh` at the repository root; the diagram and the parity argument are in the README there.
 
 | On the drone | In the sim |
 |---|---|
@@ -12,7 +12,7 @@
 | OAK-D S2 + depthai: `/oak/stereo/image_raw` | Gazebo camera at the OAK's position: `oak_sim` |
 | cuVSLAM: `/visual_slam/tracking/odometry`, `/visual_slam/status` | Gazebo's true pose, nothing added: `vio_sim` |
 | Safety pilot: arms on Altitude, Position, lands | `pilot`: the same steps over MAVLink |
-| The team's `dronehacks_nav` (jetson branch), fly.sh: mission, bag, camera page, map | the same code and launch file, `use_sim_time: true` |
+| The team's `dronehacks_nav` (branch main), fly.sh: mission, bag, camera page, map | the same code and launch file, `use_sim_time: true` |
 | ROS 2 Humble, Ubuntu 22.04 | ROS 2 Jazzy, Ubuntu 24.04 (Gazebo Harmonic's pairing) |
 
 Every node runs on Gazebo's clock (`use_sim_time`), as PX4 SITL does, with `UXRCE_DDS_SYNCT = 0`.

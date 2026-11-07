@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Compare a drone bag with a sim bag (or any two fly.sh / fly-sim-drone.sh bags).
+"""Compare a drone bag with a sim bag (or any two fly.sh / fly-sim.sh bags).
 
     python3 -m pip install rosbags numpy matplotlib        # once, anywhere (no ROS needed)
     python3 sim/skybeta/compare.py DRONE_BAG SIM_BAG [-o OUT_DIR]
 
-Both bags come from the same topic list (jetson scripts/fly.sh, fly-sim-drone.sh). Each run is
+Both bags come from the same topic list (main scripts/fly.sh, fly-sim.sh). Each run is
 aligned at the moment PX4 entered Offboard (t = 0), and the report puts them side by side:
 
   tracking   |setpoint - odometry| over time: how closely the vehicle follows the mission
