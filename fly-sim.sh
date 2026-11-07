@@ -3,6 +3,7 @@
 #
 #   ./fly-sim.sh                    fly `main` (what the drone flies)
 #   ./fly-sim.sh --code <ref|dir>   another branch/commit, or a folder holding a dronehacks_nav package
+#   ./fly-sim.sh --mode <N>         fly modes.json mode N instead of the code's active mode
 #   ./fly-sim.sh --headless         no Gazebo window (faster)
 #   ./fly-sim.sh stop               stop the sim and its Linux VM (frees the Mac's CPU and memory)
 #
@@ -48,6 +49,7 @@ for p in filter(str.isdigit, os.listdir('/proc')):
 
 # ---- arguments
 code=main
+mode=
 export SIM_GUI=1
 if [[ "${1:-}" == stop ]]; then
   docker --context "$CTX" info >/dev/null 2>&1 && "${COMPOSE[@]}" down
@@ -57,8 +59,9 @@ fi
 while (( $# )); do
   case "$1" in
     --code) code="${2:?--code needs a branch, commit or folder}"; shift 2 ;;
+    --mode) mode="${2:?--mode needs a modes.json mode number}"; shift 2 ;;
     --headless) export SIM_GUI=0; shift ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
 done
@@ -107,10 +110,33 @@ mkdir -p "$out/code"
 if [[ -d "$code" ]]; then
   (cd "$code" && tar --exclude=.git --exclude=__pycache__ --exclude=sim -cf - .) | tar -xf - -C "$out/code"
   src="folder $(cd "$code" && pwd)"
+  commit=""                               # a folder may hold uncommitted work: it cannot be promoted
 else
   git -C "$REPO" rev-parse --verify -q "$code^{commit}" >/dev/null || die "no branch, commit or folder '$code'"
   git -C "$REPO" archive "$code" | tar -xf - -C "$out/code" --exclude=sim
   src="$code @ $(git -C "$REPO" rev-parse --short "$code")"
+  commit="$(git -C "$REPO" rev-parse "$code^{commit}")"
+fi
+# ---- which modes.json mode to fly: the code's active one, or --mode (route.json is rewritten here,
+# in the run's copy only, exactly as apply_mode.py does it on the drone)
+if [[ -f "$out/code/modes.json" && -f "$out/code/apply_mode.py" ]]; then
+  if [[ -n "$mode" ]]; then
+    ( cd "$out/code" && python3 - "$mode" <<'PY'
+import json, sys
+m = json.load(open("modes.json"))
+if sys.argv[1] not in m["modes"]:
+    names = ", ".join(k + " " + v["name"] for k, v in m["modes"].items())
+    sys.exit("[fly-sim] no mode %s in modes.json: %s" % (sys.argv[1], names))
+m["active_mode"] = int(sys.argv[1])
+json.dump(m, open("modes.json", "w"), indent=2)
+PY
+    ) || exit 1
+  fi
+  ( cd "$out/code" && python3 apply_mode.py >/dev/null ) || die "apply_mode.py failed in $out/code"
+  mode="$(python3 -c "import json; m = json.load(open('$out/code/modes.json')); print(m['active_mode'], m['modes'][str(m['active_mode'])]['name'])")"
+  src="$src, mode $mode"
+elif [[ -n "$mode" ]]; then
+  die "$src has no modes.json, so --mode does not apply"
 fi
 [[ -f "$out/code/package.xml" ]] && grep -q '<name>dronehacks_nav</name>' "$out/code/package.xml" \
   || die "$src has no dronehacks_nav package at its root"
@@ -194,5 +220,15 @@ EOF2
 for _ in $(seq 1 20); do [[ -s "$out/mission.log" ]] && break; sleep 0.5; done
 tail -n +1 -f "$out/mission.log" & tailer=$!
 wait "$mission"
+# ---- the run's result, for ./promote.sh: which commit, which mode, and how the mission ended
+python3 - "$out" "$code" "$commit" "$mode" <<'PY'
+import json, re, sys
+out, code, commit, mode = sys.argv[1:]
+log = open(f"{out}/mission.log", errors="replace").read()
+ends = re.findall(r"mission done: (.*)", log)
+json.dump({"code": code, "commit": commit, "mode": mode, "result": ends[-1].strip() if ends else "no result (stopped early?)"},
+          open(f"{out}/result.json", "w"), indent=2)
+PY
+say "result: $(python3 -c "import json; print(json.load(open('$out/result.json'))['result'])")  ($out/result.json)"
 say "mission ended. Ctrl-C to stop the sim (the bag keeps recording until then)."
 while true; do sleep 3600; done
