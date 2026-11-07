@@ -3,13 +3,13 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import numpy as np
 
-from learning.inference import (CAMERA_HEIGHT, CAMERA_WIDTH, PolicyClient, PolicyError,
+from learning.inference import (CAMERA_HEIGHT, CAMERA_WIDTH, VERSION, PolicyClient, PolicyError,
                                 action_to_enu, checkpoint_camera_forward, policy_depth, policy_state,
-                                read_json, write_json)
+                                read_json, response_name, write_json)
 from learning.sim import HEIGHT, MAX_DEPTH, RAYS, WIDTH
 from mission.markerfree_run import (FlightFault, LearnedRoute, NAVIGATION, observe_abort_landing,
                                    policy_camera_shift, prepare_course)
@@ -124,7 +124,7 @@ class ExchangeTests(unittest.TestCase):
         self.sha = 'a'*64
         self.client = PolicyClient(self.path, self.sha, 'current-run', timeout_s=1.)
         self.addCleanup(self.client.close)
-        self.service = dict(version=1, checkpoint_sha256=self.sha, session='current-session', camera_forward_m=.08)
+        self.service = dict(version=VERSION, checkpoint_sha256=self.sha, session='current-session', camera_forward_m=.08)
         write_json(self.path/'service.json', self.service)
         self.depth = np.zeros((HEIGHT, WIDTH), np.float32)
         self.state = np.r_[np.zeros(8, np.float32), np.float32(.4)]
@@ -133,7 +133,10 @@ class ExchangeTests(unittest.TestCase):
         request = read_json(self.path/'request.json')
         request.pop('depth')
         request.pop('state')
-        write_json(self.path/'response.json', request | {'velocity_flu': [.2, .1, 0.]} | overrides)
+        write_json(self.path/response_name(request['reply_id']), request | {'velocity_flu': [.2, .1, 0.]} | overrides)
+
+    def current_response_path(self):
+        return self.path/response_name(read_json(self.path/'request.json')['reply_id'])
 
     def test_stale_run_session_checkpoint_sequence_and_capture_are_rejected(self):
         self.assertTrue(self.client.connect())
@@ -155,6 +158,43 @@ class ExchangeTests(unittest.TestCase):
         self.response()
         with self.assertRaisesRegex(PolicyError, 'policy_response_timeout'):
             self.client.poll(11.01)
+
+    def test_partial_response_retries_without_accepting_or_resetting_deadline(self):
+        self.assertTrue(self.client.connect())
+        self.client.request(self.depth, self.state, 1_000_000, 10.)
+        self.current_response_path().write_text('{"version":2')
+        with self.assertLogs('learning.inference', level='WARNING') as logs:
+            self.assertIsNone(self.client.poll(10.05))
+        self.assertIn('JSONDecodeError', logs.output[0])
+        self.assertEqual(self.client.transport_read_errors, 1)
+        self.assertIsNotNone(self.client.pending)
+        self.response()
+        self.assertEqual(self.client.poll(10.10).capture_usec, 1_000_000)
+
+        self.client.request(self.depth, self.state, 1_200_000, 20.)
+        self.current_response_path().write_text('[]')
+        self.assertIsNone(self.client.poll(20.8))
+        with self.assertRaisesRegex(PolicyError, 'policy_response_timeout.*expected object, got list'):
+            self.client.poll(21.01)
+
+    def test_response_filename_is_unique_after_cancellation(self):
+        self.assertTrue(self.client.connect())
+        self.client.request(self.depth, self.state, 1_000_000, 10.)
+        first = self.current_response_path()
+        self.response()
+        self.client.cancel()
+        self.client.request(self.depth, self.state, 1_200_000, 10.2)
+        self.assertNotEqual(self.current_response_path(), first)
+        self.assertIsNone(self.client.poll(10.25))
+        self.response()
+        self.assertEqual(self.client.poll(10.3).capture_usec, 1_200_000)
+
+    def test_exchange_publish_fsyncs_contents_before_replacing_record(self):
+        path = self.path/'response.json'
+        with patch('learning.inference.os.fsync', side_effect=lambda _: self.assertFalse(path.exists())) as sync:
+            write_json(path, {'ready': True})
+        sync.assert_called_once()
+        self.assertEqual(read_json(path), {'ready': True})
 
     def test_checkpoint_mismatch_blocks_startup(self):
         write_json(self.path/'service.json', self.service | {'checkpoint_sha256': 'b'*64})

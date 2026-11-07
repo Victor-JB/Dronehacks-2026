@@ -5,7 +5,9 @@ import fcntl
 import hashlib
 import io
 import json
+import logging
 import math
+import os
 from pathlib import Path
 import time
 from uuid import uuid4
@@ -14,15 +16,20 @@ import numpy as np
 
 from .sim import HEIGHT, HFOV_DEG, MAX_DEPTH, RAYS, WIDTH, yaw_rotation
 
-VERSION = 1
+VERSION = 2
 CAMERA_WIDTH, CAMERA_HEIGHT = 384, 256
 TRAINING_CAMERA_FORWARD_M = .08
 _NATIVE_X = (np.arange(CAMERA_WIDTH)+.5-CAMERA_WIDTH/2)/(CAMERA_WIDTH/2)
 _NATIVE_Y = (np.arange(CAMERA_HEIGHT)+.5-CAMERA_HEIGHT/2)/(CAMERA_WIDTH/2)
 _NATIVE_RADIAL2 = 1 + _NATIVE_X[None, :]**2 + _NATIVE_Y[:, None]**2
+_LOG = logging.getLogger(__name__)
 
 
 class PolicyError(RuntimeError):
+    pass
+
+
+class PolicyExchangeReadError(PolicyError):
     pass
 
 
@@ -106,10 +113,14 @@ def action_to_enu(action, yaw_enu):
 
 
 def write_json(path, data):
-    """Atomic exchange: a peer sees the complete old or new record."""
+    """Flush complete contents before publishing a name across the shared mount."""
     temp = path.with_name(f'.{path.name}.{uuid4().hex}.tmp')
     try:
-        temp.write_text(json.dumps(data, separators=(',', ':'), allow_nan=False) + '\n')
+        encoded = json.dumps(data, separators=(',', ':'), allow_nan=False) + '\n'
+        with temp.open('x', encoding='utf-8') as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
         temp.replace(path)
     finally:
         temp.unlink(missing_ok=True)
@@ -117,14 +128,19 @@ def write_json(path, data):
 
 def read_json(path):
     try:
-        row = json.loads(path.read_text())
+        row = json.loads(path.read_text(encoding='utf-8'))
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as error:
-        raise PolicyError(f'invalid_policy_exchange_record:{path.name}') from error
+        raise PolicyExchangeReadError(
+            f'invalid_policy_exchange_record:{path.name}:{type(error).__name__}: {error}') from error
     if not isinstance(row, dict):
-        raise PolicyError(f'invalid_policy_exchange_record:{path.name}')
+        raise PolicyExchangeReadError(f'invalid_policy_exchange_record:{path.name}:expected object, got {type(row).__name__}')
     return row
+
+
+def response_name(reply_id):
+    return f'response-{reply_id}.json'
 
 
 def take_lock(path):
@@ -236,11 +252,26 @@ class PolicyClient:
         self.pending = None
         self.seq = 0
         self.last_capture = -1
+        self.transport_read_errors = 0
+        self.last_transport_error = None
+        self._warn_after = 0.
+
+    def _read(self, name):
+        try:
+            return read_json(self.exchange/name)
+        except PolicyExchangeReadError as error:
+            self.transport_read_errors += 1
+            self.last_transport_error = str(error)
+            now = time.monotonic()
+            if now >= self._warn_after:
+                _LOG.warning('Retrying policy exchange read: %s', error)
+                self._warn_after = now+1.
+            return None
 
     def connect(self):
         if self.session is not None:
             return True
-        service = read_json(self.exchange/'service.json')
+        service = self._read('service.json')
         if service is None:
             return False
         if (service.get('version') != VERSION or service.get('checkpoint_sha256') != self.checkpoint_sha256
@@ -261,8 +292,9 @@ class PolicyClient:
         depth, state = validate_observation(depth, state)
         self.seq += 1
         key = dict(version=VERSION, session=self.session, checkpoint_sha256=self.checkpoint_sha256,
-                   run_id=self.run_id, seq=self.seq, capture_usec=capture_usec)
+                   run_id=self.run_id, seq=self.seq, capture_usec=capture_usec, reply_id=uuid4().hex)
         write_json(self.exchange/'request.json', dict(**key, depth=depth.tolist(), state=state.tolist()))
+        self.last_transport_error = None
         self.pending = key, now, float(state[-1])
         self.last_capture = capture_usec
 
@@ -271,8 +303,9 @@ class PolicyClient:
             return None
         key, sent, cap = self.pending
         if now - sent > self.timeout_s:
-            raise PolicyError('policy_response_timeout')
-        row = read_json(self.exchange/'response.json')
+            detail = f':{self.last_transport_error}' if self.last_transport_error else ''
+            raise PolicyError(f'policy_response_timeout{detail}')
+        row = self._read(response_name(key['reply_id']))
         if row is None or any(row.get(k) != v for k, v in key.items()):
             return None
         self.pending = None
@@ -322,21 +355,38 @@ def serve(checkpoint, exchange):
                                   ('profile', 'route_sha256', 'heading_sha256', 'transfer_profile')}))
         print(f'DepthPolicy ready on CPU, SHA256 {sha256}', flush=True)
         previous = None
+        warn_after = 0.
         try:
             while True:
-                row = read_json(exchange/'request.json')
+                try:
+                    row = read_json(exchange/'request.json')
+                except PolicyExchangeReadError as error:
+                    now = time.monotonic()
+                    if now >= warn_after:
+                        _LOG.warning('Ignoring unreadable policy request: %s', error)
+                        warn_after = now+1.
+                    row = None
+                reply_id = row.get('reply_id') if row is not None else None
                 if (row is not None and all(row.get(k) == v for k, v in fixed.items())
                         and isinstance(row.get('run_id'), str) and type(row.get('seq')) is int
-                        and type(row.get('capture_usec')) is int):
-                    key = dict(**fixed, **{k: row[k] for k in ('run_id', 'seq', 'capture_usec')})
+                        and type(row.get('capture_usec')) is int and isinstance(reply_id, str)
+                        and len(reply_id) == 32 and all(c in '0123456789abcdef' for c in reply_id)):
+                    key = dict(**fixed, **{k: row[k] for k in ('run_id', 'seq', 'capture_usec', 'reply_id')})
                     if key != previous:
+                        if previous is not None:
+                            try:
+                                (exchange/response_name(previous['reply_id'])).unlink(missing_ok=True)
+                            except OSError as error:
+                                _LOG.warning('Could not remove superseded policy response: %s', error)
                         previous = key
                         try:
                             depth, state = validate_observation(row.get('depth'), row.get('state'))
                             response = dict(**key, velocity_flu=infer(depth, state))
                         except (TypeError, ValueError, PolicyError, RuntimeError) as error:
                             response = dict(**key, error=str(error))
-                        write_json(exchange/'response.json', response)
+                        # Never reuse a response name. VirtioFS can briefly
+                        # expose the size of the prior inode after replacement.
+                        write_json(exchange/response_name(reply_id), response)
                 time.sleep(.008)
         except KeyboardInterrupt:
             return
