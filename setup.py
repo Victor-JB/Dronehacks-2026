@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'mission = dronehacks_nav.skybeta_node:main',
+            'camera_web = dronehacks_nav.camera_web:main',
         ],
     },
 )
