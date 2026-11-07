@@ -35,7 +35,8 @@ python3 - <<'PY'
 from dh_autonomy.mission_node import StationaryMissionNode, stationary_main
 from dh_autonomy.backends import DryRunBackend
 import dh_core.camera_geom, dh_autonomy.stereo_scan_node, dh_autonomy.line_node
-assert StationaryMissionNode.force_dry_run is True
+if StationaryMissionNode.force_dry_run is not True:
+    raise RuntimeError('Stationary hard lock missing')
 print('Installed imports OK; no node instantiated by import')
 PY
 export DH_COURSE_OBJ=/reviewed/course.obj
@@ -55,11 +56,13 @@ for path in Path('build').rglob('*.xml'):
         continue
     if root.tag in ('testsuite', 'testsuites'):
         cases.extend(root.iter('testcase'))
-assert cases, 'No actual JUnit test evidence'
-assert not any(c.find(tag) is not None for c in cases for tag in ('failure', 'error', 'skipped')), 'Inspect failing/skipped XML'
+if not cases:
+    raise RuntimeError('No actual JUnit test evidence')
+if any(c.find(tag) is not None for c in cases for tag in ('failure', 'error', 'skipped')):
+    raise RuntimeError('Inspect failing/skipped XML')
 names = {c.attrib.get('name', '') for c in cases}
-assert 'test_commands_only_on_dry_run_topic' in names, names
-assert 'test_real_images_clearance_and_isolation' in names, names
+if not {'test_commands_only_on_dry_run_topic', 'test_real_images_clearance_and_isolation'} <= names:
+    raise RuntimeError('Required DDS test cases missing: ' + str(names))
 print('Required real-DDS test cases executed, without skips:', len(cases))
 PY
 # Also exercise the dedicated installed stationary executable with hostile parameters.
@@ -73,6 +76,7 @@ cleanup() {
       sleep 1
     done
     kill -TERM -- "-$mission_pid" 2>/dev/null || true
+    kill -KILL -- "-$mission_pid" 2>/dev/null || true
     wait "$mission_pid" 2>/dev/null || true
   fi
 }

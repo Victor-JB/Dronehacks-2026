@@ -1,77 +1,60 @@
-# Stationary deployment plan — Phase 1 — 2026-11-07
+# Stationary deployment plan v2 — safety hardening — 2026-11-07
 
-**Status: preparation only. No remote write, build, deployment, service change or autonomy launch has been executed. Phase 2 requires explicit approval of this plan and its isolated location/container. Phases 3 and 4 each need separate later approval.** Physical flight remains prohibited. User reports props and flight battery absent; reconfirm those physical conditions before later operations. Never send physical zero commands, arm/disarm, change modes, run motors or change PX4 parameters.
+**PROPOSED ONLY. Phase 2 is not authorized. No SSH, remote writes/builds or container startup occurred during hardening.** Approval must cover this revised plan and scripts. Phases 3 (live perception) and 4 (stationary mission) each need separate later approval. Physical commands, including zero commands, arming/disarming, mode changes, motors, flight and PX4/system changes remain prohibited.
 
-## Reviewed baseline and source findings
+## Pinned scope and source review
 
-- Repository Victor-JB/Dronehacks-2026, branch `saketh/autonomy`; autonomy source pinned to **eab363673fbb6b5272ab1d54115e77499cba22ca**. Phase 1 adds documentation and offline build-control tools only; the two autonomy packages are unchanged. Latest fetched team-main is `9186743`; all five teammate context files read, only Saketh's file updated. No merge into main.
-- Read `JETSON_COMPATIBILITY_REPORT.md`, current package source/manifests/launch/tests, persistent repository rules and status. The prior audit supplies target observations; no repeat SSH audit is needed in Phase 1.
-- `setup.py` maps `stationary_mission` to `mission_node:stationary_main`; this calls `main(node_class=StationaryMissionNode)`. Its class flag is `force_dry_run=True`. `MissionNode.__init__` computes `self.force_dry_run or bool(dry_run_parameter)` before backend construction. Therefore this entrypoint always selects `DryRunBackend`, even for `dry_run=false` and `backend=px4` or `skybeta`. The physical classes' constructors are not invoked along that branch.
-- `DryRunBackend` creates only `/dh/dry_run/cmd_vel` (TwistStamped) and `/dh/dry_run/events` (String). It subscribes read-only to `/skybeta/state`. `hold`/`send_position` log dry events; inherited arm/disarm/land/request_offboard do nothing and return false. Shutdown calls only this dry backend. It creates no control-service clients. Mission also publishes `/dh/{pose_map,plan,mission_state,health}`.
-- `verify_isolation` checks resolved publishers/clients at constructor completion and raises on `/skybeta` or `/fmu` prefixes. **This is a startup check after endpoint creation, not a security sandbox:** arbitrary ROS remaps could create a forbidden endpoint before the check rejects it. No remaps, namespaces, alternate executables or unreviewed parameter/launch files are allowed in this procedure. A bridge external to the node could relay dry output; independent live-graph/transport review is still required before Phase 4. The guarantee is the reviewed entrypoint/backend and exact invocation, not arbitrary modified Python/ROS environments.
-- `stationary.launch.py` loads installed `autonomy.launch.py` using `runpy`, then passes fixed `mission_executable="stationary_mission"`. No launch argument can replace that executable. The launch contains only mission, stereo, line and localizer actions and argument declarations; no driver, bridge, container, shell command or flight interface is started. The default course path points at the team's workspace; later commands must override it with a reviewed path in the isolated workspace.
-- Imported module/package initializers have no ROS node construction, publisher creation, device open, process launch or hardware write at import. Backends defines a QoS object, classes and functions; core defines numerical constants (including an optional planner's small Hessian). Course loading/planning, TF listeners and timers happen in constructors. `main()` calls are protected by `if __name__ == "__main__"`. `setup.py` performs normal build metadata/file installation only during build. Optional raw-PX4 message imports occur inside the physical constructor, not at stationary import. Third-party import behavior is not a substitute for container isolation.
-- Stereo/line/localizer create only measurement/health endpoints; TF listeners subscribe and may create normal ROS infrastructure endpoints. No socket/serial/process control path was found in these nodes. Normal ROS parameter/rosout infrastructure is expected; it is not a flight-control client. A* + clothoid, safety thresholds and existing planner remain unchanged.
-- The graph checker requires both `dh_mission` and its dry command publisher, checks all discovered `dh_*` publishers/clients for forbidden prefixes, returns 0 pass / 1 forbidden / 2 incomplete. It assumes reviewed node names; renames, duplicate node names or relay nodes must be independently investigated. An empty graph never qualifies as success. The checker itself uses normal rclpy infrastructure, including default rosout; it publishes no flight commands.
+Repository Victor-JB/Dronehacks-2026, branch saketh/autonomy. Autonomy source remains **eab363673fbb6b5272ab1d54115e77499cba22ca**. No dh_core/dh_autonomy/planner/flight-control code changed. Latest team-main context read: 9186743; other four teammate context files preserved. Preserve the existing image, services, `/home/dronehacks/skybeta`, `/home/dronehacks/team_ws`, `/root/skybeta_ws` and `/root/team_ws`.
 
-## Dependencies and package layout
+The stationary entrypoint calls StationaryMissionNode; force_dry_run=True always selects DryRunBackend despite false/px4 parameters. The two synthetic ROS tests use normal mission with explicit dry-run true. Both paths create only dry command outputs and measurement/health topics, never physical backend constructors. The additional stationary constructor check sends no start command. ROS remaps are forbidden: the startup endpoint checker runs after endpoint creation and is not a sandbox by itself. Reviewed imports/launch start no driver, bridge, agent or physical interface. Full project dependency closure is included in the immutable source TAR and readable ZIP source copy.
 
-Both packages are `ament_python` 0.1.0, with resource markers and setup.cfg installing scripts to `lib/<package>`. `dh_core` installs the pure Python `dh_core` package; `dh_autonomy` installs its Python module, `share/dh_autonomy/{launch,config}` and console entrypoints. Only these two packages are transferred, plus the read-only checker and phase-control files. No `px4_msgs`, simulator, organizer packages, binaries, virtualenv or Git credentials are transferred.
+Existing dependencies: Humble, ament_python, colcon/ROS/Python/pytest extensions, setuptools, numpy, OpenCV, rclpy, message_filters, tf2_ros/static_transform_publisher, std_msgs/std_srvs/geometry_msgs/nav_msgs/sensor_msgs/builtin_interfaces, ament_index_python, launch/launch_ros, pytest, launch_testing/launch_testing_ros. Live VO status additionally requires isaac_ros_visual_slam_interfaces. No raw PX4 backend, vendored px4_msgs, GPU or hardware device is needed. Target imports/build tooling/permissions still require actual verification; missing dependencies stop the attempt, never trigger installs/upgrades.
 
-| Requirement | Source / treatment |
-|---|---|
-| Build | Existing Humble, ament_python, setuptools, colcon and its ROS/Python/pytest extensions. Verify availability; never install to resolve a failure automatically |
-| Core | python3-numpy; SciPy optional, not required |
-| Autonomy | rclpy, dh_core, std_msgs, std_srvs, geometry_msgs, nav_msgs, sensor_msgs, builtin_interfaces, message_filters, tf2_ros, launch, launch_ros, ament_index_python, python3-opencv, python3-numpy |
-| Tests | python3-pytest, launch_testing, launch_testing_ros and pytest launch plugin; tf2_ros static_transform_publisher executable |
-| Live health | isaac_ros_visual_slam_interfaces required by the live profile, intentionally not auto-installed by manifest; synthetic tests disable VO status only in their fixtures |
-| Raw PX4 | Not needed or invoked in the stationary path. Use no vendored package, XRCE agent or flight backend |
+## Controls and automatic protections
 
-Prior audit observed Python3.10.12/numpy1.26.4/OpenCV4.5.4, ROS Humble, domain2/Fast DDS in existing `skybeta-stack`, image `skybeta-team:0.3.3`. Most runtime imports were observed; **colcon tooling, launch_testing_ros, unprivileged image-path access and actual build remain unverified**. Missing tools or permissions stop Phase 2; no apt/pip/rosdep, sudo, package upgrades or image rebuilds.
+1. **Container deadline:** `/usr/bin/timeout --signal=TERM --kill-after=5s 600s` is the container entrypoint/PID1. The verifier checks its exact executable, arguments and absence of an alternate init. TERM occurs at 600s from container startup, with forced KILL fallback five seconds later. This bounds build, tests, graph calls and cleanup independently of SSH, monitor or Python progress. The separate 300s test timeout is retained. No auto-remove or restart: evidence remains.
+2. **Runtime verification before work:** container_guard.py verifies `/proc/1/exe` and cmdline, GNU coreutils identity, a graceful timeout probe and a TERM-ignoring forced-kill probe. Failure/missing mechanism prevents build/import/test startup. Only harmless timeout probes run before this verification. Under the trusted Linux PID namespace, PID1 exit kills remaining descendants, including processes that detached into other sessions; timeout process-group cleanup alone is not the guarantee. [GNU timeout](https://www.gnu.org/software/coreutils/manual/html_node/timeout-invocation.html), [Linux PID namespaces](https://man7.org/linux/man-pages/man7/pid_namespaces.7.html).
+3. **Automatic host monitor:** monitor_phase2.py verifies the stopped sandbox first, then monitors host RAM/disk, sandbox cgroup memory/allocation/OOM events, Docker OOM state, elapsed time and organizer container identity/liveness/restart count/start time/PID. A missing/unreadable/unsupported required metric is failure, not healthy. It records JSONL samples about every2s, with Docker RPCs individually bounded to4s.
+4. **Thresholds:** starting headroom >=2GiB available RAM and4GiB disk; abort below1GiB available RAM, below2GiB disk, sandbox memory at90% of1536MiB, any cgroup OOM/allocation-failure event, wrong effective memory limit, Docker OOM, elapsed>=600s, organizer stop/pause/OOM/replacement/restart, or telemetry failure. The monitor never changes organizer processes.
+5. **Fail-closed monitor lease:** host writes atomic `/payload/monitor_lease.json`, mounted read-only inside the sandbox. Build permission stays false until a complete healthy post-start sample, including effective cgroup limits. The guard polls every0.25s and rejects expired (>12s), malformed, revoked or wrong-token leases. If monitoring stops on SSH logout, crash, kill or blocked RPC, the lease expires and terminates the sandbox work. No promise that nohup survives every host login policy; lease loss is the independent fail-closed response. Guard cleanup has bounded TERM/KILL waits; the outer deadline still applies even if the guard hangs.
+6. **Exact cleanup identity:** after verification the monitor retains the full64-hex sandbox ID and run-token label. All start/stop/kill mutations use that ID, never a lookup by unchecked name. Stop uses5s grace and an8s RPC bound, then a4s KILL RPC fallback. If Docker is unavailable, the lease/deadline do not depend on it. No other container is a cleanup target.
+7. **Camera/SLAM health:** no approved read-only health-file path is currently established. Default logs explicitly say sensors NOT MONITORED; organizer liveness is not sensor health. Optional `--health-file` accepts only an explicitly approved existing JSON status source with `stamp_unix`, boolean `camera_ok`/`slam_ok`; age>5s, future>0.1s, missing/invalid/false aborts. Do not invent a producer or start/modify existing ROS services to provide it. Review/approve actual source semantics before using this option.
+8. **Isolation unchanged:** network none, private IPC/PID/cgroup namespaces, no hardware/GPU/host sockets, no organizer mounts, nonroot, runc, all capabilities dropped, no-new-privileges, read-only rootfs, exact two mounts, bounded tmpfs/CPU/memory/PIDs and clean environment. Domain77/localhost-only supplement the boundary. No Docker socket is mounted in the sandbox. The host monitor uses only the user's pre-existing Docker access.
 
-Existing organizer `/home/dronehacks/skybeta`, `/root/skybeta_ws`, host team `/home/dronehacks/team_ws`, container team `/root/team_ws` and all running services remain untouched. The proposed new host directory is **`/home/dronehacks/codex_stationary/eab3636-phase2`**, with a separate non-restarting container **`codex-autonomy-eab3636-phase2`**. Neither existence nor permissions has been checked remotely in Phase 1; collision/ambiguity is a stop, never overwrite/reuse/delete automatically.
+Safety-critical controls use explicit validation exceptions, not assert. Verification remains effective under python -O. The verifier rejects wrong namespaces, mounts/propagation, root/device/socket/extra-capability access, changed limits/restarts/logging, image environment/label drift, different entrypoint/deadline/arguments and inherited health commands. Unsupported target Docker flags/configuration cause a stop, never relaxed settings.
 
-## Phase 1 local preparation and evidence
+Assumptions: trusted image/Docker daemon/Linux kernel and normal scheduling/signal delivery. This is not real-time certification or a VM security attestation. No isolated container has yet been run on the Nano. Cgroup read access, GNU timeout behavior, Docker version flags and installed imports remain runtime gates; they have not been established by local mocks.
 
-Created locally with `git archive` from the exact reviewed commit, not from loose edited source:
+## Local review payload and integrity
 
-```powershell
-git archive --format=tar --output=../../outputs/stationary-reviewed-eab3636.tar eab363673fbb6b5272ab1d54115e77499cba22ca ros2_ws/src/dh_core ros2_ws/src/dh_autonomy tools/hil/check_command_isolation.py
-```
+`phase2_safety_review_v2.zip` contains this plan, all five control/test files, revised checksum manifests, change/review notes, test logs, original immutable source TAR, course.obj and expanded project source. No credentials or image binaries are included. Runtime `/opt/ros/humble/setup.bash`, generated install hooks and system executables/plugins are external dependencies, not captured image snapshots.
 
-Archive SHA256: `da31d4b63ed05099d2be592d292c05cc4be142a699a96dbe15387f68db3d4f70`.
-External course input `C:\dhdl\obj\dronehacks-course-v3.obj` SHA256: `e610bcf9666422e2a0a78cb46f542fc8c4d5a7ef9b15f6123f1abe40f5b8e9e1`. This is a synthetic test fixture in Phase 2; it establishes no real pose/course alignment.
+- `stationary-reviewed-eab3636.tar`: SHA256 **da31d4b63ed05099d2be592d292c05cc4be142a699a96dbe15387f68db3d4f70** (unchanged).
+- `course.obj`: SHA256 **e610bcf9666422e2a0a78cb46f542fc8c4d5a7ef9b15f6123f1abe40f5b8e9e1** (unchanged synthetic fixture).
+- Revised `SHA256SUMS.stationary-phase2` contains those inputs and the five exact control/test files. Package-wide manifest additionally covers documentation/evidence/readable source. Original ZIP/manifest remain preserved as historical v1 artifacts.
 
-Controls are `tools/hil/stationary_phase2/container_build.sh` and `verify_container.py`; copies and SHA256SUMS are delivered beside the plan. Review their full contents with this plan before approval. They are newly prepared controls, not part of the previously reviewed autonomy commit. No command in the remaining sections was executed during Phase 1.
+## Proposed Phase 2 commands — do not execute before explicit approval
 
-## Phase 2 proposal — approval required BEFORE the first remote write
+Approval must include new host directory `/home/dronehacks/codex_stationary/eab3636-phase2`, transfer, stopped container creation, host supervisor and isolated synthetic startup/tests. Confirm props/battery absent, independent sensor power and organizer controller ownership. No sudo, package install or service change. Collision/ambiguity is a stop. Use one host shell for variables; stop on every failed command. The supervisory invocation, not a manual docker start, is the only approved start path in this proposal.
 
-Approval scope must explicitly include the new host directory, source transfer, new network-isolated container, bounded build/import/synthetic tests and temporary synthetic/stationary nodes **inside that container only**. It does not permit using `docker exec` in the existing stack to build or run features. Reconfirm independent power, absence of props/battery, controller ownership and adequate compute/storage headroom. Use existing Docker access without sudo. If Docker permissions are missing, stop.
-
-### A. Read-only preflight after approval
-
-SSH normally as `dronehacks@skybeta-02.local` without storing credentials. Record commands/stdout locally. On the host:
+### A. Focused read-only preflight, then approved writes
 
 ```bash
 root=/home/dronehacks/codex_stationary/eab3636-phase2
 name=codex-autonomy-eab3636-phase2
 test "$HOME" = /home/dronehacks
-test ! -e "$root"  # MUST succeed; never overwrite an existing attempt
+test ! -e "$root"
 test -z "$(docker ps -aq --filter name=^/${name}$)"
 id
 df -h /home/dronehacks
 free -h
 docker ps --no-trunc
 image=$(docker inspect --format '{{.Image}}' skybeta-stack)
-docker image inspect "$image" --format '{{.Id}} {{.Architecture}} {{json .Config.Volumes}}'
+docker image inspect "$image" --format '{{.Id}} {{.Architecture}}'
 docker info --format '{{json .Runtimes}}'
 ```
 
-Expected: collision tests success; existing skybeta-stack remains running; image architecture arm64 and a locally present sha256 ID; runc runtime available. Record that immutable image ID. Require at least 4 GiB disk free and 2 GiB available RAM before this attempt; stop if existing sensors/SLAM are unstable or team declines resource use. Unexpected image change since audit requires review, not automatic use. This is a focused preflight, not repetition of the full audit.
-
-### B. Transfer ONLY these approved files
-
-On host (first writes, only after approval):
+Expect running organizer stack, arm64 local immutable image ID, runc and adequate headroom. Review unexpected image drift. Only after approval and successful collision checks:
 
 ```bash
 mkdir -p /home/dronehacks/codex_stationary
@@ -80,112 +63,108 @@ mkdir "$root/payload" "$root/workspace"
 chmod 700 "$root" "$root/workspace"
 ```
 
-On laptop PowerShell, with outputs from this Phase 1:
+Laptop PowerShell, from the delivered v2 directory (not historical v1 controls):
 
 ```powershell
-$out = 'C:\Users\saket\Documents\Codex\2026-11-06\you-are-taking-over-autonomy-software\outputs'
+$out = 'C:\Users\saket\Documents\Codex\2026-11-06\you-are-taking-over-autonomy-software\outputs\phase2_safety_review_v2'
 $dest = 'dronehacks@skybeta-02.local:/home/dronehacks/codex_stationary/eab3636-phase2/'
-scp "$out\stationary-reviewed-eab3636.tar" "$out\container_build.sh" "$out\verify_container.py" "$out\SHA256SUMS.stationary-phase2" $dest
-scp 'C:\dhdl\obj\dronehacks-course-v3.obj' "${dest}course.obj"
+scp "$out\stationary-reviewed-eab3636.tar" "$out\course.obj" "$out\SHA256SUMS.stationary-phase2" "$out\container_build.sh" "$out\container_guard.py" "$out\monitor_phase2.py" "$out\verify_container.py" "$out\test_controls.py" $dest
 ```
 
-On host, stop on ANY nonzero result:
+Host, each step must succeed:
 
 ```bash
 cd "$root"
 sha256sum -c SHA256SUMS.stationary-phase2
 tar --no-same-owner --no-same-permissions -xf stationary-reviewed-eab3636.tar -C payload
-cp course.obj container_build.sh payload/
-find payload -type l -print  # expected empty
+cp course.obj container_build.sh container_guard.py verify_container.py payload/
+find payload -type l -print  # must be empty
 find payload -type f | sort > transferred-files.txt
 chmod -R a+rX payload
-```
-
-Expected: all four checksum entries OK (archive, course and two controls; no self-hash). Do not extract if checksum validation fails. The local archive is checked for regular files/directories and relative safe paths before approval. Payload contains source `ros2_ws/src/{dh_core,dh_autonomy}`, the checker, course and build control; no organizer data is edited.
-
-### C. Create a STOPPED sandbox; inspect it before start
-
-```bash
-cd "$root"
 owner="$(id -u):$(id -g)"
 test "$(id -u)" != 0
-docker create --name "$name" --pull=never --runtime=runc \
-  --network none --ipc private --read-only --cap-drop ALL \
+token=$(python3 -c 'import secrets; print(secrets.token_hex(16))')
+docker image inspect "$image" > image-before.json
+```
+
+Checksums must all say OK before extraction; archive contains only reviewed safe relative regular files/directories. No sources from existing workspaces are overwritten.
+
+### B. Create stopped container with exact verified deadline
+
+```bash
+cid=$(docker create --name "$name" --pull=never --runtime=runc \
+  --network none --ipc private --cgroupns private --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true --user "$owner" \
   --cpus 1 --memory 1536m --memory-swap 1536m --pids-limit 192 \
-  --restart no --workdir /audit_ws \
+  --restart no --workdir /audit_ws --no-healthcheck --stop-signal SIGTERM --stop-timeout 5 \
+  --log-driver json-file --log-opt max-size=5m --log-opt max-file=2 \
+  --label "org.dronehacks.phase2.run=$token" \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,size=268435456 \
   --mount "type=bind,src=$root/payload,dst=/reviewed,readonly" \
   --mount "type=bind,src=$root/workspace,dst=/audit_ws" \
-  --entrypoint /usr/bin/env "$image" \
-  -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  --entrypoint /usr/bin/timeout "$image" \
+  --signal=TERM --kill-after=5s 600s /usr/bin/env -i \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   HOME=/audit_ws/home ROS_DOMAIN_ID=77 ROS_LOCALHOST_ONLY=1 \
   RMW_IMPLEMENTATION=rmw_fastrtps_cpp ROS_LOG_DIR=/audit_ws/log/ros \
   PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
-  /bin/bash --noprofile --norc /reviewed/container_build.sh --approved-isolated-build
-docker inspect "$name" > container-before-start.json
-python3 verify_container.py "$root" "$image" "$owner" < container-before-start.json
+  /usr/bin/python3 -u /reviewed/container_guard.py --token "$token")
+printf '%s\n' "$cid" > sandbox-id.txt
+printf '%s\n' "$token" > run-token.txt
+docker inspect "$cid" > container-before-start.json
+python3 verify_container.py --root "$root" --image "$image" --owner "$owner" \
+  --token "$token" --image-json image-before.json < container-before-start.json
 ```
 
-Expected verifier PASS, container still `created`. Do not start if verification fails or if UID cannot read the existing image's /opt/ros dependencies. No GPU/device requests, host networking/IPC/PID, privileged mode, host sockets, ports, organizer workspaces or `/root` mounts are permitted. Extra image-declared volume mounts also cause rejection. Do not fix an access/import failure by switching to root or mounting the running stack without renewed review.
+Expect verifier PASS and container still created. Stop on unsupported flags, extra image volumes, mismatched inspected fields or unreadable target dependencies. Do not bypass verifier, use root, add mounts or relax checks. No automatic resource mutation occurs in verify_container.py.
 
-This uses the **same local immutable image** with its entrypoint replaced; it never commits/builds/updates the image. Only a new writable workspace, bounded tmpfs and Docker's new-container metadata/logs are written. Read-only rootfs and nonroot UID prevent package/config mutation. The only network interface must be loopback; IPC and /dev/shm are private, so Fast DDS shared-memory transport cannot reach the live stack. No serial/USB/GPU devices, XRCE transports, Docker socket or host filesystem-control channel are exposed. The clean `env -i`, explicit Humble source and new working directory exclude inherited DDS peer/profile variables, overlays and autostart scripts. Domain77/localhost-only are additional defenses, not the isolation boundary. Docker/kernel isolation is assumed; this is not a claim of protection against a compromised Docker daemon/kernel.
-
-CLI references reviewed: [Docker container options](https://docs.docker.com/reference/cli/docker/container/run/) and [colcon test options](https://colcon.readthedocs.io/en/released/reference/verb/test.html). Installed target versions must still accept the proposed flags; an unsupported option is a stop, not permission to weaken isolation.
-
-### D. Run bounded build and synthetic tests, then STOP
+### C. Start only via automatic host supervision
 
 ```bash
-docker start "$name"  # only after verifier PASS and Phase 2 approval
-docker logs --follow "$name"  # follow is read-only; may be interrupted without stopping container
-docker inspect "$name" --format '{{json .State}}'
-docker stats --no-stream "$name" skybeta-stack
+nohup /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+  /usr/bin/python3 "$root/monitor_phase2.py" --root "$root" --container-id "$cid" \
+  --image "$image" --owner "$owner" --token "$token" --approved-isolated-build \
+  > "$root/monitor-console.log" 2>&1 < /dev/null &
 ```
 
-Use a second host shell to inspect `docker stats --no-stream` every 10 seconds during execution and observe the existing camera/VO health without starting new providers. Record samples locally. If existing stack health worsens, host available RAM drops below 1 GiB, sandbox OOM occurs, or total run exceeds 10 minutes, abort only this named sandbox using `docker stop --time 10 "$name"`. Resource caps/timeouts are deliberately conservative; do not silently expand them or weaken tests/timeouts to pass.
+No optional health-file flag is authorized by default. A separately reviewed existing source may add `--health-file /approved/read-only/status.json`; do not supply an arbitrary command/ROS launcher. The monitor re-verifies the stopped container, acquires a one-attempt lock, snapshots the existing stack, checks host headroom and creates a false-permission lease BEFORE starting only the full verified sandbox ID. Effective cgroup/OOM telemetry must then pass before a true lease permits work. Absent telemetry means no build starts. Monitor may survive SSH loss via nohup; if it does not, stale lease stops the sandbox. No organizer/user service changes or linger configuration are needed.
 
-The reviewed `container_build.sh` performs, in order:
+Observation only, optional while supervisor runs:
 
-1. Asserts domain77, localhost-only, loopback-only network and nonroot identity. Sources only `/opt/ros/humble/setup.bash`, records versions, verifies build/test imports. Missing dependencies fail before tests; no installation is attempted.
-2. `colcon list` must identify exactly the two packages; builds them sequentially to `/audit_ws/{build,install,log}`. Imports installed modules without constructing nodes.
-3. Runs both package test suites sequentially with a 300s bound. The existing real ROS tests publish **synthetic** mono images/CameraInfo, TF, test odometry and `/dh/start` only inside this sandbox. They launch no camera/SLAM/flight interface/agent. They use normal mission with explicit dry-run true, not a physical backend. VO checks disabled in these synthetic fixtures do not change the reviewed live profile.
-4. Requires colcon success, actual JUnit evidence of both named DDS/OpenCV and dry-run graph cases, and no skips/failures/errors. Skipping the ROS tests is a failure of this phase, not qualification.
-5. Starts installed **stationary_mission** in a dedicated process group, with deliberately false dry_run and px4 backend parameters but only test sensor topic settings. No `/dh/start` is sent in this extra check. The read-only graph checker retries only incomplete discovery; forbidden endpoints or exceptions fail immediately. Requires positive mission/dry publisher evidence, stops only this process group, then exits.
+```bash
+docker logs --follow "$cid"
+tail -f "$root/monitor.jsonl"
+```
 
-Expected: stopped/exited container with ExitCode0, OOMKilled=false, all JUnit suites pass including `test_commands_only_on_dry_run_topic` and `test_real_images_clearance_and_isolation`, positive stationary graph PASS and final `PHASE 2 SYNTHETIC CHECKS PASSED; STOP BEFORE LIVE SENSOR STARTUP`. Build completion alone is insufficient. A failed constructor, incomplete graph, missing checker evidence, unexpected node/transport, skipped test, timeout or nonzero exit is failure/incomplete; preserve logs, report and stop.
+Neither observation command is needed for enforcement. Never manually docker-start the sandbox to bypass a failed monitor. Expected build actions remain sequential package imports/build, both real-DDS/OpenCV synthetic test suites with no skips, then the forced-stationary constructor/graph test. Captured phase2 success requires exited sandbox ExitCode0/OOMKilled=false, unchanged organizer identity, healthy recorded resources, both named JUnit test cases and positive stationary graph isolation. Any failure/deadline/OOM/incomplete evidence is not a pass. Live camera/SLAM processing is still not qualified.
 
-Collect state/results without modifying the running stack:
+### D. Collect evidence and stop before live sensing
+
+The monitor retains source/workspace, per-sample JSONL, before/final inspect snapshots and logs; no auto-remove. If the monitor is killed abruptly, original Docker logs and workspace evidence remain, even if final JSON snapshots were not written. Later approved read-only collection:
 
 ```bash
 cd "$root"
-docker inspect "$name" > container-after-test.json
-docker logs "$name" > container.log 2>&1
-tar -czf phase2-results.tar.gz container-before-start.json container-after-test.json \
-  container.log transferred-files.txt workspace
+docker inspect "$cid" > container-collected.json
+docker logs "$cid" > container-collected.log 2>&1
+tar -czf phase2-results.tar.gz workspace payload/monitor_lease.json \
+  monitor-console.log monitor.jsonl image-before.json container-before-start.json \
+  stack-before.json container-collected.json container-collected.log \
+  transferred-files.txt sandbox-id.txt run-token.txt
 ```
 
-Then laptop `scp dronehacks@skybeta-02.local:/home/dronehacks/codex_stationary/eab3636-phase2/phase2-results.tar.gz <approved-local-output-path>`. Record exact commands/results, update AUTONOMY_STATUS.md and own shared context, commit/push to saketh/autonomy only after fetch/divergence check. **STOP for Phase 3 approval. No live sensor node has been started by this phase.**
+If startup fails before a named file exists, preserve available files and disclose missing evidence; do not manufacture success. Copy results to approved local outputs, document actual commands/metrics/failures in AUTONOMY_STATUS.md and own context, commit/push only saketh/autonomy after fetch/divergence check. STOP for separate Phase 3 approval.
 
-## Changed files, rollback and failure handling
+## Writes, mutation scope and rollback
 
-Phase 1 changes only this plan, status/context/rules and two offline control tools; reviewed autonomy source is unchanged. Local deliverables include pinned archive, controls, checksum manifest, plan and local validation evidence. No remote files changed in Phase 1.
+Host writes: dedicated mkdir/chmod/upload/extraction/copy, source inventory, image/inspect JSON, run IDs/tokens, monitor.lock, atomic lease replacement, monitor logs and results archives; sandbox build/install/log/home/evidence through the sole writable bind; private tmpfs/shm; Docker metadata/bounded logs. Normal SSH/account/Docker/system logging can cause incidental platform writes. No host packages, image content, services, existing source, firmware, camera config or PX4 settings change. No Docker socket/device mount or extra Docker privilege is introduced.
 
-Phase 2 would create only `$root` (uploads, payload, checksums, workspace build/install/log/home/evidence and results) plus the uniquely named Docker container, its private writable metadata/logging and temporary tmpfs. No persistent services, installed host/container packages, images, firmware, launch configuration or existing source/workspaces change. ROS nodes in the sandbox create only isolated DDS endpoints and temporary build/log files. Installed launch entrypoints remain inside the new workspace, not added to live startup.
+Docker mutations: create (stopped new container), start (monitor only, verified full ID), stop with5s grace and kill fallback (only same ID). Observer commands inspect/ps/info/stats/logs do not reconfigure resources. No build/pull/commit/prune/compose-down command is proposed. There is no automatic removal. Optional rollback removal requires rechecking recorded full ID/token/image/mounts, saving evidence, then `docker rm "$cid"` only on the stopped sandbox; never target skybeta-stack. Retain dedicated host directory unless its exact resolved path is verified and deletion separately authorized. A failed attempt/lock is never silently reused.
 
-Rollback: stop only `codex-autonomy-eab3636-phase2` with `docker stop --time 10` if still running, save inspect/log/evidence, then `docker rm codex-autonomy-eab3636-phase2` after verifying its labels/name/image/mounts against recorded JSON. Leave `$root` as inert evidence by default. Do not recursively delete unknown/computed directories or use prune/compose-down/pkill/service restarts. If later authorized to remove this attempt's data, first verify `realpath "$root"` equals exactly `/home/dronehacks/codex_stationary/eab3636-phase2`, inspect contents and remove only this dedicated directory. No rollback command touches skybeta-stack, team workspaces or the image. A paused/failing attempt is never resumed with altered permissions or broader mounts without review.
+## Validation and remaining boundaries
 
-## Phase 3 and 4 approval boundaries
+Local mock safety suite: normal Python and python -O; verifier acceptance plus unsafe drift cases, deadline/lease loss, probe failure, bounded process/Docker cleanup, RAM/disk/OOM/memory/runtime/stack-restart policies and optional health-source failures. Logs and exact results are included in the v2 package. Bash syntax, Python3.10 grammar and unchanged source/archive checks are also included. Initial restricted-temp fixture tests hit Windows permission errors; local permission-enabled retry passed without any remote operation. These are local mocks/syntax checks, not actual Docker/Linux PID-namespace/cgroup/Jetson or ROS execution. Target runtime probes enforce the remaining prerequisites before build/tests can start.
 
-Phase 3 is **not authorized** by approval of Phase 2. The isolated sandbox cannot access live data and must not be repurposed by adding host networking/devices. Submit a new exact live-perception invocation and inspect its publisher/client/transport plan after synthetic results. Use only reviewed stereo/line/localizer nodes as appropriate, not mission, driver, SLAM, bridge or flight interface. Reconfirm live camera/VO health, unit02 mono topics, measured TF/CameraInfo fallback and 5ms capture pairing. Measure complete processing rate, received/processed/rejected counts, stamp-based latency p50/p95/max, odometry ages, CPU/memory and frame drops under load. No 400ms odometry-threshold relaxation.
+Phase 3 and Phase 4 remain separately gated. Never attach this sandbox to host networking/devices for live tests. Do not weaken the400ms odometry gate, change sensor services or invent course alignment. Live perception needs measured target distances and timing/CPU/memory evidence; full stationary mission needs separately reviewed physical command isolation and specific start approval. Current task stops after local safety hardening and review ZIP delivery.
 
-Physical depth accuracy needs user-supplied measured target distances/geometry and stable placement. Proposed board trials at 0.5, 1, 1.5 and 2m are **not measurements**. Before trials agree distance origin (base_link/optical), target dimensions, illumination and acceptance tolerance (proposed max(0.05m,10%)); record actual tape measurements and finite/unknown fractions. Blank/invalid/stale inputs must produce unknown/hold, never false clear. Use recorded-data/isolated injection for stale/tracking-loss cases; do not stop/reconfigure existing camera/SLAM services. Floor-line testing requires a suitable known reference and measured camera height. Report omissions/failures honestly and STOP for Phase 4 approval.
-
-Phase 4 is **not authorized** now. Before its live launch review all resolved endpoints and absence of relay paths, duplicate node names/remaps, and confirm stationary entrypoint. Use only reviewed jetson_02 config, keep clearance and VO health required. On a bench, leave `align_mode=start` and send no start command: do not use `first_odom` to invent a course pose. Course alignment and calculated trajectory commands require explicit placement/heading/height evidence or an agreed non-course test frame plus a separate specific `/dh/start` approval. Require graph PASS with dh_mission and dry publisher positively identified and no physical clients/publishers, then measure live health/planning exclusively on `/dh/dry_run/*`. Shut down only owned test process groups. No physical command publication, arming/disarming/mode changes/flight operation is included in any phase.
-
-## Phase 1 validation and stopping point
-
-Local safety regressions rerun under task-local numpy1.26.4/OpenCV4.10: **16 passed, 0 failed**, including stationary false/px4 and false/skybeta overrides, incomplete graph rejection, measured calibration and delayed camera pose. This is fake-bus/local validation, not actual ROS or Jetson execution. Local Bash `-n` passes; Python3.10 grammar checks pass; the container verifier accepts the approved fixture and rejects 17 unsafe variants; all 51 archive members are safe relative regular files/directories and reviewed file bytes match current unchanged package source. The first sandboxed Git Bash syntax-check attempt failed to create a Windows signal pipe; the same syntax-only command passed with local execution permission. No remote command was involved. Target Docker/colcon/runtime checks remain pending. Previous 47 unit/12 fake-bus/12 stereo/14 line results are preserved audit evidence, not newly executed hardware tests.
-
-No SSH connection, remote write, build, feature-node launch or hardware operation was executed in Phase 1. Approval requested only for the concrete Phase 2 sandbox above. User's explicit staged gate is the reason for stopping; elapsed time or earlier read-only SSH permission does not authorize deployment.
-
-PHASE 1 COMPLETE — AWAITING APPROVAL FOR ISOLATED JETSON BUILD.
+PHASE 2 SAFETY HARDENING COMPLETE — AWAITING AUTHORIZATION.
