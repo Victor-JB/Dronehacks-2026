@@ -117,3 +117,7 @@ The [native-cadence report](native-capture-gap-evidence.json) found a maximum 52
 A fresh hover and nominal policy-08 route subsequently passed with the 120 ms continuity limit and FALS7. The route completed in 78.000 simulated seconds, passed all eight independent checks and had 92.3 mm modeled window clearance. See the [control-run evidence](fals7-control-results.json). This is a finite scheduling check, not a general dropout-recovery guarantee.
 
 Some closed local ULogs and independent observer JSONL files are stored as lossless gzip archives to limit disk use. `artifacts/px4/compressed-log-manifest.json` and `artifacts/markerfree/compressed-observer-manifest.json` record the original paths, byte counts, SHA-256 values and restoration commands. Restore the named raw input before running a tool that expects its uncompressed filename; the archived bytes were verified against the original hashes.
+
+## Contact-sensor controls
+
+The [isolated contact controls](contact-sensors.md) passed for all five body collision boxes, four stationary rotor collision boxes, and a displaced-block negative control with a required reference contact. Each case used its own Gazebo partition and bounded 164 ms gravity drop. This verifies the topic and collider-name wiring under those conditions. Flight contact coverage remains partial; silence during a flight is not a zero-collision result.

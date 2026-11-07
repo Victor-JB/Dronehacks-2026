@@ -28,6 +28,8 @@ python3 -m tools.section_timings artifacts/markerfree/course-08 \
   artifacts/markerfree/course-09 artifacts/markerfree/policy-03
 ```
 
+Separate [contact-sensor controls](docs/contact-sensors.md) observed the exact expected collider pair on all nine body and rotor collision sensors. The displaced-block control also passed. These short isolated drops verify the sensor wiring; they do not replace the flight geometry checks or establish complete contact delivery during flight.
+
 A separate injected camera-aid blackout passed eight fault-response checks. PX4 entered Auto Land, touched down and disarmed without a logged external-vision update after injection. [Fault-test evidence](docs/blackout-results.json) includes the timestamps, hashes and observation limits.
 
 ## Run locally
