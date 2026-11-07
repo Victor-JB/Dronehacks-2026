@@ -56,15 +56,38 @@ team_build.sh --packages-select dronehacks_nav
 ```
 
 Python edits need no rebuild (`--symlink-install`); new files, launch files and
-config do. To have the stack's `competitor` window run this mission, set in
-`/etc/skybeta/drone.env` (sudo) and restart the stack on the ground, drone still:
+config do (`fly.sh start` rebuilds anyway).
+
+## Flying: `scripts/fly.sh`
+
+The drone boots with `COMPETITOR_PKG=manual` in `/etc/skybeta/drone.env`: the stack
+(VIO, PX4 link) comes up by itself, and the `competitor` window only builds and
+idles. Nothing of ours runs until, on the drone:
 
 ```sh
-COMPETITOR_PKG=dronehacks_nav
-COMPETITOR_LAUNCH=mission.launch.py
+~/team_ws/src/dronehacks/scripts/fly.sh start    # rebuild, then mission + bag + foxglove + camera page
+~/team_ws/src/dronehacks/scripts/fly.sh attach   # watch the mission (Ctrl-b d leaves, Ctrl-b n next window)
+~/team_ws/src/dronehacks/scripts/fly.sh stop     # on the ground: stops all four, closes the bag
 ```
 
+- Camera + depth: `http://skybeta-02.local:8080/` in a browser (`dronehacks_nav/camera_web.py`).
+- Foxglove (pose/state only, no images): `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local`
+  on the laptop, then `ws://localhost:8765`.
+- Bags: `~/team_ws/bags/<date-time>/` (mcap; depth, odometry, state, setpoints, PX4).
+
+After `start`, wait for `READY` in the mission window; then the safety pilot arms on
+Altitude and switches to Position. `stop` while airborne kills the flight interface
+and PX4 falls back to Position under the pilot.
+
 First runs: props off, then low and tethered. Nothing on this stack has flown yet.
+
+## Depth (team image)
+
+skybeta ships the OAK with depth off. `skybeta_overrides/` holds a team image that
+swaps in a camera config with on-device stereo depth (`/oak/stereo/image_raw`,
+320x200, 30 Hz). On the drone `~/team_ws/Dockerfile` links to it; rebuild with
+`~/skybeta/host/run.sh build` after every skybeta update. To go back to the stock
+camera: `rm ~/team_ws/Dockerfile && docker rm -f skybeta-stack` (on the ground).
 
 ## Keeping branches in step
 
