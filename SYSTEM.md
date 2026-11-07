@@ -112,7 +112,7 @@ anything. (Backup of the original file: `/etc/skybeta/drone.env.bak-before-drone
 does, `auto_offboard_on_arm:=true`) and our node `dronehacks_nav/skybeta_node.py`.
 
 The flight decisions are made by **`refnav/core.py`**, the file the sim also flies
-(`fly-sim-drone.sh --code main` on `victor/sim`, §10). `skybeta_node.py` is only
+(`./fly-sim.sh` on `victor/sim`, §10). `skybeta_node.py` is only
 the adapter around it:
 
 | refnav.core expects | skybeta_node gives it |
@@ -269,17 +269,15 @@ On the drone, `~/team_ws/build`, `install` and `log` are colcon output. Their sy
 | `victor/sim` | the Gazebo/PX4 sim and its tools. No drone code of its own |
 | `jetson` | old name of `main`, kept equal to it (the drone's checkout is on `jetson`) |
 
-**Testing a change in the sim, then flying it.** The sim does not keep a copy of the mission: it
+**Testing a change in the sim, then flying it.** For the course as scanned, merge `victor/sim-course-scan` into `victor/sim` first (its walls come from the point scan). The sim does not keep a copy of the mission: it
 flies this branch's code on the drone's own stack (skybeta flight interface, PX4 v1.16.2 SITL with
 the drone's parameters, the same `mission.launch.py`). From a `victor/sim` checkout:
 
 ```sh
-./fly-sim-drone.sh --code main            # or a feature branch / commit
+./fly-sim.sh                     # flies main; --code <branch|commit|folder> for another
 ```
 
 So what passes in the sim is the same commit that goes to the drone; nothing is ported by hand.
-`controllers/` on `victor/sim` is a scratchpad for trying algorithms on the sim's own runner;
-an idea that works there is rewritten into `refnav/core.py` here and tested with the line above.
 The sim's VIO is Gazebo's true pose (no drift, no latency), so a sim pass is necessary, not
 sufficient.
 
