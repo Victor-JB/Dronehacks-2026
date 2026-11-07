@@ -146,7 +146,10 @@ class SkybetaNav(Node):
         if key in self._said and now - self._said[key] < every_s:
             return
         self._said[key] = now
-        (self.get_logger().warning if warn else self.get_logger().info)(text)
+        if warn:
+            self.get_logger().warning(text)
+        else:
+            self.get_logger().info(text)
 
     def _on_odom(self, m):
         p, o = m.pose.pose.position, m.pose.pose.orientation
