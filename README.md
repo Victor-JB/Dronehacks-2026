@@ -2,7 +2,11 @@
 
 Gazebo Harmonic and PX4 SITL for the DroneHacks window route. The current branch uses forward RGB-D registration against the supplied course survey, downward ToF, and PX4 EKF2. It has no artificial AprilTags and does not use simulator pose for navigation. A separate observer records truth and contacts for offline scoring. The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim).
 
-Two marker-free hover checks completed through landing and disarm. The latest completed course attempt reached window alignment, lost visual observability, and landed after the fault. A full marker-free course run and learned-policy PX4 flight have not yet been verified. Read the [flight evidence and commands](docs/markerfree-rgbd.md) before interpreting a replay as a successful run.
+Course-08 completed the marker-free waypoint baseline: 15/15 waypoints, PX4 landing and disarm after 83.000 simulated seconds, and independent truth scoring of the modeled multipart x500 envelope through the window and onto the pad. The conservative CAD-proxy score reports 0.106299 m minimum window aperture clearance with 15 mm inflation and 0.313969 m horizontal landing-pad envelope clearance. The navigation-source audit found no truth-topic publisher and no artificial landmark models; truth was recorded only for offline scoring. Contact-topic coverage was partial, so this does not establish zero physical collisions. This is a baseline controller run, not a learned-policy result or real-aircraft validation.
+
+![Course-08 baseline window-crossing still](docs/media/window-baseline.png)
+
+[Watch the course-08 RGB/depth replay](docs/media/window-baseline.mp4) (100.28 seconds; rendered from recorded simulation-time frames). The learned-policy flight is currently running as policy-01 and remains unverified until it is scored. Read the [flight evidence, limitations, and commands](docs/markerfree-rgbd.md) before treating any run as a success. Compact machine-readable results and provenance are in [markerfree-results.json](docs/markerfree-results.json).
 
 ## Run the current experiment
 
@@ -33,6 +37,8 @@ python3 runtime/train_overnight.py --stop
 ```
 
 See the [competition references and SAND-O status](docs/competition-reuse.md) for the projects investigated and their limits. The local SANDO checkout is a reference; its ROS 2/Gurobi planner is not integrated into this Mac run.
+
+The [OAK metric-depth handoff](docs/oak-depth-handoff.md) summarizes the pinned physical camera driver, verified depth/confidence semantics, bandwidth constraints, and passive capture requirements. The current course-08 replay uses simulated RGB-D footage only.
 
 ## Historical marker-assisted diagnostic
 
