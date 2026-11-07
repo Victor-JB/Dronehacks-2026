@@ -1,26 +1,7 @@
-# Marker-free PX4 course
+# Marker-free PX4 status
 
-The default PX4 scene uses the imported course geometry with an x500 and a downward RGB camera. Synthetic AprilTags are available only as an opt-in diagnostic fixture.
+The active experiment uses a forward 384×256 rendered RGB-D camera and downward ToF on the x500. Depth registration against the supplied course survey provides position and attitude to PX4 EKF2. An optional capture-aligned PX4 roll/pitch prior helps weak depth geometry. It supplies no yaw or position measurement.
 
-## Stationary camera preview
+Marker-free hover and landing have been demonstrated. The latest completed course attempt reached window alignment and safely aborted after losing visual observability. Full-route and learned-policy success remain unverified. See the [current runbook and evidence](markerfree-rgbd.md) and [local viewer](http://127.0.0.1:8083/).
 
-With the PX4 image built, start a fresh marker-free session from the repository directory and launch the viewer in a separate terminal.
-
-```sh
-./runtime/preview-marker-free.sh
-./web/run.sh
-```
-
-The viewer shows the course and the live camera while the x500 is disarmed at launch. The preview reads Gazebo RGB frames and writes the current image and frame metadata to `artifacts/preview/camera.jpg` and `artifacts/preview/latest.json`. The session status is in `artifacts/preview/session.json`. [Open the local viewer](http://127.0.0.1:8081/)
-
-Autonomous PX4 flight on this scene is pending a marker-free localization source. The hardware uses a forward-facing OAK-D-S2 stereo camera and cuVSLAM visual-inertial odometry on Jetson. The stationary preview verifies the scene and the image stream.
-
-## Historical AprilTag diagnostic
-
-Use the explicit opt-in to replay the old mapped-landmark experiment.
-
-```sh
-SIM_TEST_MARKERS=1 ./runtime/replay-px4.sh hover
-```
-
-The standalone scene generator also accepts `--with-test-markers`. Recorded AprilTag runs apply to that synthetic fixture. [Historical results](px4-results.json)
+Artificial markers are disabled in the active scene. Older downward-camera previews and marker-assisted runs are historical diagnostics, described in [px4-camera.md](px4-camera.md). They do not establish navigation on the physical course.

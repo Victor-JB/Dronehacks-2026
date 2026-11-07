@@ -1,46 +1,38 @@
 # dronehacks-sim
 
-A local Gazebo Harmonic simulation of the DroneHacks course. The default world has **no artificial AprilTags**, matching the user's course constraint. Marker-free autonomous PX4 navigation is **not connected yet**. The current live view is a disarmed camera/course preview. The project is public at [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim).
+Gazebo Harmonic and PX4 SITL for the DroneHacks window route. The current branch uses forward RGB-D registration against the supplied course survey, downward ToF, and PX4 EKF2. It has no artificial AprilTags and does not use simulator pose for navigation. A separate observer records truth and contacts for offline scoring. The public repository is [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim).
 
-## Current course preview
+Two marker-free hover checks completed through landing and disarm. The latest completed course attempt reached window alignment, lost visual observability, and landed after the fault. A full marker-free course run and learned-policy PX4 flight have not yet been verified. Read the [flight evidence and commands](docs/markerfree-rgbd.md) before interpreting a replay as a successful run.
 
-Install Docker CLI with Compose and [Colima](https://github.com/abiosoft/colima). From this directory, build and start the dedicated PX4 simulation once:
+## Run the current experiment
 
-```sh
-./runtime/run-px4.sh
-```
-
-In another terminal, start the local viewer:
+The Mac setup uses Docker, Colima, the existing `dronehacks-px4:local` image, and a separate Compose project. Once the image is available, start the dedicated simulator and viewer in separate terminals:
 
 ```sh
-./web/run.sh
+./runtime/run-markerfree.sh
+python3 -m web.server
 ```
 
-Open the viewer at [http://localhost:8081](http://localhost:8081). After the initial build, start the course and raw camera preview with:
+Open [http://127.0.0.1:8083](http://127.0.0.1:8083). Starting the simulator does not arm the vehicle. The [experiment runbook](docs/markerfree-rgbd.md) gives the explicit hover, course, learned-policy and independent-scoring commands. The viewer follows `artifacts/markerfree/current` and labels whether the recorded run used the waypoint baseline or a frozen learned checkpoint.
+
+## Bounded Mac learning run
+
+The [learning experiment](learning/README.md) trains a small depth policy with supervised imitation and student rollouts. The `x500-transfer` profile uses the centered route, multipart x500 envelope, 0.34 m forward camera, and a velocity-response range measured against PX4. Training uses analytic depth and dynamics; it does not run Gazebo or establish real-camera transfer.
+
+With a native Python environment containing NumPy and PyTorch:
 
 ```sh
-./runtime/preview-marker-free.sh
+python3 runtime/train_overnight.py --python /path/to/venv/bin/python --seconds 18000 -- \
+  --profile x500-transfer --device mps --seed 44 --eval-interval 300
 ```
 
-The preview sends no flight commands and publishes no artificial pose. See [current status](docs/marker-free-status.md). The default flight replay refuses to run because its old estimator depends on markers that do not exist on the real course.
-
-## Five-hour Mac learning run
-
-The [learning experiment](learning/README.md) trains a small depth policy using supervised imitation and student rollouts. Its inputs are synthetic forward depth, simulated state estimates and a local waypoint. Training uses course geometry proxies; it does not run Gazebo or PX4 and has no real-camera validation.
-
-With a native Python environment containing NumPy and PyTorch, launch a bounded background run:
-
-```sh
-python3 runtime/train_overnight.py --python /path/to/venv/bin/python --seconds 18000 --device mps
-```
-
-The viewer shows current training progress separately from the Gazebo preview. Results, source hashes, checkpoints and logs stay in `artifacts/learning/`. The supervisor prevents duplicate jobs, enforces the time cap, and keeps the Mac awake while training. Keep the Mac plugged in with its lid open. To stop and save the current checkpoint:
+Use the remaining wall-time budget when resuming an interrupted experiment. The supervisor prevents duplicate jobs, caps runtime, and keeps the Mac awake. Results, source hashes and checkpoints stay in `artifacts/learning/`. Keep the Mac plugged in with its lid open. To stop and save:
 
 ```sh
 python3 runtime/train_overnight.py --stop
 ```
 
-See the [competition references and SAND-O status](docs/competition-reuse.md) for the reusable projects investigated and their limits.
+See the [competition references and SAND-O status](docs/competition-reuse.md) for the projects investigated and their limits. The local SANDO checkout is a reference; its ROS 2/Gurobi planner is not integrated into this Mac run.
 
 ## Historical marker-assisted diagnostic
 

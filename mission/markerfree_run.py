@@ -22,6 +22,7 @@ from .navigation_audit import audit_navigation_sources
 from .px4_frames import camera_pose_to_px4, enu_to_ned
 from .px4_run import Link, REQUIRED_PARAMS, ROOT
 from .state_history import PolicyStateHistory
+from .sitl_health import SitlHealthMonitor
 
 NAVIGATION = 'RGBD depth registration to supplied course map + PX4 EKF2'
 REQUIRED_PARAMS.update(EKF2_DELAY_MAX=500., EKF2_EVP_NOISE=.03)
@@ -99,6 +100,7 @@ class Log:
                            source=NAVIGATION, navigation_source=NAVIGATION,
                            simulator_position_used_for_control=False,
                            inertial_tilt_prior_enabled=args.use_px4_tilt,
+                           sitl_power_watchdog_enabled=True,
                            policy_checkpoint_sha256=args.policy_sha256,
                            policy_depth_mode=args.policy_depth_mode if args.task == 'policy' else None)
         self.write(type='metadata', **self.common,
@@ -156,6 +158,10 @@ class MarkerFreeLink(Link):
 
 class LearnedRoute:
     """Bind every accepted action to its capture time, heading, and waypoint."""
+    STEP_USEC = round(POLICY_STEP*1e6)
+    # One 20 Hz capture period plus Gazebo's 4 ms sensor scheduling quantum.
+    MAX_DEADLINE_LATENESS_USEC = 54_000
+
     def __init__(self, client, camera_shift_m=0., log=None):
         self.client = client
         self.camera_shift_m = camera_shift_m
@@ -168,6 +174,7 @@ class LearnedRoute:
         self.segment_started = None
         self.actions = 0
         self.last_accepted_capture = None
+        self.next_capture_due_usec = None
         self.preflight_verified = False
 
     def tick(self, segment, frame, history, target, cap, sim_s, now):
@@ -198,8 +205,9 @@ class LearnedRoute:
                     self.last_accepted_capture = reply.capture_usec
 
         capture = frame['sim_usec'] if frame is not None else -1
+        deadline = self.next_capture_due_usec
         eligible = (self.client.pending is None and capture > self.client.last_capture
-                    and capture - self.client.last_capture >= int(POLICY_STEP*1e6)-1000
+                    and (deadline is None or capture >= deadline)
                     and -.15 <= sim_s-capture/1e6 <= POLICY_MAX_CAPTURE_AGE_S)
         aligned = history.at(capture) if eligible else None
         if aligned is not None:
@@ -212,6 +220,11 @@ class LearnedRoute:
                                                   *aligned.attitude_rpy_frd, cap)
             self.pending_coverage = observation.coverage, observation.center_coverage
             self.client.request(observation.depth, state, capture, now)
+            # Keep the .16 s grid through ordinary frame quantization. After
+            # a dropped/late frame, start a fresh grid without catching up.
+            if deadline is None or capture-deadline > self.MAX_DEADLINE_LATENESS_USEC:
+                deadline = capture
+            self.next_capture_due_usec = deadline+self.STEP_USEC
 
         if self.action is None:
             since_sim, since_wall = self.segment_started
@@ -231,6 +244,7 @@ class LearnedRoute:
         self.segment = None
         self.action = None
         self.current_coverage = None
+        self.next_capture_due_usec = None
 
 
 def prepare_course(args, launch):
@@ -276,7 +290,7 @@ def run(args):
     landing = LandingMonitor(course['landing']['position'], args.pad_radius,
                              AIRCRAFT_RADIUS, args.landing_timeout)
     log = Log(args, course, launch, RGBD_TRANSLATION)
-    link = vision = client = learned = None
+    link = vision = client = learned = health = None
     yaw_command = math.radians(args.launch_yaw_deg)
     launch_yaw = yaw_command
     rotation = (math.cos(yaw_command/2), 0., 0., math.sin(yaw_command/2))
@@ -309,6 +323,7 @@ def run(args):
         except Exception as error:
             raise FlightFault(f'navigation_source_audit_failed:{error}') from error
         log.event('Navigation source audit passed', **audit)
+        health = SitlHealthMonitor()
         link = MarkerFreeLink(log)
         vision = CameraWorker(Vision(launch['position_enu'], rotation,
                                      rejected_frame_dir=args.output.parent/'vision-diagnostics',
@@ -325,6 +340,7 @@ def run(args):
             link.drain()
             record_px4_tilt(link, vision)
             sim_s = link.boot_s
+            power_health = health.status(sim_s, now)
             if sim_s > previous_boot:
                 previous_boot, last_sim_advance_wall = sim_s, now
             fresh_frame = vision.poll()
@@ -357,7 +373,7 @@ def run(args):
             if start is None:
                 if link.armed and not arm_requested:
                     raise FlightFault('px4_already_armed')
-                sensors_ready = (state_fresh and camera_fresh and link.params_ok
+                sensors_ready = (state_fresh and camera_fresh and link.params_ok and power_health['healthy']
                                  and norm(sub(position_enu, launch['position_enu'])) <= .25
                                  and norm(velocity_enu) <= .18)
                 if learned and sensors_ready and not learned.preflight_verified and client.connect():
@@ -382,6 +398,7 @@ def run(args):
                     if priming is None:
                         priming = sim_s
                         log.event('RGBD and PX4 available; priming Offboard',
+                                  sitl_power_health=power_health,
                                   policy_service_session=client.session if client else None,
                                   policy_training_camera_forward_m=client.camera_forward_m if client else None,
                                   policy_training_heading_lookahead_m=client.heading_lookahead if client else None)
@@ -413,8 +430,12 @@ def run(args):
                             link.link.mav.param_request_read_send(1, 1, name.encode(), -1)
                         last_retry = sim_s
                 if now-wall_start > args.startup_timeout:
+                    log.event('Startup inputs unavailable', sitl_power_health=power_health)
                     raise FlightFault('rgbd_ekf_or_policy_startup_timeout')
             else:
+                if not power_health['healthy']:
+                    log.event('PX4 battery or power feed failed', sitl_power_health=power_health)
+                    raise FlightFault('px4_power_health:'+power_health['reason'])
                 if not camera_fresh:
                     reason = frame.get('reason') if frame is not None else None
                     raise FlightFault(f'rgbd_pose_unavailable:{reason or "stale_capture"}')
@@ -527,6 +548,7 @@ def run(args):
                           navigation_source=NAVIGATION, vision_valid=bool(camera_fresh),
                           vision_age_sim_s=sim_s-valid_sim if valid_sim is not None else None,
                           vision_measurements_sent=sent, timesync_responses=link.timesync_responses,
+                          sitl_power_health=power_health,
                           vision_reason=(frame or {}).get('reason'),
                           vision_quality=(frame or {}).get('quality'),
                           vision_backend=(frame or {}).get('source'),
@@ -579,6 +601,8 @@ def run(args):
                    policy_service_session=client.session if client else None)
         if client is not None:
             client.close()
+        if health is not None:
+            health.close()
         if vision is not None:
             vision.close()
         log.file.close()
@@ -595,11 +619,11 @@ def main():
     parser.add_argument('--hover-summary', type=Path)
     parser.add_argument('--policy-dir', type=Path)
     parser.add_argument('--policy-sha256')
-    parser.add_argument('--policy-depth-mode', choices=('virtual', 'raw'), default='virtual',
+    parser.add_argument('--policy-depth-mode', choices=('virtual', 'raw'), default='raw',
                         help='virtual reprojects to the checkpoint camera; raw requires matching camera mounts')
     parser.add_argument('--policy-timeout', type=float, default=2.0)
     parser.add_argument('--speed-scale', type=float, default=1.0)
-    parser.add_argument('--heading-lookahead', type=float, default=1.2,
+    parser.add_argument('--heading-lookahead', type=float, default=1.8,
                         help='Metres before a turn to begin looking into the next corridor; 0 disables')
     parser.add_argument('--use-px4-tilt', action='store_true',
                         help='Optional capture-aligned inertial roll/pitch prior for weak depth geometry')

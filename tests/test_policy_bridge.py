@@ -240,6 +240,55 @@ class ExchangeTests(unittest.TestCase):
         with self.assertRaisesRegex(PolicyError, 'no_fresh_policy_action'):
             controller.tick(0, frame, history, (1., 1., 1.), .4, 1.76, 10.1)
 
+    def test_capture_schedule_averages_160_ms_on_quantized_20_hz_frames(self):
+        self.assertTrue(self.client.connect())
+        controller = LearnedRoute(self.client)
+        history = PolicyStateHistory()
+        depth = np.ones((CAMERA_HEIGHT, CAMERA_WIDTH), np.float32)
+        captures = []
+        for i in range(21):
+            # The 4 ms Gazebo physics clock quantizes captures to 48/52 ms.
+            capture = 1_000_000 + (i//2)*100_000 + (48_000 if i % 2 else 0)
+            stamp = capture//1000
+            history.record(px4_position(stamp), px4_attitude(stamp))
+            frame = dict(sim_usec=capture, depth_z_m=depth)
+            sim_s = capture/1e6 + .02
+            controller.tick(0, frame, history, (1., 1., 1.), .4, sim_s, 10.+sim_s)
+            if self.client.pending is not None:
+                captures.append(capture)
+                self.response()
+                controller.tick(0, frame, history, (1., 1., 1.), .4, sim_s+.005, 10.01+sim_s)
+        self.assertEqual([stamp-1_000_000 for stamp in captures],
+                         [0, 200_000, 348_000, 500_000, 648_000, 800_000, 1_000_000])
+        self.assertAlmostEqual(np.mean(np.diff(captures)[:5])/1e6, .16)
+
+    def test_late_frame_rebases_deadline_and_preflight_clear_restarts_it(self):
+        self.assertTrue(self.client.connect())
+        controller = LearnedRoute(self.client)
+        history = PolicyStateHistory()
+        depth = np.ones((CAMERA_HEIGHT, CAMERA_WIDTH), np.float32)
+
+        def request_at(capture, segment=0):
+            stamp = capture//1000
+            history.record(px4_position(stamp), px4_attitude(stamp))
+            frame = dict(sim_usec=capture, depth_z_m=depth)
+            sim_s = capture/1e6 + .02
+            controller.tick(segment, frame, history, (1., 1., 1.), .4, sim_s, 10.+sim_s)
+            if self.client.pending is None:
+                return False
+            self.response()
+            controller.tick(segment, frame, history, (1., 1., 1.), .4, sim_s+.005, 10.01+sim_s)
+            return True
+
+        self.assertTrue(request_at(1_000_000, 'preflight'))
+        controller.clear()
+        self.assertTrue(request_at(1_050_000))
+        self.assertTrue(request_at(1_300_000))
+        self.assertEqual(controller.next_capture_due_usec, 1_460_000)
+        self.assertFalse(request_at(1_350_000))
+        self.assertFalse(request_at(1_400_000))
+        self.assertTrue(request_at(1_500_000))
+
 
 class PrerequisiteTests(unittest.TestCase):
     def test_course_requires_verified_hover_from_same_launch(self):

@@ -34,7 +34,7 @@ python3 -m mission.markerfree_evaluate \
   --task hover --launch-position -2.5146 0.9144 0.24 --launch-yaw-deg 90 --use-px4-tilt
 ```
 
-Use a fresh output directory for each run. The evidence runner starts the camera recorder and independent truth/contact observer before it starts the mission. The recorder samples the RGB and depth streams at up to 5 Hz sim time, saves bounded JPEG RGB and uint16 PNG depth frame pairs with a timestamped `frames.jsonl` index, and writes latest camera/depth previews. It does not encode a video. To run the full course after a completed hover at the same surveyed launch pose:
+Use a fresh output directory for each run. The evidence runner starts the camera recorder and independent truth/contact observer before it starts the mission. The recorder samples the RGB and depth streams at up to 5 Hz sim time, saves bounded JPEG RGB and uint16 PNG depth frame pairs with a timestamped `frames.jsonl` index, and writes latest camera/depth previews. The archive can be exported to a timestamped RGB/depth replay with `python3 -m tools.render_flight_video artifacts/markerfree/course-NEW` after the run. To run the full course after a completed hover at the same surveyed launch pose:
 
 ```sh
 python3 -m mission.markerfree_evaluate \
@@ -63,23 +63,25 @@ The trainer is analytic teacher-supervised imitation with student rollouts (DAgg
 
 ```sh
 python3 -m learning.inference \
-  --checkpoint artifacts/learning/RUN/best.pt \
+  --checkpoint artifacts/learning/RUN/frozen.pt \
   --exchange artifacts/markerfree/policy-exchange
 ```
 
-A complete learned-policy PX4 flight has not yet been verified. Copy a selected checkpoint to a frozen file and point both the service and flight command at that copy. Replace `RUN` with its directory; use a model trained for the same route, mount, dynamics, and heading profile. To train or warm-start for this camera mounting position, use `--camera-forward 0.34`; a checkpoint records its camera offset and source hash. The flight runner requires the checkpoint hash explicitly and rejects mismatched camera geometry:
+A complete learned-policy PX4 flight has not yet been verified. Copy a selected checkpoint to a frozen file and point both the service and flight command at that copy. Replace `RUN` with its directory; use a model trained for the same route, mount, dynamics, and heading profile. Use `--profile x500-transfer` for training; the checkpoint records the route, heading, airframe, camera and control contract. The legacy sphere-model checkpoint is rejected by the flight runner. The flight runner requires the checkpoint hash explicitly and rejects mismatched camera geometry:
 
 ```sh
-CHECKPOINT=artifacts/learning/RUN/best.pt
+CHECKPOINT=artifacts/learning/RUN/frozen.pt
 CHECKPOINT_SHA=$(shasum -a 256 "$CHECKPOINT" | awk '{print $1}')
 python3 -m mission.markerfree_evaluate \
   --output artifacts/markerfree/policy-NEW -- \
   --task policy --policy-dir artifacts/markerfree/policy-exchange \
-  --policy-sha256 "$CHECKPOINT_SHA" \
+  --policy-sha256 "$CHECKPOINT_SHA" --policy-depth-mode raw --heading-lookahead 1.8 \
   --hover-summary artifacts/markerfree/hover-02/telemetry.summary.json \
   --launch-position -2.5146 0.9144 0.24 --launch-yaw-deg 90 --use-px4-tilt
 ```
 
-The primary scorer now derives five body/gear boxes and four swept propeller cylinders from the pinned x500 SDF, adds a 15 mm allowance, and accounts for recorded attitude. The old 0.36 m sphere remains a legacy diagnostic; it overstated vertical size while understating diagonal propeller reach. The older training experiment used a 0.28 m sphere and faster response, so its checkpoint has a known transfer mismatch. The new route centers the maze corridors and raises the window crossing to 0.90 m; nominal offline dynamics checks passed, while its PX4 course test is still in progress. See `x500-envelope.md` for the geometry and limitations. The course window is 0.9144 m wide. The marker-free estimator uses a supplied static survey and has no general global relocalization or validated real-camera uncertainty model. Gazebo's ideal depth is easier than physical stereo. The separate SAND.O checkout is not integrated; its ROS 2, Gazebo Classic, PCL, DecompROS2, and Gurobi dependencies are not part of this run.
+The primary scorer now derives five body/gear boxes and four swept propeller cylinders from the pinned x500 SDF, adds a 15 mm allowance, and accounts for recorded attitude. The old 0.36 m sphere remains a legacy diagnostic; it overstated vertical size while understating diagonal propeller reach. The older training experiment used a 0.28 m sphere and faster response, so its checkpoint has a known transfer mismatch. The new route centers the maze corridors and raises the window crossing to 0.90 m; nominal offline dynamics checks passed. Course 04 reached window alignment and landed after a visual observability failure. The revised alignment heading looks at the opening center; Course 05 is testing it. See `x500-envelope.md` for the geometry and limitations. The course window is 0.9144 m wide. The marker-free estimator uses a supplied static survey and has no general global relocalization or validated real-camera uncertainty model. Gazebo's ideal depth is easier than physical stereo. The separate SAND.O checkout is not integrated; its ROS 2, Gazebo Classic, PCL, DecompROS2, and Gurobi dependencies are not part of this run.
 
 The optional `--use-px4-tilt` adapter brackets capture-time PX4 roll and pitch within 60 ms. It adds no position or yaw pseudo-measurement and keeps the depth observability gate. Because PX4 attitude can correlate with visual position through EKF state updates, it is treated as a conservative prior, not an independent camera observation. PX4's [EV fusion bitmask](https://docs.px4.io/v1.16/en/advanced_config/parameter_reference.html#EKF2_EV_CTRL) enables position and yaw here.
+
+The SITL power watchdog directly reads battery and system-power uORB publications on a background thread. It requires advancing timestamps before arming and rejects stale or invalid feeds in flight. This was added after an earlier run exposed stale simulator power publications; resetting the dedicated container restored updates, but the underlying scheduler failure has not been isolated. No PX4 battery check was disabled.
