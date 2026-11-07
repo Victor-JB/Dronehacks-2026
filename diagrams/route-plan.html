@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Dead Reckoning Route</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* layout: blueprint floor plan left, legend/stats/leg-table right, stacking on phone */
+  :root{
+    --bg:#f1ede2; --surface:#fffdf8; --surface-2:#eae4d4; --ink:#201c14; --ink-dim:#6b6354;
+    --line:#cfc6ae; --wall:#3c3426; --route:#c6591e; --route-ink:#7a3611; --boulder:#8a6a4a;
+    --goal:#1f7a5c; --grid: rgba(32,28,20,0.09); --tunnel-fill: rgba(60,52,38,0.08);
+    --font-display:'Archivo',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --bg:#14120d; --surface:#1d1a13; --surface-2:#26221887; --ink:#efe9da; --ink-dim:#a89d86;
+      --line:#3a3425; --wall:#c9bfa6; --route:#e8812f; --route-ink:#ffb978; --boulder:#c0966a;
+      --goal:#48c79a; --grid: rgba(239,233,218,0.08); --tunnel-fill: rgba(201,191,166,0.1);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg:#14120d; --surface:#1d1a13; --surface-2:#26221887; --ink:#efe9da; --ink-dim:#a89d86;
+    --line:#3a3425; --wall:#c9bfa6; --route:#e8812f; --route-ink:#ffb978; --boulder:#c0966a;
+    --goal:#48c79a; --grid: rgba(239,233,218,0.08); --tunnel-fill: rgba(201,191,166,0.1);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:var(--font-display);
+    padding-left:max(16px, env(safe-area-inset-left,0px));
+    padding-right:max(16px, env(safe-area-inset-right,0px));
+    padding-block:28px 48px;
+  }
+  .wrap{max-width:1180px; margin:0 auto; display:flex; flex-direction:column; gap:20px;}
+
+  header{display:flex; flex-direction:column; gap:6px;}
+  .eyebrow{font-family:var(--font-mono); font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--route-ink);}
+  h1{font-size:clamp(26px,4vw,36px); margin:0; font-weight:800; letter-spacing:-0.01em; text-wrap:balance;}
+  .sub{margin:0; color:var(--ink-dim); font-size:15px; max-width:62ch; line-height:1.5;}
+
+  .badges{display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;}
+  .badge{
+    font-family:var(--font-mono); font-size:12.5px; color:var(--ink);
+    background:var(--surface-2); border:1px solid var(--line); border-radius:999px;
+    padding:5px 12px; display:flex; gap:6px; align-items:baseline;
+  }
+  .badge b{color:var(--route-ink); font-weight:600;}
+
+  .layout{display:grid; grid-template-columns: minmax(0,1.5fr) minmax(280px,1fr); gap:20px; align-items:start;}
+  @media (max-width:860px){ .layout{grid-template-columns: 1fr;} }
+
+  .panel{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:18px; min-width:0;
+  }
+  .panel h2{
+    font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-dim);
+    margin:0 0 12px; font-weight:600;
+  }
+
+  .diagram-frame{display:flex; justify-content:center;}
+  svg{width:100%; height:auto; max-width:620px; display:block;}
+  .wall{fill:var(--wall);}
+  .boulder{fill:var(--boulder); stroke:var(--wall); stroke-width:1; opacity:.92;}
+  .net{fill:none; stroke:var(--wall); stroke-width:3;}
+  .floor{fill:var(--surface-2); opacity:.5;}
+  .grid-line{stroke:var(--grid); stroke-width:1;}
+  .tunnel-shell{fill:var(--tunnel-fill); stroke:var(--wall); stroke-width:1.5; stroke-dasharray:4 3;}
+  .ring{fill:none; stroke:var(--goal); stroke-width:2;}
+  .ring-outer{stroke-width:2.5;}
+  .launch-mark{fill:var(--ink);}
+  .route-line{fill:none; stroke:var(--route); stroke-width:3.5; stroke-linejoin:round; stroke-linecap:round;}
+  .wp-dot{fill:var(--surface); stroke:var(--route); stroke-width:2.5;}
+  .wp-num{font-family:var(--font-mono); font-size:10px; fill:var(--route-ink); font-weight:600;}
+  .zone-label{font-family:var(--font-mono); font-size:11.5px; fill:var(--ink-dim); letter-spacing:.03em;}
+  .axis-label{font-family:var(--font-mono); font-size:10px; fill:var(--ink-dim);}
+  .start-label, .goal-label{font-family:var(--font-display); font-size:11px; font-weight:700; fill:var(--ink);}
+
+  .legend-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px;}
+  .legend-list li{display:flex; align-items:center; gap:10px; font-size:13px; color:var(--ink);}
+  .swatch{width:16px; height:16px; border-radius:4px; flex:none;}
+  .swatch.wall{background:var(--wall); border-radius:3px;}
+  .swatch.boulder{background:var(--boulder); border-radius:50%;}
+  .swatch.route{background:none; border-top:3px solid var(--route); width:16px; height:0; align-self:center;}
+  .swatch.goal{background:none; border:2px solid var(--goal); border-radius:50%;}
+  .swatch.tunnel{background:var(--tunnel-fill); border:1.5px dashed var(--wall); border-radius:3px;}
+  .swatch.launch{background:var(--ink); border-radius:2px;}
+
+  .note-list{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--ink-dim); line-height:1.5;}
+  .note-list b{color:var(--ink);}
+
+  table{width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:12.5px;}
+  thead th{text-align:right; color:var(--ink-dim); font-weight:500; padding:4px 6px; border-bottom:1px solid var(--line); font-size:11px; text-transform:uppercase; letter-spacing:.04em;}
+  thead th:first-child{text-align:left;}
+  tbody td{text-align:right; padding:5px 6px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums;}
+  tbody td:first-child{text-align:left; color:var(--ink-dim);}
+  .table-scroll{max-height:320px; overflow-y:auto; border-radius:8px;}
+
+  footer{color:var(--ink-dim); font-size:12px; font-family:var(--font-mono); text-align:center; padding-top:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <span class="eyebrow">Dead Reckoning &middot; DroneHacks 2026</span>
+    <h1>Hardcoded route through the published course</h1>
+    <p class="sub">20 straight legs, launch mark to landing pad, derived from <code>dronehacks-course-v3.obj</code> via an inflated occupancy grid + A*. Drawn to scale, 1&nbsp;px&nbsp;=&nbsp;1.11&nbsp;cm.</p>
+    <div class="badges">
+      <span class="badge">Total path <b>16.73 m</b></span>
+      <span class="badge">Legs <b>20</b></span>
+      <span class="badge">Est. transit <b>~28 s</b> @0.6 m/s</span>
+      <span class="badge">Clearance margin <b>30 cm</b> (placeholder)</span>
+      <span class="badge">Route <b>Gate B</b> (no window bonus)</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <section class="panel">
+      <h2>Floor plan, north up</h2>
+      <div class="diagram-frame">
+        <svg viewBox="-42 -42 632 648" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down floor plan of the DroneHacks course with the planned 20-leg flight path from launch to the landing pad">
+
+          <!-- grid -->
+          <g>
+            <line class="grid-line" x1="4.3" y1="0" x2="4.3" y2="548.6"/>
+            <line class="grid-line" x1="94.3" y1="0" x2="94.3" y2="548.6"/>
+            <line class="grid-line" x1="184.3" y1="0" x2="184.3" y2="548.6"/>
+            <line class="grid-line" x1="274.3" y1="0" x2="274.3" y2="548.6"/>
+            <line class="grid-line" x1="364.3" y1="0" x2="364.3" y2="548.6"/>
+            <line class="grid-line" x1="454.3" y1="0" x2="454.3" y2="548.6"/>
+            <line class="grid-line" x1="544.3" y1="0" x2="544.3" y2="548.6"/>
+            <line class="grid-line" x1="0" y1="4.3" x2="548.6" y2="4.3"/>
+            <line class="grid-line" x1="0" y1="94.3" x2="548.6" y2="94.3"/>
+            <line class="grid-line" x1="0" y1="184.3" x2="548.6" y2="184.3"/>
+            <line class="grid-line" x1="0" y1="274.3" x2="548.6" y2="274.3"/>
+            <line class="grid-line" x1="0" y1="364.3" x2="548.6" y2="364.3"/>
+            <line class="grid-line" x1="0" y1="454.3" x2="548.6" y2="454.3"/>
+            <line class="grid-line" x1="0" y1="544.3" x2="548.6" y2="544.3"/>
+          </g>
+
+          <rect class="floor" x="0" y="0" width="548.6" height="548.6"/>
+          <rect class="net" x="0" y="0" width="548.6" height="548.6" rx="2"/>
+
+          <!-- tunnel passage (the only gap through the barrier line) -->
+          <rect class="tunnel-shell" x="415.9" y="164.6" width="132.7" height="137.2"/>
+          <text class="zone-label" x="482" y="150" text-anchor="middle">tunnel</text>
+
+          <!-- walls -->
+          <g>
+            <rect class="wall" x="182.0" y="237.7" width="9.2" height="92.6"/>
+            <rect class="wall" x="0.0" y="228.6" width="145.2" height="9.2"/>
+            <rect class="wall" x="145.1" y="228.6" width="145.2" height="9.2"/>
+            <rect class="wall" x="290.3" y="228.6" width="125.7" height="9.2"/>
+            <rect class="wall" x="357.6" y="238.0" width="58.2" height="139.5"/>
+            <rect class="wall" x="202.8" y="409.1" width="58.2" height="139.5"/>
+            <rect class="wall" x="252.5" y="322.1" width="40.2" height="90.1"/>
+            <rect class="wall" x="96.0" y="83.5" width="9.2" height="145.2"/>
+            <rect class="wall" x="196.6" y="0.0" width="9.2" height="145.2"/>
+            <rect class="wall" x="297.2" y="83.5" width="9.2" height="145.2"/>
+          </g>
+
+          <!-- boulders -->
+          <g>
+            <circle class="boulder" cx="455.4" cy="496.5" r="20.6"/>
+            <circle class="boulder" cx="502.0" cy="414.2" r="20.6"/>
+            <circle class="boulder" cx="345.6" cy="485.5" r="20.6"/>
+            <circle class="boulder" cx="43.9" cy="499.2" r="20.6"/>
+            <circle class="boulder" cx="153.6" cy="488.2" r="20.6"/>
+          </g>
+
+          <!-- landing pad rings -->
+          <g>
+            <circle class="ring ring-outer" cx="90.5" cy="345.6" r="68.6"/>
+            <circle class="ring" cx="90.5" cy="345.6" r="45.7"/>
+            <circle class="ring" cx="90.5" cy="345.6" r="20.6"/>
+          </g>
+          <text class="goal-label" x="90.5" y="440" text-anchor="middle">LANDING</text>
+
+          <!-- zone labels -->
+          <text class="zone-label" x="47" y="130" text-anchor="middle">first corridor</text>
+          <text class="zone-label" x="210" y="185" text-anchor="middle">maze</text>
+          <text class="zone-label" x="330" y="470" text-anchor="middle">chicane</text>
+
+          <!-- planned path -->
+          <polyline class="route-line" points="47.2,190.9 47.2,80.2 71.5,55.9 133.7,58.6 133.7,136.9 171.4,174.7 230.8,174.7 233.6,93.7 271.4,55.9 330.8,55.9 333.4,91.0 444.2,201.7 441.5,406.9 330.8,406.9 319.9,396.1 317.2,293.5 228.2,293.5 220.1,301.6 217.3,358.3 117.4,358.3 90.4,344.8"/>
+
+          <!-- waypoint dots + numbers (1..20, matching the route.json leg list; launch has its own marker) -->
+          <g>
+            <circle class="wp-dot" cx="47.2" cy="80.2" r="5"/><text class="wp-num" x="54" y="77">1</text>
+            <circle class="wp-dot" cx="71.5" cy="55.9" r="5"/><text class="wp-num" x="78" y="52">2</text>
+            <circle class="wp-dot" cx="133.7" cy="58.6" r="5"/><text class="wp-num" x="140" y="55">3</text>
+            <circle class="wp-dot" cx="133.7" cy="136.9" r="5"/><text class="wp-num" x="140" y="134">4</text>
+            <circle class="wp-dot" cx="171.4" cy="174.7" r="5"/><text class="wp-num" x="155" y="193">5</text>
+            <circle class="wp-dot" cx="230.8" cy="174.7" r="5"/><text class="wp-num" x="237" y="172">6</text>
+            <circle class="wp-dot" cx="233.6" cy="93.7" r="5"/><text class="wp-num" x="240" y="91">7</text>
+            <circle class="wp-dot" cx="271.4" cy="55.9" r="5"/><text class="wp-num" x="278" y="52">8</text>
+            <circle class="wp-dot" cx="330.8" cy="55.9" r="5"/><text class="wp-num" x="337" y="52">9</text>
+            <circle class="wp-dot" cx="333.4" cy="91.0" r="5"/><text class="wp-num" x="340" y="88">10</text>
+            <circle class="wp-dot" cx="444.2" cy="201.7" r="5"/><text class="wp-num" x="451" y="199">11</text>
+            <circle class="wp-dot" cx="441.5" cy="406.9" r="5"/><text class="wp-num" x="448" y="404">12</text>
+            <circle class="wp-dot" cx="330.8" cy="406.9" r="5"/><text class="wp-num" x="337" y="404">13</text>
+            <circle class="wp-dot" cx="319.9" cy="396.1" r="5"/><text class="wp-num" x="300" y="390">14</text>
+            <circle class="wp-dot" cx="317.2" cy="293.5" r="5"/><text class="wp-num" x="324" y="291">15</text>
+            <circle class="wp-dot" cx="228.2" cy="293.5" r="5"/><text class="wp-num" x="228" y="281">16</text>
+            <circle class="wp-dot" cx="220.1" cy="301.6" r="5"/><text class="wp-num" x="197" y="312">17</text>
+            <circle class="wp-dot" cx="217.3" cy="358.3" r="5"/><text class="wp-num" x="224" y="356">18</text>
+            <circle class="wp-dot" cx="117.4" cy="358.3" r="5"/><text class="wp-num" x="117" y="378">19</text>
+            <circle class="wp-dot" cx="90.4" cy="344.8" r="5"/><text class="wp-num" x="97" y="342">20</text>
+          </g>
+
+          <!-- launch -->
+          <rect class="launch-mark" x="42.2" y="185.9" width="10" height="10" transform="rotate(45 47.2 190.9)"/>
+          <text class="start-label" x="47" y="213" text-anchor="middle">LAUNCH</text>
+
+          <!-- north arrow + scale -->
+          <g transform="translate(560,10)">
+            <line x1="0" y1="26" x2="0" y2="2" stroke="var(--ink)" stroke-width="2"/>
+            <polygon points="0,-4 6,8 -6,8" fill="var(--ink)"/>
+            <text class="axis-label" x="0" y="42" text-anchor="middle">N</text>
+          </g>
+          <g transform="translate(455,578)">
+            <line x1="0" y1="0" x2="90" y2="0" stroke="var(--ink)" stroke-width="2"/>
+            <line x1="0" y1="-4" x2="0" y2="4" stroke="var(--ink)" stroke-width="2"/>
+            <line x1="90" y1="-4" x2="90" y2="4" stroke="var(--ink)" stroke-width="2"/>
+            <text class="axis-label" x="45" y="16" text-anchor="middle">1 m</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <div style="display:flex; flex-direction:column; gap:20px; min-width:0;">
+      <section class="panel">
+        <h2>Legend</h2>
+        <ul class="legend-list">
+          <li><span class="swatch wall"></span> Wall / divider / barrier (68 in)</li>
+          <li><span class="swatch boulder"></span> Boulder, 18 in across</li>
+          <li><span class="swatch tunnel"></span> Dark tunnel (only way through the barrier)</li>
+          <li><span class="swatch launch"></span> Launch mark</li>
+          <li><span class="swatch goal"></span> Landing pad rings</li>
+          <li><span class="swatch route"></span> Planned path, numbered 1&ndash;20</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>Assumptions &amp; caveats</h2>
+        <ul class="note-list">
+          <li><b>Launch heading confirmed</b>: drone faces +Y (into the first corridor) on the mark.</li>
+          <li><b>Gate B, not the window</b>: C2a's window cutout wasn't extracted from the mesh, so this path swings around it instead of through it (window clears +5 bonus pts).</li>
+          <li><b>30 cm clearance is a placeholder</b> &mdash; swap in the real airframe span once the kit's in hand and replan.</li>
+          <li>Path assumes the sim/physical course matches this published CAD exactly; re-verify after any layout change notice.</li>
+          <li>Depth-based obstacle stop (<code>stop_m</code>) stays active underneath this route as a safety backstop.</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>route.json legs (forward m, left m)</h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>leg</th><th>forward</th><th>left</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>1.243</td><td>0.008</td></tr>
+              <tr><td>2</td><td>1.513</td><td>-0.262</td></tr>
+              <tr><td>3</td><td>1.483</td><td>-0.952</td></tr>
+              <tr><td>4</td><td>0.613</td><td>-0.952</td></tr>
+              <tr><td>5</td><td>0.193</td><td>-1.372</td></tr>
+              <tr><td>6</td><td>0.193</td><td>-2.032</td></tr>
+              <tr><td>7</td><td>1.093</td><td>-2.062</td></tr>
+              <tr><td>8</td><td>1.513</td><td>-2.482</td></tr>
+              <tr><td>9</td><td>1.513</td><td>-3.142</td></tr>
+              <tr><td>10</td><td>1.123</td><td>-3.172</td></tr>
+              <tr><td>11</td><td>-0.107</td><td>-4.402</td></tr>
+              <tr><td>12</td><td>-2.387</td><td>-4.372</td></tr>
+              <tr><td>13</td><td>-2.387</td><td>-3.142</td></tr>
+              <tr><td>14</td><td>-2.267</td><td>-3.022</td></tr>
+              <tr><td>15</td><td>-1.127</td><td>-2.992</td></tr>
+              <tr><td>16</td><td>-1.127</td><td>-2.002</td></tr>
+              <tr><td>17</td><td>-1.217</td><td>-1.912</td></tr>
+              <tr><td>18</td><td>-1.847</td><td>-1.882</td></tr>
+              <tr><td>19</td><td>-1.847</td><td>-0.772</td></tr>
+              <tr><td>20</td><td>-1.697</td><td>-0.472</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer>dronehacks-course-v3.obj &middot; A* over a 3 cm occupancy grid &middot; generated for route_maze_draft.json</footer>
+</div>
+</body>
+</html>
