@@ -1,6 +1,6 @@
 # Marker-free flight trials
 
-This inventory contains 20 unique run IDs across 21 flight telemetry archive paths; `current` is an identical alias of `hover-04`. No overall reliability percentage is inferred across changing code, configuration, and diagnostic protocols.
+This inventory contains 22 unique run IDs across 23 flight telemetry archive paths; `current` is an identical alias of `policy-06`. No overall reliability percentage is inferred across changing code, configuration, and diagnostic protocols.
 
 ## Full-route attempts
 
@@ -21,6 +21,7 @@ This inventory contains 20 unique run IDs across 21 flight telemetry archive pat
 | policy-03 | learned policy / `3602a898` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
 | policy-04 | learned policy / `3602a898` | px4_power_health:battery_status_stale_sim_timestamp | 0/15 | 0/15 | confirmed touchdown and disarm |
 | policy-05 | learned policy / `a1919ecd` | completed | 15/15 | 15/15 ordered | confirmed touchdown and disarm |
+| policy-06 | learned policy / `a1919ecd` | rgbd_pose_unavailable:tracking_lost:survey:unobservable_depth_geometry:0.0028333;depth:insufficient_depth_overlap;rgb:insufficient_correspondences | 5/15 | 5/15 | confirmed touchdown and disarm |
 
 ## Independent score details
 
@@ -39,6 +40,7 @@ Only a score file whose run ID matches its telemetry archive is joined. Abort-la
 - **policy-03:** truth 15/15 ordered=True.
 - **policy-04:** truth 0/15 ordered=False; abort landing 49.192→59.46 s, CAD clear through disarm=True, contact coverage=partial_topic_coverage.
 - **policy-05:** truth 15/15 ordered=True.
+- **policy-06:** truth 5/15 ordered=False; abort landing 50.896→56.556 s, CAD clear through disarm=True, contact coverage=partial_topic_coverage.
 
 ## Diagnostic hovers
 
@@ -48,6 +50,7 @@ Only a score file whose run ID matches its telemetry archive is joined. Abort-la
 | hover-02 | completed | none | confirmed touchdown and disarm | matched |
 | hover-03 | completed | none | confirmed touchdown and disarm | matched |
 | hover-04 | failed | rgbd_pose_unavailable:tracking_lost:survey:insufficient_depth_overlap;depth:insufficient_depth_overlap;rgb:insufficient_inliers | confirmed touchdown and disarm | matched |
+| hover-05 | completed | none | confirmed touchdown and disarm | matched |
 
 ## Blackout diagnostic
 
