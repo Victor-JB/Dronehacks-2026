@@ -16,7 +16,8 @@ PX4_TELEMETRY = REPO / "artifacts" / "px4" / "telemetry.jsonl"
 VISION = REPO / "artifacts" / "vision"
 PREVIEW = REPO / "artifacts" / "preview"
 LEARNING = REPO / "artifacts" / "learning"
-VNC_URL = "http://127.0.0.1:8080/vnc.html?autoconnect=1&resize=scale"
+MARKERFREE = REPO / 'artifacts' / 'markerfree' / 'current'
+VNC_URL = os.environ.get('DRONEHACKS_VNC_URL', 'http://127.0.0.1:8082/vnc.html?autoconnect=1&resize=scale')
 MAX_TAIL = 128 * 1024
 MAX_HEAD = 32 * 1024
 STALE_SECONDS = 3.0
@@ -57,6 +58,8 @@ def telemetry_path():
     if preferred:
         path = Path(preferred)
         return path if path.is_absolute() else REPO / path
+    if (MARKERFREE / 'telemetry.jsonl').exists():
+        return MARKERFREE / 'telemetry.jsonl'
     try:
         if PX4_TELEMETRY.exists() and (not TELEMETRY.exists() or
                                       PX4_TELEMETRY.stat().st_mtime > TELEMETRY.stat().st_mtime):
@@ -136,11 +139,14 @@ def state():
         if summary.get("run_id") != metadata["run_id"]:
             summary = None
     events = [r for r in tail if r.get("type") == "event"][-8:]
-    is_px4 = bool(metadata and metadata.get("source") == "PX4 EKF2 + camera marker localization")
+    markerfree = bool(metadata and str(metadata.get('navigation_source', '')).startswith('RGBD'))
+    if markerfree and summary:
+        status = 'completed' if summary.get('result') == 'completed' else 'stopped'
+    is_px4 = markerfree or bool(metadata and metadata.get("source") == "PX4 EKF2 + camera marker localization")
     vision = None
     vision_age = None
     vision_wall_age = None
-    if is_px4:
+    if is_px4 and not markerfree:
         try:
             vision = json.loads((VISION / "latest.json").read_text())
             vision_wall_age = max(0.0, now - (VISION / "latest.json").stat().st_mtime)
@@ -153,12 +159,17 @@ def state():
     return {
         "status": status, "file_age_s": round(age, 2) if age is not None else None,
         "sample": sample, "metadata": metadata, "summary": summary, "events": events,
+        "score": read_json(MARKERFREE/'score.json') if markerfree else None,
+        "camera": read_json(MARKERFREE/'camera/latest.json') if markerfree else None,
         "source": str(path.relative_to(REPO)) if path.is_relative_to(REPO) else str(path), "gazebo_url": VNC_URL,
-        "mode": "px4" if is_px4 else "gazebo",
+        "mode": "markerfree" if markerfree else ("px4" if is_px4 else "gazebo"),
         "vision": vision, "vision_age_s": round(vision_age, 2) if vision_age is not None else None,
         "vision_wall_age_s": round(vision_wall_age, 2) if vision_wall_age is not None else None,
-        "camera_url": "/camera.jpg" if is_px4 and (VISION / "camera.jpg").is_file() else None,
-        "labels": (["PX4 SITL", "CAMERA POSITION", "MAPPED FIDUCIALS", "NOT HARDWARE VALIDATED"]
+        "camera_url": ('/rgbd-camera.jpg' if markerfree and (MARKERFREE/'camera/latest.jpg').is_file()
+                       else '/camera.jpg' if is_px4 and (VISION / 'camera.jpg').is_file() else None),
+        "depth_url": '/rgbd-depth.jpg' if markerfree and (MARKERFREE/'camera/depth.jpg').is_file() else None,
+        "labels": (["PX4 SITL", "RGBD + TOF", "NO ARTIFICIAL TAGS", "NO TRUTH FEEDBACK"] if markerfree else
+                   ["PX4 SITL", "CAMERA POSITION", "MAPPED FIDUCIALS", "NOT HARDWARE VALIDATED"]
                    if is_px4 else ["REAL GAZEBO PHYSICS", "GROUND-TRUTH SIM STATE", "NOT PX4", "NOT A REAL DRONE"]),
     }
 
@@ -168,6 +179,19 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_GET(self):
+        if urlparse(self.path).path in ('/rgbd-camera.jpg', '/rgbd-depth.jpg'):
+            image = MARKERFREE/'camera'/('latest.jpg' if 'camera' in self.path else 'depth.jpg')
+            if not image.is_file():
+                self.send_error(404)
+                return
+            body = image.read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if urlparse(self.path).path == '/api/training':
             body = json.dumps(training_state()).encode()
             self.send_response(200)
@@ -208,6 +232,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("127.0.0.1", 8081), Handler)
-    print("Gazebo viewer: http://127.0.0.1:8081")
+    port = int(os.environ.get('DRONEHACKS_VIEWER_PORT', '8083'))
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    print(f"Marker-free PX4 viewer: http://127.0.0.1:{port}")
     server.serve_forever()

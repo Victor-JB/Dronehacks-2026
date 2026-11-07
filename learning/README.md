@@ -20,6 +20,26 @@ evaluation. Send SIGTERM or Ctrl-C to stop at the next safe point. The trainer
 refreshes `status.json` and retains an atomic `latest.pt`, a validation-selected
 `best.pt`, and bounded `metrics.json`. The training replay stays in memory.
 
+To adapt an existing policy to the 0.34 m forward camera mount used by the
+marker-free x500 scene, run a fresh experiment with the existing weights.
+
+```sh
+python -u -m learning.train --output artifacts/learning/nose-camera \
+  --init-checkpoint artifacts/learning/my-run/best.pt --camera-forward 0.34 \
+  --heading-lookahead 1.2 --device mps
+```
+
+This warm start loads model weights and creates a new optimizer, replay, and
+step counter. The run records the source checkpoint SHA-256 and the camera
+offset in its metadata and output checkpoints. The original default camera
+offset is 0.08 m. A warm start defaults to seed 42, with fresh validation and
+held-out seeds. Set `--max-seconds` to the remaining wall-time budget when
+continuing an interrupted experiment.
+
+`--heading-lookahead` previews the next corridor from estimated position
+and route waypoints. It preserves the window and tunnel crossing headings.
+The default of zero retains the original current-waypoint heading.
+
 The course comes from `mission/course-window-fast.json` and the checked-in CAD
 bounds and wall vertices. Straight walls use boxes, the rotated window wall
 has its measured opening, and a polygonal shell approximates the hollow oval

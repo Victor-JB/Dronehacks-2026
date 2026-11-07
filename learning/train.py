@@ -3,9 +3,9 @@ import argparse
 from collections import deque
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import math
-import os
 from pathlib import Path
 import signal
 import statistics
@@ -18,7 +18,8 @@ import torch
 from torch.nn import functional as F
 
 from .policy import DepthPolicy
-from .sim import Course, Flight, HEIGHT, WIDTH, HFOV_DEG, MAX_DEPTH, DT, teacher, direct_velocity
+from .sim import (DEFAULT_CAMERA_FORWARD_M, DT, HFOV_DEG, HEIGHT, MAX_DEPTH, WIDTH,
+                  Course, Flight, direct_velocity, teacher)
 
 # Seeds for training are drawn below 1e9; these two banks are disjoint from
 # training and from each other. Only validation selects the best checkpoint.
@@ -29,6 +30,19 @@ HOLDOUT = [(2_000_071_000 + i, difficulty, stress) for i, (difficulty, stress) i
                       (.90, 1.), (1., 1.60), (1., 2.)])]
 ACTORS = ("depth_policy", "same_policy_blank_depth", "blind_waypoint", "geometry_teacher")
 METHOD = "DAgger-style supervised imitation of a geometry-aware velocity teacher"
+DEFAULT_SEED = 41
+
+
+def case_banks(seed, warm_start):
+    if seed == DEFAULT_SEED and not warm_start:
+        return VALIDATION, HOLDOUT
+    # Leave the legacy banks intact and dedicate sixteen seeds per run seed.
+    base = 2_100_000_000 + 16 * seed
+    validation = [(base + i, difficulty, stress)
+                  for i, (_, difficulty, stress) in enumerate(VALIDATION)]
+    holdout = [(base + 8 + i, difficulty, stress)
+               for i, (_, difficulty, stress) in enumerate(HOLDOUT)]
+    return validation, holdout
 
 
 def timestamp():
@@ -49,6 +63,25 @@ def atomic_torch(path, data):
     tmp = path.with_suffix(".tmp")
     torch.save(data, tmp)
     tmp.replace(path)
+
+
+def load_initial_weights(model, path):
+    """Hash the exact bytes loaded, even if a source latest.pt is replaced."""
+    path = path.resolve(strict=True)
+    contents = path.read_bytes()
+    checkpoint = torch.load(io.BytesIO(contents), map_location="cpu", weights_only=True)
+    if (not isinstance(checkpoint, dict) or checkpoint.get("format") != 1
+            or checkpoint.get("architecture") != "DepthPolicy" or not isinstance(checkpoint.get("model"), dict)):
+        raise ValueError("expected a format-1 DepthPolicy checkpoint")
+    model.load_state_dict(checkpoint["model"])
+    return {
+        "mode": "weights_only_warm_start",
+        "checkpoint": str(path),
+        "sha256": hashlib.sha256(contents).hexdigest(),
+        "source_steps": checkpoint.get("steps"),
+        "source_camera_forward_m": checkpoint.get("camera_forward_m", DEFAULT_CAMERA_FORWARD_M),
+        "source_heading_lookahead_m": checkpoint.get("heading_lookahead_m", 0.),
+    }
 
 
 class Replay:
@@ -155,11 +188,23 @@ class Experiment:
         self.rng = np.random.default_rng(args.seed)
         torch.manual_seed(args.seed)
         torch.set_num_threads(args.threads)
-        self.course = Course()
+        self.course = Course(args.camera_forward, args.heading_lookahead)
+        self.heading_sha256 = sha256(self.course.route_path.parents[1] / 'mission/heading.py')
+        self.validation_cases, self.holdout_cases = case_banks(args.seed, args.init_checkpoint is not None)
         self.device = torch.device(args.device)
-        self.model = DepthPolicy().to(self.device)
+        self.model = DepthPolicy()
+        self.initialization = {"mode": "random_weights"}
+        if args.init_checkpoint is not None:
+            self.initialization = load_initial_weights(self.model, args.init_checkpoint)
+        self.model.to(self.device)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=7e-4, weight_decay=1e-4)
         self.replay = Replay()
+
+    def depth_spec(self):
+        return {"height": HEIGHT, "width": WIDTH, "horizontal_fov_degrees": HFOV_DEG,
+                "max_range_m": MAX_DEPTH, "encoding": "1 - range / max_range",
+                "camera_forward_m": self.course.camera_forward_m,
+                "assumptions": "forward pinhole ray cast; synthetic metric depth with noise and dropout"}
 
     def interrupted(self, *, cutoff=None):
         return self.signal is not None or time.monotonic() >= (self.deadline if cutoff is None else cutoff)
@@ -176,6 +221,9 @@ class Experiment:
             "elapsed_seconds": round(now - self.start, 2), "max_seconds": self.args.max_seconds,
             "cycles": self.cycles, "steps": self.steps, "samples": self.replay.count,
             "episodes": self.episodes, "replay_size": len(self.replay), "device": self.device.type,
+            "camera_forward_m": self.course.camera_forward_m, "initialization": self.initialization,
+            "heading_lookahead_m": self.course.heading_lookahead_m,
+            "heading_sha256": self.heading_sha256,
             "last_loss": self.last_loss, "latest_evaluation": self.latest_evaluation,
             "best_validation": self.best_validation, "final_holdout": self.final_holdout,
             "holdout_state": self.holdout_state,
@@ -187,7 +235,7 @@ class Experiment:
     def metadata(self):
         root = self.course.route_path.parents[1]
         sources = [
-            self.course.route_path, self.course.groups_path, root / "assets/course-v3.zip",
+            self.course.route_path, self.course.groups_path, root / "assets/course-v3.zip", root / "mission/heading.py",
             *(self.course.mesh_dir / "meshes" / f"{name}.obj" for name in
               ("c1_chicane_wall", "c2b_chicane_wall", "c2a_chicane_wall_window")),
             *(Path(__file__).with_name(name) for name in ("sim.py", "policy.py", "train.py")),
@@ -195,18 +243,18 @@ class Experiment:
         atomic_json(self.output / "metadata.json", {
             "method": METHOD, "seed": self.args.seed, "max_seconds": self.args.max_seconds,
             "device": self.device.type, "torch_version": str(torch.__version__), "threads": self.args.threads,
+            "initialization": self.initialization,
             "trainable_parameters": sum(p.numel() for p in self.model.parameters()),
             "route": str(self.course.route_path.relative_to(root)),
             "route_sha256": sha256(self.course.route_path),
             "cad_source_sha256": self.course.groups["source_sha256"],
             "source_sha256": {str(path.relative_to(root)): sha256(path) for path in sources},
             "train_endpoint": "hover over launch through final landing-approach waypoint; no takeoff or touchdown",
-            "validation_cases": VALIDATION, "held_out_cases": HOLDOUT,
+            "validation_cases": self.validation_cases, "held_out_cases": self.holdout_cases,
             "case_fields": ["seed", "geometry_and_state_difficulty", "sensor_noise_multiplier"],
             "best_checkpoint_selection": "validation cases only; final held-out cases never select weights",
-            "depth": {"height": HEIGHT, "width": WIDTH, "horizontal_fov_degrees": HFOV_DEG,
-                      "max_range_m": MAX_DEPTH, "encoding": "1 - range / max_range",
-                      "assumptions": "forward pinhole ray cast; synthetic metric depth with noise and dropout"},
+            "depth": self.depth_spec(),
+            "heading_lookahead_m": self.course.heading_lookahead_m,
             "state": ["estimated heading-frame velocity m/s (xyz)", "estimated heading-frame goal vector m (xyz)",
                       "estimated roll and pitch in radians x5", "setpoint speed cap m/s"],
             "action": "three velocity setpoints in yaw-aligned FLU, metres/second; rotate to PX4 NED for transport",
@@ -223,6 +271,9 @@ class Experiment:
     def checkpoint(self, name):
         atomic_torch(self.output / name, {
             "format": 1, "architecture": "DepthPolicy", "model": self.model.state_dict(),
+            "camera_forward_m": self.course.camera_forward_m, "depth": self.depth_spec(), "state_size": 9,
+            "heading_lookahead_m": self.course.heading_lookahead_m,
+            "initialization": self.initialization,
             "selection_split": "validation" if name == "best.pt" else "latest_training_state",
             "steps": self.steps, "samples": self.replay.count, "cycles": self.cycles,
             "elapsed_seconds": time.monotonic() - self.start,
@@ -233,7 +284,7 @@ class Experiment:
     def collect(self, cutoff):
         self.phase = "collecting"
         self.status(force=True)
-        actor = cpu_model(self.model) if self.steps else None
+        actor = cpu_model(self.model) if self.steps or self.args.init_checkpoint is not None else None
         for episode in range(6):
             if self.interrupted(cutoff=cutoff):
                 return
@@ -315,7 +366,10 @@ class Experiment:
     def run(self):
         self.metadata()
         print(f"Training on the marker-free analytic CAD depth simulator ({self.device.type}); "
-              f"{METHOD}. Budget: {self.args.max_seconds:g} wall seconds.", flush=True)
+              f"{METHOD}. Budget: {self.args.max_seconds:g} wall seconds. "
+              f"Camera forward offset: {self.course.camera_forward_m:g} m. "
+              f"Heading lookahead: {self.course.heading_lookahead_m:g} m. "
+              f"Initialization: {self.initialization['mode']}.", flush=True)
         self.status(force=True)
         last_validation = self.start - self.args.eval_interval
         # On a five-hour run, reserve a small tail for separately seeded
@@ -335,7 +389,7 @@ class Experiment:
             if validate and not self.interrupted(cutoff=training_cutoff):
                 self.phase = "validating"
                 self.status(force=True)
-                evaluation = evaluate(self.course, cpu_model(self.model), VALIDATION,
+                evaluation = evaluate(self.course, cpu_model(self.model), self.validation_cases,
                                       lambda: self.interrupted(cutoff=training_cutoff))
                 if evaluation is not None:
                     self.latest_evaluation = evaluation["summary"]
@@ -360,7 +414,7 @@ class Experiment:
             self.status(force=True)
             best = DepthPolicy().eval()
             best.load_state_dict(torch.load(self.output / "best.pt", map_location="cpu", weights_only=True)["model"])
-            self.final_holdout = evaluate(self.course, best, HOLDOUT, self.interrupted)
+            self.final_holdout = evaluate(self.course, best, self.holdout_cases, self.interrupted)
             self.holdout_state = "complete" if self.final_holdout is not None else "interrupted"
             if self.final_holdout:
                 print("Held-out summary:", json.dumps(self.final_holdout["summary"]), flush=True)
@@ -377,15 +431,27 @@ def main():
     parser.add_argument("--max-seconds", type=float, default=18_000)
     parser.add_argument("--device", choices=("cpu", "mps"), default="cpu")
     parser.add_argument("--threads", type=int, default=2, help="PyTorch CPU threads")
-    parser.add_argument("--seed", type=int, default=41)
+    parser.add_argument("--seed", type=int, help="run seed (default 41, or 42 with a warm start)")
+    parser.add_argument("--init-checkpoint", type=Path,
+                        help="load compatible model weights into a fresh run with a new optimizer and replay")
+    parser.add_argument("--camera-forward", type=float, default=DEFAULT_CAMERA_FORWARD_M,
+                        help="forward camera offset from vehicle center, in metres (default: 0.08)")
+    parser.add_argument("--heading-lookahead", type=float, default=0.,
+                        help="turn toward the next route leg within this distance, in metres (0 disables)")
     parser.add_argument("--eval-interval", type=float, default=120, help="seconds between validation rounds")
     args = parser.parse_args()
+    if args.seed is None:
+        args.seed = DEFAULT_SEED + int(args.init_checkpoint is not None)
     if (not np.isfinite(args.max_seconds) or not 0 < args.max_seconds <= 18_000
             or not np.isfinite(args.eval_interval) or args.eval_interval <= 0
             or not 1 <= args.threads <= 8 or not 0 <= args.seed <= 2**32 - 1):
         parser.error("require 0 < max-seconds <= 18000, positive eval-interval, 1–8 threads and a uint32 seed")
     if args.device == "mps" and not torch.backends.mps.is_available():
         parser.error("PyTorch MPS is unavailable; use --device cpu")
+    if not 0 <= args.camera_forward < 1:
+        parser.error("--camera-forward must be in [0, 1) metres")
+    if not math.isfinite(args.heading_lookahead) or not (args.heading_lookahead == 0 or args.heading_lookahead > .3):
+        parser.error("--heading-lookahead must be zero (disabled) or greater than 0.3 metres")
     args.output.mkdir(parents=True, exist_ok=True)
     if any(args.output.iterdir()):
         parser.error("--output must be a new or empty directory")

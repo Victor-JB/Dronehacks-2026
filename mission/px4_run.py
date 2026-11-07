@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from .core import CourseController, ZERO
 from .px4_frames import camera_pose_to_px4, enu_to_ned, pose_covariance
+from .landing import LandingMonitor
 from vision.course import CAMERA_HEIGHT, CAMERA_RATE, CAMERA_WIDTH
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +34,7 @@ def px4_parameter_value(message):
 
 
 class Log:
-    def __init__(self, path, course, task):
+    def __init__(self, path, course, task, speed_scale=None):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.file = path.open('w', buffering=1)
         self.summary_path = path.with_suffix('.summary.json')
@@ -48,7 +49,8 @@ class Log:
                    camera_resolution_px=[CAMERA_WIDTH, CAMERA_HEIGHT],
                    camera_rate_hz=CAMERA_RATE,
                    task=task, waypoint_count=len(course['waypoints']),
-                   waypoints=course['waypoints'])
+                   waypoints=course['waypoints'], course_limits=course.get('limits', {}),
+                   speed_scale=speed_scale, footprint_radius=course.get('footprint_radius'))
 
     def write(self, **row):
         self.file.write(json.dumps(row, allow_nan=False, separators=(',', ':')) + '\n')
@@ -87,6 +89,8 @@ class Link:
         self.sim_usec_now = None
         self.timesync_responses = 0
         self.ready = False
+        self.landed_state = None
+        self.landed_state_sim_s = None
 
     def command(self, command, *params):
         values = list(params) + [0.0] * (7-len(params))
@@ -115,7 +119,7 @@ class Link:
                     self.log.event('PX4 heartbeat connected on container loopback')
             elif kind == 'LOCAL_POSITION_NED':
                 self.position, self.position_wall = msg, time.monotonic()
-                self.boot_s = msg.time_boot_ms / 1000.0
+                self.boot_s = max(self.boot_s, msg.time_boot_ms / 1000.0)
             elif kind == 'SYSTEM_TIME':
                 self.boot_s = max(self.boot_s, msg.time_boot_ms / 1000.0)
             elif kind == 'ATTITUDE':
@@ -123,6 +127,9 @@ class Link:
                 self.boot_s = max(self.boot_s, msg.time_boot_ms / 1000.0)
             elif kind == 'ESTIMATOR_STATUS':
                 self.estimator = msg
+            elif kind == 'EXTENDED_SYS_STATE':
+                self.landed_state = msg.landed_state
+                self.landed_state_sim_s = self.boot_s
             elif kind == 'TIMESYNC' and msg.tc1 == 0 and self.sim_usec_now is not None:
                 self.link.mav.timesync_send(int(self.sim_usec_now) * 1000, msg.ts1)
                 self.timesync_responses += 1
@@ -196,7 +203,7 @@ def run(args):
     course['limits']['state_timeout'] = 2.0
     course['limits']['max_yaw_rate'] = .4
     controller = CourseController(course, speed_scale=args.speed_scale)
-    log = Log(args.output, course, args.task)
+    log = Log(args.output, course, args.task, args.speed_scale)
     try:
         link = Link(log)
         vision = CameraWorker(Vision(output_dir=ROOT / 'artifacts/vision'))
@@ -220,6 +227,15 @@ def run(args):
     fault = None
     sent = 0
     blackout = False
+    finish_action = getattr(args, 'finish_action', 'hold')
+    landing = LandingMonitor(course['landing']['position'],
+                             getattr(args, 'pad_radius', .762),
+                             course['footprint_radius'],
+                             getattr(args, 'landing_timeout', 30.0))
+    last_land_request = None
+    route_time = None
+    log.event('Finish policy selected', finish_action=finish_action,
+              pad_radius_m=landing.pad_radius, aircraft_radius_m=landing.aircraft_radius)
     log.event('Waiting for image-derived pose and PX4 EKF2; GPS fusion must be disabled')
     try:
         while True:
@@ -278,6 +294,46 @@ def run(args):
                     break
             else:
                 phase = command.phase if command else 'TAKEOFF'
+                if landing.started is not None:
+                    p = enu_to_ned((position.x, position.y, position.z))
+                    ground_fresh = (link.landed_state_sim_s is not None and
+                                    0 <= sim_s-link.landed_state_sim_s <= 1.0)
+                    status, fault = landing.check(
+                        sim_s, p, armed=link.armed,
+                        on_ground=link.landed_state == link.m.MAV_LANDED_STATE_ON_GROUND,
+                        telemetry_fresh=link.telemetry_fresh(now) and ground_fresh)
+                    if status == 'failed':
+                        break
+                    if status == 'completed':
+                        completed = sim_s
+                        log.finish('completed', elapsed_sim_s=sim_s-start,
+                                   route_elapsed_sim_s=route_time, route_completed=True,
+                                   landed_and_disarmed=True, landing_position_enu=p,
+                                   pad_radius_m=landing.pad_radius,
+                                   aircraft_radius_m=landing.aircraft_radius,
+                                   waypoints_reached=controller.waypoint_index,
+                                   waypoint_count=len(controller.waypoints),
+                                   navigation_source='camera + PX4 EKF2',
+                                   vision_measurements_sent=sent,
+                                   simulator_position_used_for_control=False,
+                                   note='SITL ground/disarm and estimated pad containment; obstacle clearance not scored')
+                        log.event('PX4 confirmed touchdown and disarm inside the modeled pad')
+                        break
+                    if not camera_fresh:
+                        fault = 'camera_tracking_lost_during_landing'
+                        break
+                    if last_land_request is None or sim_s-last_land_request >= 2.0:
+                        link.command(link.m.MAV_CMD_NAV_LAND)
+                        last_land_request = sim_s
+                    # Stop all Offboard velocity messages during AUTO_LAND.
+                    if sim_s-last_log >= .1:
+                        last_log = sim_s
+                        log.write(type='sample', sim_time=sim_s, elapsed_sim_s=sim_s-start,
+                                  position=p, phase='AUTO_LAND', px4_armed=link.armed,
+                                  landed_state=link.landed_state, done=False,
+                                  waypoint_index=controller.waypoint_index)
+                    time.sleep(.002)
+                    continue
                 if not camera_fresh:
                     fault = 'camera_tracking_lost'
                     break
@@ -297,6 +353,12 @@ def run(args):
                         fault = command.fault
                         break
                     if command.done and completed is None:
+                        if finish_action == 'land':
+                            route_time = sim_s-start
+                            landing.start(sim_s)
+                            log.event('Route complete; requesting SITL AUTO_LAND',
+                                      route_elapsed_sim_s=route_time)
+                            continue
                         completed = sim_s
                         log.finish('completed', elapsed_sim_s=sim_s-start,
                                    route_completed=True,
@@ -305,6 +367,7 @@ def run(args):
                                    navigation_source='camera + PX4 EKF2',
                                    vision_measurements_sent=sent,
                                    simulator_position_used_for_control=False,
+                                   landed_and_disarmed=False,
                                    note='Estimator-based waypoint completion; collision/clearance not scored here')
                         log.event('Camera/PX4 mission reached final position hold')
                 if now-last_setpoint >= .04 and command:
@@ -373,6 +436,11 @@ def main():
     p.add_argument('--max-sim-seconds', type=float, default=240)
     p.add_argument('--blackout-after', type=float)
     p.add_argument('--exit-on-finish', action='store_true')
+    p.add_argument('--finish-action', choices=('hold', 'land'), default='hold',
+                   help='SITL only: land waits for ground/disarm and estimated pad containment')
+    p.add_argument('--pad-radius', type=float, default=.762,
+                   help='Modeled outer radius in metres; preliminary CAD pad is 5 ft across')
+    p.add_argument('--landing-timeout', type=float, default=30.0)
     raise SystemExit(run(p.parse_args()))
 
 
