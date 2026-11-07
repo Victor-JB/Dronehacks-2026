@@ -1,10 +1,15 @@
 /**:
   ros__parameters:
     use_sim_time: false
-    # skybeta publishes no depth image (only /oak/{left,right}/image_mono), and the
-    # mission refuses to fly without one. Set this once a depth source exists.
-    depth_topic: ""
-    depth_info_topic: ""
+    # On-device OAK stereo depth, enabled by the team image (skybeta_overrides/):
+    # 16UC1 millimetres, 320x200 after the OAK's 2x decimation, 30 Hz.
+    depth_topic: /oak/stereo/image_raw
+    depth_info_topic: /oak/stereo/camera_info
+    # refnav's depth defaults are sized for a 1280x800 image; this one is 4x smaller
+    # per side, so pixel counts scale by 1/4 and areas by 1/16.
+    depth_stride: 4             # was 8: keeps ~4000 sampled rays per frame
+    depth_border_px: 6          # was 24
+    min_obstacle_px: 75         # was 1200 (~35 x 35 px at 1280x800 -> ~9 x 9 px here)
     base_frame: base_link
     status_topic: /refnav/status
     # The pilot arms by hand: give them time after the mission reports READY.
