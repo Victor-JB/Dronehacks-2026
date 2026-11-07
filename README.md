@@ -1,8 +1,8 @@
 # dronehacks-sim
 
-A local Gazebo Harmonic simulation of the DroneHacks course. It includes an experimental PX4 SITL path that uses camera-localized mapped fiducials for navigation, plus a separate Gazebo ground-truth controller for comparison. The project is public at [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim); the simulation and viewer run on your machine.
+A local Gazebo Harmonic simulation of the DroneHacks course. The default world has **no artificial AprilTags**, matching the user's course constraint. Marker-free autonomous PX4 navigation is **not connected yet**. The current live view is a disarmed camera/course preview. The project is public at [machmoon/dronehacks-sim](https://github.com/machmoon/dronehacks-sim).
 
-## PX4 camera demo (recommended path)
+## Current course preview
 
 Install Docker CLI with Compose and [Colima](https://github.com/abiosoft/colima). From this directory, build and start the dedicated PX4 simulation once:
 
@@ -16,23 +16,44 @@ In another terminal, start the local viewer:
 ./web/run.sh
 ```
 
-Open the viewer at [http://localhost:8081](http://localhost:8081). To reset the PX4 simulation and run the full course in the background:
+Open the viewer at [http://localhost:8081](http://localhost:8081). After the initial build, start the course and raw camera preview with:
 
 ```sh
-./runtime/replay-px4.sh course
+./runtime/preview-marker-free.sh
 ```
 
-The replay helper also accepts `hover`. Follow progress with `tail -f artifacts/px4/mission.log`. Each replay recreates the simulation container, so use the helper for the next run instead of starting another mission with `docker exec` against an active run.
+The preview sends no flight commands and publishes no artificial pose. See [current status](docs/marker-free-status.md). The default flight replay refuses to run because its old estimator depends on markers that do not exist on the real course.
 
-To check camera-loss handling in a headless hover:
+## Five-hour Mac learning run
+
+The [learning experiment](learning/README.md) trains a small depth policy using supervised imitation and student rollouts. Its inputs are synthetic forward depth, simulated state estimates and a local waypoint. Training uses course geometry proxies; it does not run Gazebo or PX4 and has no real-camera validation.
+
+With a native Python environment containing NumPy and PyTorch, launch a bounded background run:
 
 ```sh
-SIM_GUI=0 ./runtime/replay-px4.sh hover --blackout-after 18
+python3 runtime/train_overnight.py --python /path/to/venv/bin/python --seconds 18000 --device mps
+```
+
+The viewer shows current training progress separately from the Gazebo preview. Results, source hashes, checkpoints and logs stay in `artifacts/learning/`. The supervisor prevents duplicate jobs, enforces the time cap, and keeps the Mac awake while training. Keep the Mac plugged in with its lid open. To stop and save the current checkpoint:
+
+```sh
+python3 runtime/train_overnight.py --stop
+```
+
+See the [competition references and SAND-O status](docs/competition-reuse.md) for the reusable projects investigated and their limits.
+
+## Historical marker-assisted diagnostic
+
+The following explicit opt-in recreates the earlier artificial-marker fixture. Its completed flights verify the PX4 external-vision connection, not navigation on the actual course:
+
+```sh
+SIM_TEST_MARKERS=1 ./runtime/replay-px4.sh course
+SIM_TEST_MARKERS=1 SIM_GUI=0 ./runtime/replay-px4.sh hover --blackout-after 18
 ```
 
 See [docs/px4-camera.md](docs/px4-camera.md) for the navigation architecture, verified results, and limitations. See [docs/vision.md](docs/vision.md) for camera calibration and marker-map details.
 
-## PX4 demo status and limits
+## Historical PX4 diagnostic results and limits
 
 Verified runs include a hover-height acquisition in 30.040 simulated seconds and a GUI run completing all 15 waypoints in 94.696 simulated seconds at 640×480 camera resolution. The camera-loss check stopped forwarding pose measurements at 18 simulated seconds while the vehicle was climbing at about 0.5 m; the route aborted 0.568 simulated seconds later, and PX4 reported landing and disarming. These runs confirm external-vision position, height, and yaw fusion with GNSS, barometer, range, and optical-flow fusion inactive. Waypoint completion uses PX4 estimated position; collisions and swept clearance were not scored. The native 480×360 camera run also completed all 15 waypoints in 96.376 simulated seconds. See [docs/px4-results.json](docs/px4-results.json) for the recorded runs.
 

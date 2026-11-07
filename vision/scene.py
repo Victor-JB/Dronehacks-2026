@@ -2,10 +2,10 @@
 
 import argparse
 from contextlib import ExitStack
+import os
 from pathlib import Path
+import sys
 import xml.etree.ElementTree as ET
-
-import cv2
 
 from .course import (
     CAMERA_HFOV, CAMERA_HEIGHT, CAMERA_PITCH, CAMERA_RATE, CAMERA_TOPIC,
@@ -29,6 +29,8 @@ def mesh_quad(stream, first, left, right, bottom, top, z):
 
 def marker_meshes(directory):
     """Render printable marker bit patterns as two batched colored meshes."""
+    import cv2
+
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
     make_bits = getattr(cv2.aruco, 'generateImageMarker', None) or cv2.aruco.drawMarker
     cells = 8  # 36h11's six data cells plus a black border cell on each side
@@ -113,7 +115,7 @@ def add_x500(world, launch_z):
     value(clip, 'far', 8)
 
 
-def generate(world_path, output_path, launch_z):
+def generate(world_path, output_path, launch_z, *, with_test_markers=False):
     tree = ET.parse(world_path)
     world = tree.getroot().find('world')
     view_pose = world.find('gui/plugin[@filename="MinimalScene"]/camera_pose')
@@ -143,7 +145,8 @@ def generate(world_path, output_path, launch_z):
         if system == 'Sensors':
             value(plugin, 'render_engine', 'ogre2')
     add_x500(world, launch_z)
-    add_markers(world, output_path.with_suffix('.assets'))
+    if with_test_markers:
+        add_markers(world, output_path.with_suffix('.assets'))
     ET.indent(tree, space='  ')
     tree.write(output_path, encoding='utf-8', xml_declaration=True)
 
@@ -154,8 +157,13 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--launch-z', type=float, default=0.0,
                         help='x500 model root launch height in metres (base_link is 0.24 m above)')
+    parser.add_argument('--with-test-markers', action='store_true',
+                        help='add synthetic AprilTags for diagnostics (also enabled by SIM_TEST_MARKERS=1)')
     args = parser.parse_args()
-    generate(args.world, args.output, args.launch_z)
+    with_test_markers = args.with_test_markers or os.environ.get('SIM_TEST_MARKERS') == '1'
+    if with_test_markers:
+        print('Adding synthetic AprilTag fixtures for diagnostic use.', file=sys.stderr)
+    generate(args.world, args.output, args.launch_z, with_test_markers=with_test_markers)
 
 
 if __name__ == '__main__':

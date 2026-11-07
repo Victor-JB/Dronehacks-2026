@@ -1,0 +1,21 @@
+# Competition code and the current experiment
+
+[Black Bee Drones' IMAV 2025 repository](https://github.com/Black-Bee-Drones/imav-2025) is the closest verified indoor competition reference. The team reports third place, with an autonomous tunnel-entry mission and moving-platform landing. Their system combines ROS 2, Isaac ROS visual SLAM, MAVROS, a RealSense D435i, and YOLOv11n gate/platform detection. Their gate behavior searches, confirms repeated detections, aligns to the detected opening and then crosses it. These are useful architecture and testing references for a course without added tags. Their aircraft uses ArduPilot, so the repository is not a drop-in PX4 controller. We have not imported its code or model weights or independently verified the placing.
+
+The team also publishes a [gate detector](https://huggingface.co/blackbeedrones/imav-2025-gate) and a [platform detector](https://huggingface.co/blackbeedrones/imav-2025-platform). Before using either, check its license and test it on the actual DroneHacks window and net footage. Detecting a competition gate does not demonstrate that a model can detect thin netting.
+
+[Ayush Choudhary's AndurilGP repository](https://github.com/ayushc121/AndurilGP) describes a DCL competition entry with camera/IMU navigation. Its README says the VQ2 camera-based system completed the course but was not fast enough to advance. It is a useful example of gate detection, estimation, and controller separation. It does not establish a top-30 result, physical indoor flight, or compatibility with this course.
+
+[TU Delft's optimal_quad_control_RL](https://github.com/tudelft/optimal_quad_control_RL) is an official control research release with trained policies. It addresses control rather than the complete perception and mission stack. It is not the algorithm running in this repository's overnight experiment.
+
+## SAND-O
+
+The supplied `~/DroneHacks/sando` checkout points to [MIT ACL's SAND-O](https://github.com/mit-acl/sando), at commit `3efb0f812ddb96b65c421697a4e630376fabeed2` when inspected. It has no built planner or saved demonstration trajectories, and its submodules are not initialized. No Gurobi runtime license was found in the configured or standard locations. Its ROS 2/Gurobi dependencies must be built and licensed before claiming that it generated a trajectory. Its local-trajectory benchmark can export CSV trajectories after a working build; the `/trajs` obstacle stream is not a teacher flight trajectory.
+
+SAND-O is a candidate source of planner demonstrations. The current training job does **not** use SAND-O: it uses a small privileged geometry teacher over analytic course proxies. That distinction is recorded in training metadata. The trained actor receives depth and estimated local motion/waypoint inputs, but the teacher has simulator geometry and state. A real deployment still needs a working state estimator, real depth inputs, frame conversion and flight-controller integration.
+
+## What tonight's scores mean
+
+The five-hour experiment uses DAgger-style supervised imitation, not Dreamer or world-model reinforcement learning. Checkpoint selection uses validation scenarios. Final evaluation uses separate random seeds on the same analytic course and includes sensor-noise stress cases; it is not a new-course or real-camera test. Completion, swept proxy collisions, window passage and simulated time are reported alongside a blind waypoint baseline, a blank-depth ablation, and the privileged teacher. A blank image is an out-of-distribution input, so that ablation alone does not prove reliable visual navigation.
+
+The next integration test is to feed the policy real simulated camera/depth and estimated-state messages, then evaluate it in Gazebo/PX4 with tags absent. No result from the analytic trainer establishes that this integration or sim-to-real transfer works.

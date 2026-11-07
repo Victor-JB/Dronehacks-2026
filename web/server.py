@@ -14,10 +14,42 @@ REPO = ROOT.parent
 TELEMETRY = REPO / "artifacts" / "gazebo" / "telemetry.jsonl"
 PX4_TELEMETRY = REPO / "artifacts" / "px4" / "telemetry.jsonl"
 VISION = REPO / "artifacts" / "vision"
+PREVIEW = REPO / "artifacts" / "preview"
+LEARNING = REPO / "artifacts" / "learning"
 VNC_URL = "http://127.0.0.1:8080/vnc.html?autoconnect=1&resize=scale"
 MAX_TAIL = 128 * 1024
 MAX_HEAD = 32 * 1024
 STALE_SECONDS = 3.0
+
+
+def read_json(path):
+    try:
+        row = json.loads(path.read_text())
+        return row if isinstance(row, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def training_state():
+    current = read_json(LEARNING / 'current.json')
+    if not current:
+        return {'state': 'not_started'}
+    directory = (LEARNING / current.get('run_directory', '')).resolve()
+    if not directory.is_relative_to(LEARNING.resolve()):
+        return {'state': 'invalid_run_path'}
+    status = read_json(directory / 'status.json') or {'state': 'starting'}
+    status['run_directory'] = str(directory)
+    status['launcher'] = current
+    status['status_age_s'] = (max(0, time.time() - (directory / 'status.json').stat().st_mtime)
+                              if (directory / 'status.json').exists() else None)
+    if status.get('state') in ('running', 'starting'):
+        if current.get('finished_at'):
+            status['state'] = 'stopped' if current.get('stop_reason') == 'user_stop' else 'failed'
+            status['error'] = 'Supervisor exited before a final trainer status was saved.'
+        elif status['status_age_s'] is not None and status['status_age_s'] > 60:
+            status['state'] = 'stale'
+            status['error'] = 'No recent trainer heartbeat; inspect the run log.'
+    return status
 
 
 def telemetry_path():
@@ -75,6 +107,19 @@ def read_summary_sidecar(path):
 
 def state():
     path = telemetry_path()
+    preview = read_json(PREVIEW / 'session.json')
+    if preview and preview.get('started_at', 0) > (path.stat().st_mtime if path.exists() else 0):
+        latest = read_json(PREVIEW / 'latest.json') or {}
+        if latest.get('session_started_at') != preview.get('started_at'):
+            latest = {}
+        age = max(0, time.time() - latest.get('updated_at', 0)) if latest else None
+        return {
+            'mode': 'preview', 'status': 'live' if age is not None and age < 3 else 'stale',
+            'metadata': preview, 'vision': latest, 'file_age_s': age,
+            'camera_url': '/preview-camera.jpg' if latest else None,
+            'labels': ['NO ARTIFICIAL TAGS', 'CAMERA PREVIEW', 'LOCALIZATION NOT CONNECTED'],
+            'sample': None, 'summary': None, 'training': training_state(),
+        }
     stat, head, tail = read_records(path)
     sample = next((r for r in reversed(tail) if r.get("type") == "sample" and
                    isinstance(r.get("position"), list) and len(r["position"]) >= 3), None)
@@ -123,6 +168,15 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_GET(self):
+        if urlparse(self.path).path == '/api/training':
+            body = json.dumps(training_state()).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if urlparse(self.path).path == "/api/state":
             body = json.dumps(state()).encode()
             self.send_response(200)
@@ -132,8 +186,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if urlparse(self.path).path == "/camera.jpg":
-            image = VISION / "camera.jpg"
+        if urlparse(self.path).path in ("/camera.jpg", "/preview-camera.jpg"):
+            image = (PREVIEW if urlparse(self.path).path == '/preview-camera.jpg' else VISION) / 'camera.jpg'
             if image.is_file():
                 body = image.read_bytes()
                 self.send_response(200)

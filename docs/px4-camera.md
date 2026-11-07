@@ -1,5 +1,7 @@
 # PX4 camera localization demo
 
+**Historical diagnostic:** this flight path requires artificial mapped markers that do not exist on the real course. They are now disabled by default. Use `runtime/preview-marker-free.sh` for the current preview. Set `SIM_TEST_MARKERS=1` only when explicitly reproducing this old fixture. Marker-free PX4 navigation remains pending.
+
 ## Start and replay
 
 On macOS with Docker Compose and Colima installed, run once from the repository directory to start the dedicated PX4 SITL stack and build its images:
@@ -17,14 +19,14 @@ In a separate terminal, start the local viewer:
 Open [http://localhost:8081](http://localhost:8081). The viewer selects the PX4 camera telemetry when that log is newer than the ground-truth log. To reset the container and start a background run, use:
 
 ```sh
-./runtime/replay-px4.sh hover
-./runtime/replay-px4.sh course
+SIM_TEST_MARKERS=1 ./runtime/replay-px4.sh hover
+SIM_TEST_MARKERS=1 ./runtime/replay-px4.sh course
 ```
 
 The helper writes mission output to `artifacts/px4/mission.log`; follow it with `tail -f artifacts/px4/mission.log`. It accepts extra mission arguments after the task. For a headless camera-loss check, cut pose forwarding after 18 simulated seconds:
 
 ```sh
-SIM_GUI=0 ./runtime/replay-px4.sh hover --blackout-after 18
+SIM_TEST_MARKERS=1 SIM_GUI=0 ./runtime/replay-px4.sh hover --blackout-after 18
 ```
 
 Replay recreates the simulation container. Use it to begin each run rather than starting another mission process in an active container.

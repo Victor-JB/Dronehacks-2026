@@ -2,6 +2,12 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if [[ ${SIM_TEST_MARKERS:-0} != 1 ]]; then
+    echo 'The existing flight controller requires artificial test markers and cannot navigate the real course.' >&2
+    echo 'Use ./runtime/preview-marker-free.sh for the current course. Marker-free flight is not connected yet.' >&2
+    echo 'For the historical diagnostic only: SIM_TEST_MARKERS=1 ./runtime/replay-px4.sh course' >&2
+    exit 2
+fi
 task=${1:-hover}
 if [[ "$task" != hover && "$task" != course ]]; then
     echo "Usage: $0 [hover|course] [mission options...]" >&2
