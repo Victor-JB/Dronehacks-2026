@@ -60,9 +60,14 @@ course geometry (walls/boulders/launch/landing) as plain constants if you need i
 deadlocks.** Two things had to change from the mission's default `Params`, both already baked into
 `route.json`'s `"params"` block:
 
-1. Default `Params` (`corridor_half_m=0.6`, `stop_m=0.9`) don't fit this maze -- real corridors run
-   ~1.07 m wide, so the default 0.6 m detection half-width clips the nearby wall immediately.
-   Tuned to `corridor_half_m: 0.4, stop_m: 0.35`.
+1. Default `Params` (`corridor_half_m=0.6`, `stop_m=0.9`) don't fit this maze -- they false-stop
+   on leg 3 ("obstacle 0.82 m ahead"); the detection window is wider/longer than the ~1 m corridors
+   and short legs allow. Tuned to `corridor_half_m: 0.4, stop_m: 0.35`.
+
+**Correction (2026-11-07):** local_sim had a bug -- it rendered every depth frame as if the drone
+launched from the course center (relative vs. absolute position mixup). Fixed; route still
+completes 26/26 and both param fixes are still needed, but earlier notes blaming "leg 1" were the
+bug talking. If you tuned anything against local_sim before this date, re-check it.
 2. Tightening those alone caused a deadlock: near the end of short legs, the look-ahead distance
    (`stop_m + lead_max_m`) pokes past where the leg ends into open space with nothing in range to
    confirm, so `min_corridor_coverage` isn't met and the mission holds in place forever (there's no
@@ -80,6 +85,10 @@ airframe span once the kit's in hand and recheck leg 17 specifically. Full write
 `local_sim/README.md`.
 
 ## Flight visualizations
+
+**`diagrams/course-run-3d.mp4`** -- the shareable one: 1080p ray-traced 3D chase-cam video of the
+local_sim run with FPV, depth feed, point cloud, minimap, telemetry, mission log. Regenerate with
+`cd local_sim && python3 render3d.py ../route.json ../diagrams/course-run-3d.mp4` (~10 min).
 
 Two separate HTML replays -- don't confuse them, they show different things:
 

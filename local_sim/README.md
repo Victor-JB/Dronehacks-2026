@@ -26,16 +26,35 @@ NVIDIA/CUDA-only and cannot run on this machine at all** — there's no way to l
 that part regardless of Docker/emulation. Treat this as a decision-logic and geometry check, not
 a flight-readiness check.
 
+## Bug fixed 2026-11-07: depth camera was rendered from the wrong place
+Until this date `sim.run` passed the drone's position *relative to home* to the depth ray-caster,
+but the obstacle segments are in *absolute* course coordinates -- so every depth frame was
+rendered as if the drone had launched from the center of the course instead of the launch mark.
+The ground-truth clearance check was always correct; the mission's depth-based safety logic was
+being tested against misplaced walls. Also fixed: depth-model walls started 18 cm above the floor.
+After both fixes `route.json` still completes 26/26 with zero obstacle stops/holds, and both
+param fixes below are still required (re-verified), but the explanation of fix 1 changed.
+
+## 3D flight video
+```
+python3 render3d.py ../route.json ../diagrams/course-run-3d.mp4
+```
+Ray-traced (pure numpy, no GPU) chase-cam video of the run: modeled quad, the real course, plus
+FPV camera, the actual depth frames the mission was handed, depth point cloud / pseudo-LiDAR,
+minimap, telemetry and the mission's own event log. ~10 min on 12 cores; `ONLY_FRAME=400
+python3 render3d.py ../route.json still.png` renders one still. Roll/pitch are derived from the
+trajectory's acceleration; the flight model is still the kinematic one above.
+
 ## Status: route.json completes all 26 legs (2026-11-06)
 `python3 sim.py ../route.json` now returns `result: complete`, 26/26 legs, no false stops, no
 deadlocks. Getting here took two separate fixes, both baked into `route.json`'s `params`:
 
-1. **Default `Params` false-stop on leg 1.** `corridor_half_m` defaults to 0.6 m, but the real
-   first corridor (net wall to the M1 divider) is only ~1.07 m wide -- the flight path's center
-   line sits ~0.53 m from each wall, inside the default 0.6 m detection half-width. A real
-   geometric fact from the published course, not a rendering artifact: flying this maze at all
-   needs `corridor_half_m`/`stop_m` tuned down to match the actual corridor widths. Settled on
-   `corridor_half_m: 0.4, stop_m: 0.35`.
+1. **Default `Params` false-stop in the maze.** With the defaults (`corridor_half_m` 0.6,
+   `stop_m` 0.9) the mission lands on leg 3 ("obstacle 0.82 m ahead"): the 0.6 m detection
+   half-width and 0.9 m stop distance are wider/longer than this maze's ~1 m corridors and short
+   legs allow, so walls beside or just past the end of a leg read as blocking it. Settled on
+   `corridor_half_m: 0.4, stop_m: 0.35`. (An earlier version of this note blamed leg 1; that was
+   an artifact of the depth-placement bug below.)
 
 2. **Tightening those alone caused a deadlock.** With a smaller `corridor_half_m`, the mission
    would hold position indefinitely partway through a leg, unable to confirm the corridor ahead.

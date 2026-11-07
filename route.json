@@ -34,7 +34,7 @@
     "stop_m": 0.35,
     "lead_max_m": 0.2,
     "min_corridor_coverage": 0.15,
-    "_param_note": "Defaults (corridor_half_m 0.6, stop_m 0.9) assume corridors wider than this maze actually has (~1.07m) and false-stop on leg 1. min_corridor_coverage was lowered from the 0.6 default because a level, non-tilted camera gets little/no depth return down genuinely open stretches of this small course -- a real fix would angle the camera down slightly (allowed by rule 3.2) to get a steadier floor return instead of relying on this looser threshold. See local_sim/README.md.",
+    "_param_note": "Defaults (corridor_half_m 0.6, stop_m 0.9) are wider/longer than this maze's ~1m corridors and short legs allow, and false-stop on leg 3 in local_sim. min_corridor_coverage was lowered from the 0.6 default because a level, non-tilted camera gets little/no depth return down genuinely open stretches of this small course -- a real fix would angle the camera down slightly (allowed by rule 3.2) to get a steadier floor return instead of relying on this looser threshold. See local_sim/README.md.",
     "_vault_note": "Rohan's wall-vault maneuver (refnav/core.py) is in this branch but left OFF here (vault_on_obstacle defaults to false) -- it climbs over a wall instead of stopping, which costs rule 7.7's 15%-credit penalty if triggered mid-maze. Looks built for the optional return-over-the-barrier bonus (rule 7.10), not for in-maze obstacle handling. Opt in deliberately per-run, don't flip this on globally without the team agreeing it's for the return leg specifically."
   }
 }

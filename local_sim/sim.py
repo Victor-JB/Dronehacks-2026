@@ -61,7 +61,7 @@ def render_depth(pos_ned, yaw, segs):
             t = (sn * qe - qn * se) / denom
             svals = (rn * qe - qn * re) / denom
             p_d = o[2] + t * rd
-            hit = (t > 0) & (svals >= 0) & (svals <= 1) & (p_d <= 0) & (p_d >= -height)
+            hit = (t > 0) & (svals >= 0) & (svals <= 1) & (p_d <= FLOOR_D) & (p_d >= FLOOR_D - height)
             best = np.where(hit, np.minimum(best, t), best)
     best[~np.isfinite(best)] = np.nan
     return best.astype(np.float32)
@@ -114,7 +114,9 @@ def load_route(path):
     return route, params
 
 
-def run(route_path, seconds=180.0, dt=0.05, depth_hz=7.5):
+def run(route_path, seconds=180.0, dt=0.05, depth_hz=7.5, trace=None):
+    """trace: optional list; if given, one dict per tick is appended (full pose, yaw, PX4 state,
+    mission events, and the depth image the mission was handed that tick, if any)."""
     route, params_doc = load_route(route_path)
     prm = C.Params(route=route)
     for k, v in vars(C.Params()).items():
@@ -129,6 +131,7 @@ def run(route_path, seconds=180.0, dt=0.05, depth_hz=7.5):
     # (the launch mark faces into the first corridor, course +y -- confirmed, see local_sim/README.md)
     px4 = FakePX4(pos=(0.0, 0.0, 0.0), yaw=0.0)
     segs = segments()
+    home_ne = np.array([*course_to_ne(*LAUNCH_XY), 0.0])
     log = []
     worst_clearance = math.inf
     worst_at = None
@@ -136,11 +139,16 @@ def run(route_path, seconds=180.0, dt=0.05, depth_hz=7.5):
     t, next_depth = 0.0, 0.0
     while t < seconds and m.phase != "done":
         m.on_health(t, True)
+        img = None
         if t >= next_depth:
-            img = render_depth(px4.pos, px4.yaw, segs)
+            # px4.pos is relative to home; the obstacle segments are in absolute course NED
+            img = render_depth(px4.pos + home_ne, px4.yaw, segs)
             m.on_depth(t, img, K, R_BODY_CAM, T_BODY_CAM, q_yaw(px4.yaw), now=t)
             next_depth = t + 1.0 / depth_hz
         out = m.step(t, px4.vehicle())
+        if trace is not None:
+            trace.append(dict(t=t, pos=tuple(px4.pos), yaw=px4.yaw, armed=px4.armed, nav=px4.nav,
+                              phase=m.phase, legs_done=m.legs_done, events=list(out.events), depth=img))
         # ground truth: course-frame position = launch mark + (e, n) offset from home
         cx, cy = LAUNCH_XY[0] + px4.pos[1], LAUNCH_XY[1] + px4.pos[0]
         clr = nearest_obstacle_dist(cx, cy) - DRONE_RADIUS_M
