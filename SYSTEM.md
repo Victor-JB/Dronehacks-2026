@@ -147,14 +147,30 @@ pilot's Position switch can hand over; gives up after `arm_wait_s` 120 s) -> `cl
   by the next one.
 
 **Current route:** `route.json` is the course: 14 legs from the launch mark through the maze, Gate A,
-the tunnel, the chicane and the window to the pad, at 0.9 m and 0.4 m/s. **Take off on the launch mark
-facing the course's +Y**: the route is in the takeoff frame, so a heading error rotates all of it.
-Its params turn on three refnav options (all off by default): `slow_m` (the carrot slows near an
-obstacle and never enters `stop_m`), `blocked_wait_s` (hold up to 4 s for an obstacle to clear before
-ending), and `clear_past_leg_m` (a wall just past a corner waypoint is planned geometry, not an
-obstacle; without it the route ends at the first corner). `corridor_half_m` is 0.35: the maze leaves
-~5 cm beside the drone, so the corridor watches what is ahead, not the walls the route skims. For a
-first flight use a plain hover: `{"route": [], "params": {"explore": false, "height_m": 1.0, "hover_s": 5.0}}`.
+the tunnel, the chicane and the window to the pad, at **1.15 m** and 0.4 m/s. The waypoints are fitted to
+the **2026-11-06 point scan** of the real course (`sim/scan/fit_route_to_scan.py` on `victor/sim-course-scan`),
+not the CAD: in the real course m2, m3 and a1 sit 0.3-0.8 m from their CAD positions, and the CAD route
+would hit walls on legs 3-7. The window opening is 0.88-1.52 m high (CAD: 0.30-1.22), hence 1.15 m.
+**Take off on the launch mark facing the course's +Y**: the route is in the takeoff frame, so a heading
+error rotates all of it.
+
+Its params turn on three refnav options (all off by default): `slow_m` (the carrot slows near an obstacle
+and never enters `stop_m`), `blocked_wait_s` (hold up to 4 s for an obstacle to clear before ending), and
+`clear_past_leg_m` (a wall just past a corner waypoint is planned geometry; the nearest one is 0.34 m past
+its waypoint). `corridor_half_m` 0.30 and `stop_m` 0.45 are sized for the Sky Beta (props reach ~0.29 m
+from its centre); every leg's side clearance is >= 0.33 m, so side walls stay outside the watched corridor.
+
+**Check on site before flying the route** (the scan cannot tell these apart):
+1. A thin panel ~0.38 m wide, 0.2-1.8 m tall, about 0.25 m south of the launch mark (barrier_1 placed
+   further north than the CAD?). Within prop reach of a straight climb from the mark.
+2. Something small (~16 cm) in the middle of the window opening at ~1.1 m: tape, a crossbar or scan
+   noise. If real, the mission holds and lands at the window. If not, add it to `EXCLUDE` in the script.
+3. A person-shaped column in the maze at about (-1.6, 2.4) in course coordinates was left out as
+   someone standing in the course during the scan. If it is a fixed object, the north maze corridor is
+   too narrow for the drone.
+4. c2b (a chicane wall) is not in the scan; the route still avoids its CAD position.
+
+For a first flight use a plain hover: `{"route": [], "params": {"explore": false, "height_m": 1.0, "hover_s": 5.0}}`.
 
 `/refnav/status` (JSON, 2 Hz) reports the phase, why it is waiting, depth age/coverage, rejects,
 `motion_check` and `frozen_enu`.
