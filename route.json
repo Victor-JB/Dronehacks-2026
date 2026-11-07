@@ -1,1 +1,11 @@
-{"route": [], "params": {"explore": true}}
+{
+  "route": [],
+  "params": {
+    "height_m": 1.2,
+    "speed_mps": 0.6,
+    "stop_m": 0.9,
+    "yaw_rate_dps": 45.0,
+    "arrive_m": 0.3,
+    "explore": true
+  }
+}

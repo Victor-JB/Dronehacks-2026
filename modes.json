@@ -11,16 +11,31 @@
     "1": {
       "name": "vio_explore",
       "route": [],
-      "params_override": { "explore": true }
+      "params_override": {
+        "explore": true
+      }
     },
     "2": {
       "name": "hardcode_maze",
-      "params_override": { "explore": false },
+      "params_override": {
+        "explore": false
+      },
       "route": []
     },
     "3": {
       "name": "hover_test",
-      "params_override": { "explore": false, "hover_s": 5.0 },
+      "params_override": {
+        "explore": false,
+        "hover_s": 5.0
+      },
+      "route": []
+    },
+    "4": {
+      "name": "pixhawk_only",
+      "params_override": {
+        "explore": false,
+        "require_depth": false
+      },
       "route": []
     }
   }
