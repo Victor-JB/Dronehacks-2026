@@ -41,11 +41,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from . import depth as D
 
 NAV_OFFBOARD = 14
 NAV_AUTO_LAND = 18
-AIRBORNE = ("climb", "hover", "turn", "check", "go", "hold", "explore")
+AIRBORNE = ("climb", "hover", "turn", "check", "go", "hold", "explore",
+            "vault_find", "vault_approach", "vault_climb", "vault_cross", "vault_descend", "vault_settle")
 
 
 @dataclass
@@ -92,6 +95,16 @@ class Params:
     arm_wait_s: float = 30.0                    # READY but not in Offboard this long: give up (0: never)
     cmd_resend_s: float = 1.0
     land_timeout_s: float = 60.0
+    vault_only: bool = False                    # after climb/hover, find wall ahead (even above a bottom gap), climb over, cross, and land
+    vault_on_obstacle: bool = False             # when blocked by an obstacle on a route leg, vault over it instead of stopping
+    vault_detect_max_m: float = 3.5             # max distance ahead to lock onto a wall during vault_find
+    vault_standoff_m: float = 1.2               # distance in front of the wall to hold before climbing over it
+    vault_climb_margin_m: float = 0.45          # vertical clearance buffer above the top edge of the wall
+    vault_overstep_m: float = 1.2               # distance past the wall face to fly before descending/landing
+    vault_max_alt_m: float = 2.8                # maximum flight altitude ceiling (under skybeta's 3.0 m envelope)
+    vault_descend_alt_m: float = 0.6            # altitude to descend to on the far side before landing (0: skip descend)
+    vault_climb_rate_mps: float = 0.4           # vertical climb/descent rate during vault
+    vault_speed_mps: float = 0.5                # horizontal speed during vault
 
 
 @dataclass
@@ -203,6 +216,11 @@ class Mission:
         self.land_request = None      # why an outside landing request was made (request_land), until acted on
         self.depth_reject = None      # (key, detail): why the latest refused depth frame was refused
         self.last_valid_frac = None   # fraction of pixels returning depth in the latest decoded frame
+        self.vault_target = None      # far-side (North, East) landing target coordinate for wall vault
+        self.vault_wall_dist = None   # horizontal distance to the detected wall face during vault
+        self._vault_seen_n = 0        # consecutive frames confirming the wall during vault_find
+        self._vault_clear_n = 0       # consecutive frames confirming clearance above the wall during vault_climb
+        self._vault_judged_t = None   # latest depth stamp evaluated by _vault
 
     def request_land(self, why="requested"):
         """An outside request to end the flight through the mission's own landing (no second controller)."""
@@ -437,6 +455,8 @@ class Mission:
             self._go(now, dt, out, v)
         elif ph == "explore":
             self._explore(now, dt, out, v)
+        elif ph in ("vault_find", "vault_approach", "vault_climb", "vault_cross", "vault_descend", "vault_settle"):
+            self._vault(now, dt, out, v)
         elif ph == "hold":
             if now - self.t_phase >= p.hold_s:
                 self.legs_done += 1
@@ -450,7 +470,7 @@ class Mission:
                 out.commands.append("land")
             if self.land_auto_seen and v.armed is False:
                 why = self.land_reason or ""
-                self._end(now, out, "complete" if why == "route complete" else f"landed: {why}")
+                self._end(now, out, "complete" if why in ("route complete", "vault complete") else f"landed: {why}")
             elif now - self.t_phase > p.land_timeout_s:
                 self._end(now, out, f"landed: {self.land_reason}; landing not confirmed within {p.land_timeout_s:.0f} s")
 
@@ -460,7 +480,19 @@ class Mission:
         out.stream = self.phase in ("arm",) + AIRBORNE or (self.phase == "land" and not self.land_auto_seen)
         return out
 
+    def _start_vault(self, now, out, phase="vault_find", dist=None, why="initiating wall vault"):
+        self.vault_wall_dist = dist
+        self._vault_seen_n = 0
+        self._vault_clear_n = 0
+        self._vault_judged_t = None
+        self.last_clearance, self._judged_t = dist, None
+        self._set(phase, now, out, why)
+
     def _next_leg(self, now, out, v):
+        if self.p.vault_only and self.phase in ("climb", "hover"):
+            self.leg_heading = self.home[3] if self.home is not None else v.heading
+            self._start_vault(now, out, "vault_find", None, "climbing to detect wall above bottom gap")
+            return
         if self.p.explore and self.phase in ("climb", "hover"):
             self.explore_h, self.last_clearance, self._judged_t = None, None, None
             self._set("explore", now, out, "following open space")
@@ -512,14 +544,19 @@ class Mission:
 
     def _blocked(self, now, out, v, clr, where):
         """An obstacle nearer than stop_m: hold where the aircraft is for up to blocked_wait_s
-        (it may clear: a person walking through), then end the route. True = ended."""
+        (it may clear: a person walking through), then end the route (or vault over it if
+        vault_on_obstacle is enabled). True = ended/vaulting."""
         p = self.p
         self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
         if self.blocked_t is None:
             self.blocked_t = now
             self.counts["obstacle_stops"] += 1
         if now - self.blocked_t >= p.blocked_wait_s:
-            self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead {where} {self.leg + 1}")
+            if p.vault_on_obstacle:
+                next_ph = "vault_approach" if clr > p.vault_standoff_m + 0.05 else "vault_climb"
+                self._start_vault(now, out, next_ph, clr, f"wall detected at {clr:.2f} m, initiating vault")
+            else:
+                self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead {where} {self.leg + 1}")
             return True
         self.why = f"holding: obstacle {clr:.2f} m ahead, {now - self.blocked_t:.1f}/{p.blocked_wait_s:g} s"
         return False
@@ -600,10 +637,184 @@ class Mission:
             self.sp[0] += dn / dist * mv
             self.sp[1] += de / dist * mv
 
+    def _vault_wall_distance(self, v, upper_band_m=None):
+        """Distance to the nearest obstacle in the forward corridor from the latest depth frame.
+        When upper_band_m is None, uses +-band_m around the aircraft's current height; otherwise
+        checks z_down in [-upper_band_m, +band_m] so an elevated wall above a bottom gap can also
+        be seen while climbing."""
+        p = self.p
+        if self.depth_pts is None or len(self.depth_pts) == 0:
+            return math.inf
+        ref_h = self.leg_heading if self.leg_heading is not None else v.heading
+        bearing = _wrap(ref_h - v.heading)
+        c, s = math.cos(bearing), math.sin(bearing)
+        pts = self.depth_pts
+        along = pts[:, 0] * c + pts[:, 1] * s
+        across = -pts[:, 0] * s + pts[:, 1] * c
+        z_hi = p.band_m
+        z_lo = -p.band_m if upper_band_m is None else -float(upper_band_m)
+        # Ignore floor returns when scanning: anything within 0.25 m of home[2] (ground) is floor
+        if self.home is not None and v.pos is not None:
+            floor_down = (self.home[2] - 0.25) - v.pos[2]
+            z_hi = min(z_hi, floor_down)
+        sel = (along > 0.3) & (np.abs(across) < p.corridor_half_m) & (pts[:, 2] >= z_lo) & (pts[:, 2] <= z_hi)
+        hits = max(3, round(p.min_obstacle_px / p.depth_stride ** 2))
+        d = np.sort(along[sel])
+        return float(d[hits - 1]) if len(d) >= hits else math.inf
+
+    def _vault(self, now, dt, out, v):
+        """Maneuver to identify a wall in front of the aircraft (even when there is an empty gap
+        beneath the wall at low altitude), climb until above the wall's top edge, fly forward over
+        it, descend, and land on the far side."""
+        p = self.p
+        ph = self.phase
+        ref_heading = self.leg_heading if self.leg_heading is not None else v.heading
+        self.sp[3] = ref_heading
+        ceiling_d = self.home[2] - p.vault_max_alt_m
+        new_frame = self.depth_fresh(now) and self.depth_t is not None and self._vault_judged_t != self.depth_t
+
+        if ph == "vault_find":
+            # Hold horizontal position and climb out of any bottom gap until the wall is confirmed
+            # in the horizontal band ahead of the aircraft.
+            if new_frame:
+                self._vault_judged_t = self.depth_t
+                d_band = self._vault_wall_distance(v)
+                self.last_clearance = d_band
+                if d_band <= p.vault_detect_max_m:
+                    self._vault_seen_n += 1
+                    self.vault_wall_dist = d_band if self.vault_wall_dist is None else min(self.vault_wall_dist, d_band)
+                else:
+                    self._vault_seen_n = 0
+            if self._vault_seen_n >= max(1, p.confirm_frames):
+                d_w = self.vault_wall_dist
+                self.sp[2] = v.pos[2]
+                if d_w > p.vault_standoff_m + 0.15:
+                    self._set("vault_approach", now, out,
+                              f"wall identified {d_w:.2f} m ahead at height {self.home[2] - v.pos[2]:.2f} m; approaching to {p.vault_standoff_m:.2f} m")
+                else:
+                    self._vault_clear_n = 0
+                    self._set("vault_climb", now, out,
+                              f"wall identified {d_w:.2f} m ahead at height {self.home[2] - v.pos[2]:.2f} m; climbing above wall")
+                return
+            if self.sp[2] <= ceiling_d and abs(v.pos[2] - ceiling_d) < p.climb_tol_m:
+                self._land(now, out, "abort: no wall found below maximum flight ceiling")
+                return
+            self.sp[2] = max(ceiling_d, self.sp[2] - p.vault_climb_rate_mps * dt)
+
+        elif ph == "vault_approach":
+            # Advance at the height where the wall was seen until within vault_standoff_m of the wall.
+            if not self.depth_fresh(now):
+                self.counts["depth_holds"] += 1
+                return
+            if new_frame:
+                self._vault_judged_t = self.depth_t
+                d_band = self._vault_wall_distance(v)
+                self.last_clearance = d_band
+                if math.isfinite(d_band):
+                    self.vault_wall_dist = d_band
+            d_w = self.vault_wall_dist
+            if d_w is not None and d_w <= p.vault_standoff_m:
+                self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
+                self._vault_clear_n = 0
+                self._set("vault_climb", now, out, f"standoff reached ({d_w:.2f} m), climbing above wall")
+                return
+            un, ue = math.cos(ref_heading), math.sin(ref_heading)
+            step = p.vault_speed_mps * dt
+            # Keep carrot within lead_max_m of vehicle
+            lead_n = (self.sp[0] - v.pos[0]) * un + (self.sp[1] - v.pos[1]) * ue
+            if lead_n < p.lead_max_m:
+                self.sp[0] += un * step
+                self.sp[1] += ue * step
+
+        elif ph == "vault_climb":
+            # Climb vertically in place until the wall at vault_wall_dist drops below vault_climb_margin_m
+            # for confirm_frames consecutive depth frames.
+            self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
+            if new_frame:
+                self._vault_judged_t = self.depth_t
+                hits = max(3, round(p.min_obstacle_px / p.depth_stride ** 2))
+                bearing = _wrap(ref_heading - v.heading)
+                c, s = math.cos(bearing), math.sin(bearing)
+                pts = self.depth_pts if self.depth_pts is not None else np.empty((0, 3))
+                if len(pts):
+                    along = pts[:, 0] * c + pts[:, 1] * s
+                    across = -pts[:, 0] * s + pts[:, 1] * c
+                    dist_max = (self.vault_wall_dist or p.vault_standoff_m) + 0.6
+                    # Any obstacle point near the wall that is above +vault_climb_margin_m (down) means
+                    # we have not yet cleared the top of the wall by vault_climb_margin_m.
+                    in_wall_band = ((along > 0.25) & (along < dist_max)
+                                    & (np.abs(across) < p.corridor_half_m)
+                                    & (pts[:, 2] < p.vault_climb_margin_m)
+                                    & (pts[:, 2] > -p.band_m))
+                    blocking = int(in_wall_band.sum()) >= hits
+                    # Update wall distance if still visible in the band or below us
+                    wall_col = (along > 0.25) & (along < dist_max) & (np.abs(across) < p.corridor_half_m)
+                    if int(wall_col.sum()) >= hits:
+                        self.vault_wall_dist = float(np.sort(along[wall_col])[hits - 1])
+                else:
+                    blocking = False
+                self.last_clearance = self._vault_wall_distance(v)
+                if not blocking:
+                    self._vault_clear_n += 1
+                else:
+                    self._vault_clear_n = 0
+
+            if self._vault_clear_n >= max(1, p.confirm_frames):
+                # Hold the cleared altitude (clamped to ceiling_d) and traverse forward over the wall
+                self.sp[2] = max(ceiling_d, v.pos[2])
+                cross_dist = (self.vault_wall_dist or p.vault_standoff_m) + p.vault_overstep_m
+                un, ue = math.cos(ref_heading), math.sin(ref_heading)
+                self.vault_target = (v.pos[0] + un * cross_dist, v.pos[1] + ue * cross_dist)
+                self._set("vault_cross", now, out,
+                          f"cleared wall top at height {self.home[2] - v.pos[2]:.2f} m; crossing {cross_dist:.2f} m forward")
+                return
+            if self.sp[2] <= ceiling_d and abs(v.pos[2] - ceiling_d) < p.climb_tol_m:
+                self._land(now, out, "abort: wall exceeds maximum flight ceiling")
+                return
+            self.sp[2] = max(ceiling_d, self.sp[2] - p.vault_climb_rate_mps * dt)
+
+        elif ph == "vault_cross":
+            if not self.depth_fresh(now):
+                self.counts["depth_holds"] += 1
+                return
+            tn, te = self.vault_target
+            dn, de = tn - v.pos[0], te - v.pos[1]
+            dist_remaining = math.hypot(dn, de)
+            if dist_remaining < p.arrive_m:
+                self.sp[0], self.sp[1] = tn, te
+                if p.vault_descend_alt_m > 0:
+                    self._set("vault_descend", now, out,
+                              f"crossed wall; descending to {p.vault_descend_alt_m:.2f} m before landing")
+                else:
+                    self._set("vault_settle", now, out, "arrived at far side, stabilizing before landing")
+            else:
+                un, ue = dn / dist_remaining, de / dist_remaining
+                step_sp = math.hypot(tn - self.sp[0], te - self.sp[1])
+                lead = (self.sp[0] - v.pos[0]) * un + (self.sp[1] - v.pos[1]) * ue
+                mv = min(step_sp, p.vault_speed_mps * dt, max(0.0, p.lead_max_m - lead))
+                self.sp[0] += un * mv
+                self.sp[1] += ue * mv
+
+        elif ph == "vault_descend":
+            if self.vault_target:
+                self.sp[0], self.sp[1] = self.vault_target[0], self.vault_target[1]
+            target_d = self.home[2] - p.vault_descend_alt_m
+            self.sp[2] = min(target_d, self.sp[2] + p.vault_climb_rate_mps * dt)
+            if self.sp[2] >= target_d - 1e-9 and abs(v.pos[2] - target_d) < p.climb_tol_m:
+                self._set("vault_settle", now, out, "descended on far side, stabilizing before landing")
+
+        elif ph == "vault_settle":
+            if self.vault_target:
+                self.sp[0], self.sp[1] = self.vault_target[0], self.vault_target[1]
+            if now - self.t_phase >= 1.0:
+                self._land(now, out, "vault complete")
+
     def status(self, now):
         return {"phase": self.phase, "why": self.why, "result": self.result, "started_t": self.t_started, "leg": self.leg,
                 "legs": len(self.targets), "legs_done": self.legs_done, "home": self.home,
                 "targets": [list(t) for t in self.targets], "setpoint": list(self.sp) if self.sp else None,
+                "vault_target": list(self.vault_target) if self.vault_target else None,
+                "vault_wall_dist": None if self.vault_wall_dist is None else round(self.vault_wall_dist, 2),
                 "clearance_m": (None if self.last_clearance is None or math.isinf(self.last_clearance)
                                 else round(self.last_clearance, 2)),
                 "depth_age_s": None if self.depth_t is None else round(now - self.depth_t, 3),
@@ -611,5 +822,5 @@ class Mission:
                 "corridor_coverage": None if self.last_coverage is None else round(self.last_coverage, 2),
                 "depth_valid_frac": None if self.last_valid_frac is None else round(self.last_valid_frac, 3),
                 "depth_reject": None if self.depth_reject is None else self.depth_reject[1],
-                "health_bad_s": (None if math.isinf(self.health.bad_for(now)) else round(self.health.bad_for(now), 2)),
+                "health_bad_s": (None if math.isinf(self.health.bad_for(now)) else round(self.health.health_bad_s if hasattr(self.health, "health_bad_s") else self.health.bad_for(now), 2)),
                 **self.counts}

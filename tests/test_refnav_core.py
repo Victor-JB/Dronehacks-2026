@@ -26,8 +26,8 @@ def q_yaw(yaw):
 
 def render_depth(pos_ned, yaw, walls):
     """Depth (m, NaN = no return) seen by the forward camera of a level aircraft at pos_ned/yaw.
-    walls: [(axis, value, lo, hi)] vertical planes, axis 0 = n = value, axis 1 = e = value,
-    extending lo..hi along the other horizontal axis and from the floor (d = 0) up to d = -2.5."""
+    walls: [(axis, value, lo, hi[, top_d[, bot_d]])] vertical planes, axis 0 = n = value, axis 1 = e = value,
+    extending lo..hi along the other horizontal axis and from bot_d (default 0, floor) up to top_d (default -2.5)."""
     vs, us = np.mgrid[0:H, 0:W].astype(np.float64)
     d_opt = np.stack([(us - K[2]) / K[0], (vs - K[3]) / K[1], np.ones_like(us)], -1)
     d_flu = d_opt @ R_BODY_CAM.T
@@ -40,11 +40,14 @@ def render_depth(pos_ned, yaw, walls):
     with np.errstate(divide="ignore", invalid="ignore"):
         tf = (FLOOR_D - o[2]) / d_ned[..., 2]               # the floor, 0.18 m below the body when landed
         best = np.where((tf > 0), np.minimum(best, tf), best)
-        for axis, val, lo, hi in walls:
+        for w in walls:
+            axis, val, lo, hi = w[:4]
+            top_d = w[4] if len(w) > 4 else -2.5
+            bot_d = w[5] if len(w) > 5 else 0.0
             t = (val - o[axis]) / d_ned[..., axis]
             p = o + d_ned * t[..., None]
             other = p[..., 1 - axis]
-            hit = (t > 0) & (other >= lo) & (other <= hi) & (p[..., 2] <= 0) & (p[..., 2] >= -2.5)
+            hit = (t > 0) & (other >= lo) & (other <= hi) & (p[..., 2] <= bot_d) & (p[..., 2] >= top_d)
             best = np.where(hit, np.minimum(best, t), best)
     best[~np.isfinite(best)] = np.nan
     return best.astype(np.float32)
@@ -523,3 +526,72 @@ def test_zero_waits_never_give_up():
     assert m.result and m.result.startswith("refused: not armed in Offboard"), m.result
     m, px4, log = fly(C.Params(route=[(1.0, 0.0)], arm_wait_s=0.0), nav_override=no_offboard, seconds=60.0)
     assert m.result is None and m.phase == "arm"
+
+
+# ---- wall vault (identifying wall above a bottom gap, climbing over top edge, crossing, descending, landing)
+
+def test_vault_only_wall_with_gap_beneath_climbs_identifies_vaults_and_lands():
+    """When the drone starts on the ground or low hover (0.5 m) and the wall starts 0.9 m off the
+    ground (gap beneath it from 0..0.9 m) up to 1.8 m, vault_only climbs out of the gap until it
+    identifies the wall at n = 2.2 m, approaches to standoff, climbs until above 1.8 m, crosses
+    over the wall, descends on the far side, and lands."""
+    params = C.Params(
+        route=[],
+        height_m=0.5,                   # initial hover is inside the gap beneath the wall!
+        vault_only=True,
+        vault_standoff_m=1.1,
+        vault_climb_margin_m=0.45,
+        vault_overstep_m=1.2,
+        vault_max_alt_m=2.8,
+        vault_descend_alt_m=0.6,
+        vault_climb_rate_mps=0.45,
+        vault_speed_mps=0.6,
+    )
+    # Wall at North = 2.2 m, spanning East [-3, 3], starting 0.9 m off the floor (bot_d = -0.9) up to 1.8 m (top_d = -1.8)
+    wall = [(0, 2.2, -3.0, 3.0, -1.8, -0.9)]
+    m, px4, log = fly(params, walls=wall, seconds=60.0)
+
+    phases = [entry[1] for entry in log]
+    assert "vault_find" in phases, f"vault_find not entered: {set(phases)}"
+    assert "vault_approach" in phases, f"vault_approach not entered: {set(phases)}"
+    assert "vault_climb" in phases, f"vault_climb not entered: {set(phases)}"
+    assert "vault_cross" in phases, f"vault_cross not entered: {set(phases)}"
+    assert "vault_descend" in phases, f"vault_descend not entered: {set(phases)}"
+    assert "vault_settle" in phases, f"vault_settle not entered: {set(phases)}"
+    assert m.result == "complete", (m.result, m.why)
+    assert not px4.armed and px4.landed
+
+    # It must NOT move forward while still in the gap below the wall (n stays ~0 during vault_find)
+    find_positions = [pos for _, ph, _, _, pos in log if ph == "vault_find"]
+    assert max(abs(p[0]) for p in find_positions) < 0.1
+    # It must have climbed out of the 0.9 m gap to see the wall before approaching
+    approach_start_z = next(pos[2] for _, ph, _, _, pos in log if ph == "vault_approach")
+    assert approach_start_z < -0.55
+    # Peak altitude during crossing must clear the 1.8 m wall top
+    cross_z = [pos[2] for _, ph, _, _, pos in log if ph == "vault_cross"]
+    assert min(cross_z) < -1.85, f"Did not climb above 1.8 m wall: min z in cross was {min(cross_z)}"
+    # Final landing position is on the far side of the wall (North > 2.2 m)
+    assert px4.pos[0] > 2.8, f"Did not land past wall at 2.2 m: final North was {px4.pos[0]}"
+
+
+def test_vault_on_obstacle_climbs_over_wall_mid_route():
+    """Verify a route with vault_on_obstacle=True vaults over a 1.75 m wall blocking the leg."""
+    params = C.Params(
+        route=[(5.0, 0.0)],
+        vault_on_obstacle=True,
+        vault_standoff_m=1.2,
+        vault_climb_margin_m=0.45,
+        vault_overstep_m=1.3,
+        vault_max_alt_m=2.8,
+        vault_descend_alt_m=0.6,
+        vault_climb_rate_mps=0.5,
+        vault_speed_mps=0.6,
+        stop_m=0.9,
+    )
+    wall = [(0, 3.0, -3.0, 3.0, -1.75, -0.4)]
+    m, px4, log = fly(params, walls=wall, seconds=60.0)
+    phases = [entry[1] for entry in log]
+    assert "vault_climb" in phases and "vault_cross" in phases
+    assert m.result == "complete", (m.result, m.why)
+    assert min(entry[4][2] for entry in log) < -1.8
+    assert px4.pos[0] > 3.5 and not px4.armed and px4.landed
