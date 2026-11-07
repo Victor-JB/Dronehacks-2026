@@ -42,7 +42,7 @@ img{width:100%;image-rendering:pixelated;background:#000}
 </div><script>
 function f(x){if(!x||!x.fps&&x.fps!==0)return "no messages";
  let t=x.fps.toFixed(1)+" Hz   "+x.width+"x"+x.height+" "+x.encoding;
- if("centre_m" in x)t+="\ncentre "+(x.centre_m==null?"no return":x.centre_m.toFixed(2)+" m")
+ if("centre_m" in x)t+="\\ncentre "+(x.centre_m==null?"no return":x.centre_m.toFixed(2)+" m")
   +"   nearest "+(x.min_m==null?"-":x.min_m.toFixed(2)+" m")+"   valid "+(100*x.valid).toFixed(0)+"%";
  return t}
 setInterval(async()=>{try{const d=await (await fetch("/stats.json")).json();
