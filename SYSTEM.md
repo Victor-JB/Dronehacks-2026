@@ -6,6 +6,10 @@ Pixhawk 6C on PX4 v1.16.2). For a quick start read `README.md`; this file is the
 **Status:** everything below builds on the drone and passes its tests (56). Nothing has flown. The
 first real runs are: bench with props off, then low and tethered.
 
+> **Blocking issue, see `PICKUP.md`:** with the depth team image on (§5), VIO reaches PX4 ~290 ms
+> late (organisers' baseline 60–70 ms). PX4 rejects it, has no local position, and the mission
+> waits on "estimator unhealthy". Depth has to be fixed or turned off before flying.
+
 ---
 
 ## 1. Who owns what
@@ -163,9 +167,12 @@ config is baked into their image, so we use their supported **team image** mecha
   **Rebuild after every organiser update**, or the stack falls back to the stock image (no depth).
 - Undo: `rm ~/team_ws/Dockerfile && docker rm -f skybeta-stack` (on the ground, drone still).
 
-Measured after the change: depth 30 Hz, cuVSLAM still tracking, left camera 29 Hz, odometry
-28–30 Hz. Caveats: the depth is labelled with the centre camera's frame but computed in a stereo
-camera's (up to ~3.75 cm sideways), and the organisers have not been asked yet.
+**This change breaks VIO latency.** Frame rates looked fine right after it (depth 30 Hz, odometry
+28–30 Hz), but the organisers' latency probe shows the camera driver leg at p50 277 ms instead of
+36.5 ms, and the full chain at 290 ms instead of 60–70 ms. That is too late for PX4, which then has
+no local position. Measurements, cause and fixes: `PICKUP.md`. Other caveats: the depth is labelled
+with the centre camera's frame but computed in a stereo camera's (up to ~3.75 cm sideways), and the
+organisers have not been asked yet.
 
 ## 6. Map
 
@@ -245,8 +252,9 @@ On the drone, `~/team_ws/build`, `install` and `log` are colcon output. Their sy
 
 ## 11. Known gaps
 
+- **VIO latency with depth on is ~290 ms; PX4 has no local position** (`PICKUP.md`, the next thing to fix).
+- The camera page subscribes to the GPU converter's `/oak/left/image_mono` and slows that chain while open (`PICKUP.md` §2.6).
 - Nothing has flown; the arm -> Position -> Offboard handover is untested on this airframe.
-- The PX4 link was down at last check (flight controller unpowered).
 - `route.json` is in explore mode (§4).
 - Depth override not yet cleared with the organisers (§5).
 - The yaw offset between VIO and PX4 is unmeasured (`odom_to_ned_yaw_offset_rad`, organisers' guide §1).

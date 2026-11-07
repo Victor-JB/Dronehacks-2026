@@ -5,6 +5,9 @@ This branch is the team's mission pruned to run on the skybeta drone
 `main`; keep it there. **`SYSTEM.md` explains how the whole system works**; this
 file is the quick start.
 
+> **Before flying, read `PICKUP.md`:** with depth on, VIO reaches PX4 ~290 ms late and PX4 has no
+> position. That is the next thing to fix.
+
 | Path | What it is |
 |---|---|
 | `refnav/core.py`, `refnav/depth.py` | The mission's flight logic and depth processing. **Kept byte-identical to `main`**, so mission work merges either way |
