@@ -2,16 +2,22 @@
 
 This branch is the team's mission pruned to run on the skybeta drone
 (`skybeta-02`, Jetson Orin Nano, PX4 v1.16.2). The simulator project lives on
-`main`; keep it there.
+`main`; keep it there. **`SYSTEM.md` explains how the whole system works**; this
+file is the quick start.
 
 | Path | What it is |
 |---|---|
 | `refnav/core.py`, `refnav/depth.py` | The mission's flight logic and depth processing. **Kept byte-identical to `main`**, so mission work merges either way |
 | `dronehacks_nav/skybeta_node.py` | The ROS shell for the drone: cuVSLAM odometry + `/skybeta/state` in, `/skybeta/setpoint/pose` out |
 | `dronehacks_nav/frames.py` | ENU/FLU (skybeta) ↔ NED/FRD (refnav.core) conversions |
+| `dronehacks_nav/motion_check.py` | Freeze if commanded motion does not show up in odometry, or VIO height disagrees with the rangefinder |
+| `dronehacks_nav/mapping.py`, `map_node.py` | Voxel occupancy map from depth + pose: `/map/occupied`, `/map/image` |
+| `dronehacks_nav/camera_web.py` | Camera, depth and map as a web page on port 8080 |
 | `launch/mission.launch.py` | `skybeta_flight_interface` + the mission node |
 | `config/drone.yaml`, `route.json` | Mission parameters and route |
-| `tests/` | `python3 -m pytest -q tests`: mission logic and frame conversions, no ROS needed |
+| `scripts/fly.sh` | Start/stop a flight session on the drone |
+| `skybeta_overrides/` | Team image that turns on the OAK's stereo depth |
+| `tests/` | `python3 -m pytest -q tests`: mission, frames, motion check, map; no ROS needed |
 
 ## How it flies on skybeta
 
@@ -31,11 +37,9 @@ on the drone. In short:
 - Altitude is clamped to 0.3–3.0 m above the startup pose. **There is no
   horizontal geofence**: size the route to the space.
 
-**Depth:** skybeta publishes no depth image, and `refnav.core` refuses to fly
-without one (it never translates without observed free space). With the default
-`depth_topic: ""` the mission waits, never streams, and gives up after
-`wait_s`. A depth source (stereo from `/oak/{left,right}/image_mono`, or OAK-D
-on-device depth) is the next piece of work.
+**Depth:** `refnav.core` refuses to fly without depth (it never translates without
+observed free space). skybeta ships no depth image, so the team image below turns
+on the OAK's own stereo depth, `/oak/stereo/image_raw`.
 
 ## Deploying
 
@@ -65,13 +69,13 @@ The drone boots with `COMPETITOR_PKG=manual` in `/etc/skybeta/drone.env`: the st
 idles. Nothing of ours runs until, on the drone:
 
 ```sh
-~/team_ws/src/dronehacks/scripts/fly.sh start    # rebuild, then mission + bag + foxglove + camera page
+~/team_ws/src/dronehacks/scripts/fly.sh start    # rebuild, then mission + bag + foxglove + map + camera page
 ~/team_ws/src/dronehacks/scripts/fly.sh attach   # watch the mission (Ctrl-b d leaves, Ctrl-b n next window)
-~/team_ws/src/dronehacks/scripts/fly.sh stop     # on the ground: stops all four, closes the bag
+~/team_ws/src/dronehacks/scripts/fly.sh stop     # on the ground: stops them all, closes the bag
 ```
 
-- Camera + depth: `http://skybeta-02.local:8080/` in a browser (`dronehacks_nav/camera_web.py`).
-- Foxglove (pose/state only, no images): `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local`
+- Camera, depth and map: `http://skybeta-02.local:8080/` in a browser (`dronehacks_nav/camera_web.py`).
+- Foxglove (pose, state, `/map/occupied`; no images): `ssh -N -L 8765:localhost:8765 dronehacks@skybeta-02.local`
   on the laptop, then `ws://localhost:8765`.
 - Bags: `~/team_ws/bags/<date-time>/` (mcap; depth, odometry, state, setpoints, PX4).
 
