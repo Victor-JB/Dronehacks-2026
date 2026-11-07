@@ -1,32 +1,22 @@
-# DroneHacks participant workspace
+# DroneHacks — `jetson` branch (real drone)
 
-Read `AI_CONTEXT.md` before changing or running code. This file is for the
-student's coding agent, not for the simulator's maintainers.
+This branch runs on the physical skybeta drone. Read `README.md` first, and on
+the drone `~/skybeta/docs/competitor_guide.md` and `~/skybeta/CLAUDE.md`.
+The simulator workspace and its instructions live on `main`.
 
-The project is a Linux companion application using native ROS 2 and `px4_msgs`.
-Write flight code against those interfaces; keep simulator internals out of it.
-Start by reading `onboard/examples/takeoff_land.py`, `onboard/README.md`, and the
-executable notebook under `learn/`. Never run flight code merely to inspect it.
-
-Ask the team to approve a proposed mission before it arms. Verify fresh PX4
-mode, estimator, landed and armed reports. One teammate holds editing control;
-stop your coding agent and save before handing control over. Never put secrets,
-login cookies or private keys in code, notebooks, prompts or Git.
-
-Use `CONNECT_FROM_LAPTOP.md` for access and `AI_CONTEXT.md` for architecture,
-testing, simulation limits and the hardware transfer checklist. Teams with
-strong fundamentals and first-principles understanding, combined with careful
-AI use, will make better decisions than an agent working without supervision.
-
-After using keyboard RC, land and release RC, then use **Reset world** before
-running an automated program, including a notebook or native terminal script.
-The cloud follow-up run without Reset failed; the fresh-world native run passed.
-The web Run button enforces this qualification boundary; terminal Python remains
-ordinary ROS and does not enforce it for you. This is not a VIO fix.
-# Custom simulated sensors
-
-Read `SIM_SENSORS.md` and `SIM_SENSOR_EXAMPLE.py` for the simulation-only
-`dronehacks_sim` API: physical ENU/FLU pose, simulation timestamps and static
-collision occupancy. Sensor models may read truth; portable mission code must
-consume sensor outputs and remain independent of the oracle. Never mistake
-ideal sensor results for real VIO qualification. No commands are issued by this API.
+- Talk only to skybeta's contract: subscribe `/visual_slam/tracking/odometry`,
+  `/skybeta/state`, `/visual_slam/status`, and read-only `/fmu/out/*`; publish
+  `/skybeta/setpoint/pose` or `/skybeta/setpoint/twist`. **Never publish
+  `/fmu/in/*`**, never arm, never request a mode, never add `px4_msgs` to the
+  workspace.
+- Keep `refnav/core.py` and `refnav/depth.py` identical to `main`; put
+  drone-specific behaviour in `dronehacks_nav/`. Never restore the sim-only files
+  this branch deleted (`refnav/node.py`, `onboard/`, `main.py`).
+- Never run flight code merely to inspect it. Ask the team to approve a mission
+  before the pilot arms. First runs of new code: props off. A safety pilot on RC
+  is always required.
+- Do not edit `~/skybeta` on the drone (organiser-owned, overwritten on update).
+  Team code lives in `~/team_ws/src/dronehacks`.
+- Restarting the stack re-zeroes the VIO origin: only on the ground, drone still.
+- Never put secrets, passwords, keys or cookies in code, prompts or Git. Never SSH
+  into another team's drone.
