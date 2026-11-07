@@ -91,6 +91,16 @@ docker --context colima-dronehacks-sim exec -w /workspace "$MARKERFREE_CONTAINER
   --use-px4-tilt --survey-normals fals7
 ```
 
+Score the hover before proceeding:
+
+```sh
+docker --context colima-dronehacks-sim exec -w /workspace "$MARKERFREE_CONTAINER" \
+  python3 -m tools.score_markerfree "$MARKERFREE_HOVER_DIR" \
+  --output "$MARKERFREE_HOVER_DIR/score.json"
+```
+
+Require the hover summary to report completion, landing/disarm and at least three settled seconds. Its score must have the same run ID and pass all seven applicable checks: controller waypoint completion, complete truth coverage, ordered truth waypoint arrival, multipart clearance, transit-floor checking, PX4 ground/disarm confirmation and touchdown inside the pad. The window-crossing check is expected to be false for a hover. A scorer process exit alone is not a hover acceptance decision; inspect those fields and retain any failed or incomplete recording before continuing.
+
 Recreate only this named project between the verified hover and route using the same image and noise setting. This clears the simulator state while preserving the host-mounted evidence and policy exchange:
 
 ```sh
