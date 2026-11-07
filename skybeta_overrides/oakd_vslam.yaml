@@ -63,15 +63,15 @@
     left:
       i_publish_topic: true
       i_enable_lazy_publisher: false   # cuVSLAM subscribes late; publish from t=0
-      i_width: 1024                    # 0.8x of the OV9282's native 1280x800
-      i_height: 640
+      i_width: 960                     # dronehacks: 960x600, more USB margin (PICKUP.md 2.2)
+      i_height: 600
       i_fps: 30.0
 
     right:
       i_publish_topic: true
       i_enable_lazy_publisher: false
-      i_width: 1024
-      i_height: 640
+      i_width: 960
+      i_height: 600
       i_fps: 30.0
 
     imu:

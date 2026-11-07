@@ -30,6 +30,11 @@ Safety behaviour (each one is a test in tests/test_refnav_core.py):
 * a landing REQUEST from outside (the interactive runtime's `land`, request_land) goes through this
   same landing: airborne it lands where it is; before arming it ends without arming; while arming it
   ends with a normal checked disarm. It never adds a controller.
+
+Mode note (competition fallback): when require_depth is False, the mission skips every depth gate
+above and the obstacle-stop check in _go -- it is pure dead-reckoning off PX4's own position/heading
+estimate, flying the pre-planned route blind. No "no translation without observed free space"
+guarantee holds in this mode. Only ever pair it with a real, pre-verified route.
 """
 from __future__ import annotations
 
@@ -46,6 +51,7 @@ AIRBORNE = ("climb", "hover", "turn", "check", "go", "hold", "explore")
 @dataclass
 class Params:
     explore: bool = False                # after climb/hover, follow open space instead of the route
+    require_depth: bool = True           # false: pure dead-reckoning on PX4 position only — no depth gating, no obstacle stop
     explore_s: float = 60.0              # explore at most this long, then land
     explore_half_fov_deg: float = 30.0   # candidate bearings span +-this (inside the camera view)
     explore_bearings: int = 9            # candidate bearings scored per depth frame
@@ -344,7 +350,7 @@ class Mission:
                 self._land(now, out, f"estimator unhealthy or silent for {bad:.1f} s")
             elif not v.pos_ok or v.pos is None:
                 self._land(now, out, "PX4 position or heading invalid")
-            elif self.depth_t is None or now - self.depth_t > p.depth_lost_land_s:
+            elif p.require_depth and (self.depth_t is None or now - self.depth_t > p.depth_lost_land_s):
                 self._land(now, out, f"depth silent for more than {p.depth_lost_land_s:.0f} s")
 
         ph = self.phase
@@ -358,12 +364,12 @@ class Mission:
                 self.why = "waiting for PX4 position and heading"
             elif not ok:
                 self.why = why
-            elif not self.depth_fresh(now):
+            elif p.require_depth and not self.depth_fresh(now):
                 self.why = "waiting for live depth: " + (
                     f"the latest frame was refused: {self.depth_reject[1]}" if self.depth_reject else
                     "no depth frame has arrived" if self.depth_t is None else
                     f"the latest usable frame is {now - self.depth_t:.1f} s old")
-            elif not self.depth_ready_for_arm(now):
+            elif p.require_depth and not self.depth_ready_for_arm(now):
                 self.why = f"waiting for {p.health_quiet_s:g} s of continuously usable depth"
             else:
                 n, e, d = v.pos
@@ -379,7 +385,7 @@ class Mission:
                     self._requalify(now, out, f"{why}; requalifying before any control request")
                 else:
                     self._end(now, out, f"refused: {why} before arming")
-            elif self.t_cmd is None and not self.depth_ready_for_arm(now):
+            elif self.t_cmd is None and p.require_depth and not self.depth_ready_for_arm(now):
                 if v.armed is False:
                     self._requalify(now, out, "depth not continuously usable; requalifying before any control request")
                 else:
@@ -411,8 +417,11 @@ class Mission:
             if abs(err) < 1e-3 and abs(_wrap(self.leg_heading - v.heading)) < math.radians(p.face_tol_deg):
                 self._set("check", now, out)
         elif ph == "check":
+            if not p.require_depth:
+                self.s = 0.0
+                self._set("go", now, out)
             # a depth frame captured AFTER the turn ended looks along this leg
-            if self.depth_t is not None and self.depth_t >= self.t_phase and self.depth_fresh(now):
+            elif self.depth_t is not None and self.depth_t >= self.t_phase and self.depth_fresh(now):
                 if self.clr_hist and self.clr_hist[0][0] < self.t_phase:
                     self.clr_hist, self.corr_t = [], None    # frames from before the turn ended look elsewhere
                 clr = self._clearance(v)                     # None: not enough observed frames yet, wait
@@ -520,26 +529,29 @@ class Mission:
         n0, e0 = self.leg_start
         un, ue = self.leg_dir
         proj = (v.pos[0] - n0) * un + (v.pos[1] - e0) * ue
-        clr = self._clearance(v) if self.depth_fresh(now) else None
-        if clr is not None and not self.corridor_fresh(now):
-            clr = None                                       # the latest evidence of this corridor is too old
-        if clr is not None:
-            self.last_clearance = clr
-            slowing = p.slow_m > p.stop_m
-            if clr < p.stop_m or (slowing and clr < p.stop_m + 0.05):
-                # stop where the aircraft is (not where the carrot was); inside the slow zone, a
-                # carrot that can no longer advance 5 cm is a stop too, or it would creep forever
-                self._blocked(now, out, v, clr, "on leg")
-                return
-            self.blocked_t = None
-            speed, lead = p.speed_mps, p.lead_max_m
-            if slowing and clr < p.slow_m:
-                speed *= (clr - p.stop_m) / (p.slow_m - p.stop_m)
-                lead = min(lead, clr - p.stop_m)         # the carrot never enters the stop zone
-                self.s = min(self.s, max(proj, 0.0) + lead)
-            self.s = min(self.s + speed * dt, self.leg_len, max(proj, 0.0) + lead)
+        if not p.require_depth:
+            self.s = min(self.s + p.speed_mps * dt, self.leg_len, max(proj, 0.0) + p.lead_max_m)
         else:
-            self.counts["depth_holds"] += 1                  # no live evidence: the carrot waits
+            clr = self._clearance(v) if self.depth_fresh(now) else None
+            if clr is not None and not self.corridor_fresh(now):
+                clr = None                                       # the latest evidence of this corridor is too old
+            if clr is not None:
+                self.last_clearance = clr
+                slowing = p.slow_m > p.stop_m
+                if clr < p.stop_m or (slowing and clr < p.stop_m + 0.05):
+                    # stop where the aircraft is (not where the carrot was); inside the slow zone, a
+                    # carrot that can no longer advance 5 cm is a stop too, or it would creep forever
+                    self._blocked(now, out, v, clr, "on leg")
+                    return
+                self.blocked_t = None
+                speed, lead = p.speed_mps, p.lead_max_m
+                if slowing and clr < p.slow_m:
+                    speed *= (clr - p.stop_m) / (p.slow_m - p.stop_m)
+                    lead = min(lead, clr - p.stop_m)         # the carrot never enters the stop zone
+                    self.s = min(self.s, max(proj, 0.0) + lead)
+                self.s = min(self.s + speed * dt, self.leg_len, max(proj, 0.0) + lead)
+            else:
+                self.counts["depth_holds"] += 1                  # no live evidence: the carrot waits
         self.sp[0], self.sp[1] = n0 + un * self.s, e0 + ue * self.s
         tn, te = self.targets[self.leg]
         if self.s >= self.leg_len - 1e-6 and math.hypot(v.pos[0] - tn, v.pos[1] - te) < p.arrive_m:

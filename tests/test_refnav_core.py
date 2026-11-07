@@ -502,3 +502,11 @@ def _box(img):
     img = img.copy()
     img[30:70, 50:110] = 0.35                             # 0.51 m from the body origin, dead ahead
     return img
+
+
+def test_require_depth_false_flies_the_route_blind():
+    """modes.json's fallback: no depth gate, no obstacle stop; PX4's position only."""
+    m, px4, log = fly(C.Params(route=[(1.0, 0.0), (1.0, 1.0)], require_depth=False), depth_on=lambda t: False)
+    assert m.result == "complete", (m.result, m.why)
+    m, px4, log = fly(C.Params(route=[(1.0, 0.0)]), depth_on=lambda t: False, seconds=30.0)
+    assert m.result is None or not m.result.startswith("complete")      # the default still refuses without depth
