@@ -33,7 +33,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from . import depth as D
+from . import plan as P
 
 NAV_OFFBOARD = 14
 NAV_AUTO_LAND = 18
@@ -89,6 +92,29 @@ class Params:
     vault_max_alt_m: float = 3.5                 # maximum flight altitude ceiling
     vault_climb_rate_mps: float = 0.4            # vertical climb rate during vault
     vault_speed_mps: float = 0.5                 # horizontal speed during vault
+    # --- lateral centering: balance the free gap left and right of the current leg (off by default)
+    center: bool = False
+    center_look_m: float = 1.5                   # side gaps are measured over this much of the leg ahead
+    center_min_m: float = 0.3                    # ...starting this far ahead of the camera
+    center_side_m: float = 0.9                   # walls farther to the side than this are ignored
+    center_max_m: float = 0.15                   # the setpoint never leaves the planned leg by more than this
+    center_rate_mps: float = 0.15                # ...and moves sideways no faster than this
+    center_alpha: float = 0.3                    # low-pass weight of each new depth frame
+    center_min_hits: int = 3                     # depth points that make a side "seen" (a single pixel is not a wall)
+    # --- map-based replanning (off by default). plan_map is in the ROUTE frame (forward, left metres
+    # from the takeoff point and heading): {"bounds": [f0, f1, l0, l1], "rects": [[f0, l0, f1, l1]],
+    # "circles": [[f, l, r]]}. Known structure comes from the map; the depth camera adds obstacles
+    # the map did not know about.
+    plan: bool = False
+    plan_map: dict = field(default_factory=dict)
+    plan_res_m: float = 0.05
+    plan_inflate_m: float = 0.30                 # vehicle radius + margin; relaxed to 60% before giving up
+    plan_prefer_m: float = 0.60                  # keep this far from obstacles where there is room (cost, not a limit)
+    plan_goal: bool = False                      # route = just a destination (its last point): plan every leg from the map
+    plan_novel_m: float = 0.20                   # depth hits this close to a mapped obstacle are not new obstacles
+    plan_hits: int = 4                           # frames that must see a cell before it is an obstacle
+    plan_obs_range_m: float = 3.0                # depth points beyond this are not mapped
+    replan_max: int = 6                          # replans per flight; then the old behaviour (land, route blocked)
 
 
 @dataclass
@@ -193,7 +219,12 @@ class Mission:
         self.s = 0.0
         self.counts = {"depth_frames": 0, "obstacle_stops": 0, "depth_holds": 0, "unconfirmed_obstacles": 0,
                        "depth_unusable": 0, "depth_future": 0, "depth_stale": 0, "depth_out_of_order": 0,
-                       "corridor_unobserved": 0}
+                       "corridor_unobserved": 0, "replans": 0, "plan_failed": 0, "plan_adjusted": 0}
+        self.grid = None              # refnav.plan.Grid when plan is on and a map is given
+        self._obs_t = None
+        self._center_t = None
+        self.center_off = 0.0         # filtered lateral target (m, positive = right of the leg)
+        self.center_app = 0.0         # lateral offset currently applied to the setpoint
         self.clr_hist = []            # [(depth stamp, clearance)] along the current leg, newest last
         self.last_clearance = None
         self.land_request = None      # why an outside landing request was made (request_land), until acted on
@@ -350,6 +381,11 @@ class Mission:
             elif self.depth_t is None or now - self.depth_t > p.depth_lost_land_s:
                 self._land(now, out, f"depth silent for more than {p.depth_lost_land_s:.0f} s")
 
+        # not during the climb: until the aircraft is at height the floor lies inside the obstacle band
+        if (self.grid is not None and self.phase in ("hover", "turn", "check", "go", "hold")
+                and v.pos is not None and v.heading is not None):
+            self._observe(v)
+
         ph = self.phase
         if ph == "wait":
             ok, why = self.health.arm_ok(now)
@@ -374,6 +410,7 @@ class Mission:
                 self.sp = [n, e, d, v.heading]
                 c, s = math.cos(v.heading), math.sin(v.heading)
                 self.targets = [(n + f * c + l * s, e + f * s - l * c) for f, l in p.route]
+                self.grid = self._build_grid(self.home, out) if p.plan else None
                 self._set("arm", now, out)
         elif ph == "arm":
             ok, why = self.health.arm_ok(now)
@@ -425,6 +462,8 @@ class Mission:
                         if p.vault_on_obstacle:
                             self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
                             self._set("vault_approach", now, out, f"wall detected at {clr:.2f} m, initiating vault")
+                        elif self._blocked_replan(now, out, v, clr):
+                            pass
                         else:
                             self.counts["obstacle_stops"] += 1
                             self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead at leg {self.leg + 1}")
@@ -472,6 +511,11 @@ class Mission:
         if self.leg >= len(self.targets):
             self._land(now, out, "route complete")
             return
+        if self.grid is not None:
+            self._plan_leg()
+        self._begin_leg(now, out)
+
+    def _begin_leg(self, now, out):
         start = (self.sp[0], self.sp[1])
         tn, te = self.targets[self.leg]
         dn, de = tn - start[0], te - start[1]
@@ -480,7 +524,153 @@ class Mission:
         self.leg_dir = (dn / self.leg_len, de / self.leg_len) if self.leg_len > 1e-6 else (1.0, 0.0)
         self.leg_heading = math.atan2(de, dn) if self.leg_len > 1e-6 else self.sp[3]
         self.clr_hist, self.corr_t = [], None
+        self.center_off = self.center_app = 0.0
         self._set("turn", now, out, f"leg {self.leg + 1}/{len(self.targets)}")
+
+    # ------------------------------------------------------------------ centering and planning
+    def _center_update(self, v):
+        """Once per new depth frame: the free gap right and left of the leg, over the part of the leg
+        that is not yet blocked ahead (a wall across the leg is not a side gap), balanced into a
+        lateral target, low-pass filtered."""
+        p = self.p
+        if self.depth_pts is None or self._center_t == self.depth_t or v.heading is None:
+            return
+        self._center_t = self.depth_t
+        pts = self.depth_pts
+        if len(pts) == 0:
+            return
+        b = _wrap(self.leg_heading - v.heading)               # positive = right, as in _clearance
+        c, s = math.cos(b), math.sin(b)
+        along = pts[:, 0] * c + pts[:, 1] * s
+        across = -pts[:, 0] * s + pts[:, 1] * c
+        far = p.center_look_m
+        if self.last_clearance is not None and math.isfinite(self.last_clearance):
+            far = min(far, max(p.center_min_m, self.last_clearance - 0.15))
+        sel = ((along > p.center_min_m) & (along < far) & (np.abs(pts[:, 2]) < p.band_m)
+               & (np.abs(across) < p.center_side_m))
+        k = max(1, p.center_min_hits)
+        right, left = np.sort(across[sel & (across > 0)]), np.sort(-across[sel & (across < 0)])
+        # Only centre between two walls that are BOTH seen. A side with no returns is unknown, not open:
+        # a wall end beside the aircraft is outside the camera's field of view, and "one wall near, the
+        # other side empty" would push the aircraft toward exactly what it cannot see.
+        if len(right) >= k and len(left) >= k:
+            target = max(-p.center_max_m, min(p.center_max_m, 0.5 * (float(right[k - 1]) - float(left[k - 1]))))
+        else:
+            target = 0.0
+        self.center_off += p.center_alpha * (target - self.center_off)
+
+    def _build_grid(self, home, out):
+        """Rasterise the route-frame map into this flight's NED frame (rotated by the takeoff heading)."""
+        p, m = self.p, self.p.plan_map
+        if not m or "bounds" not in m:
+            out.events.append("plan: no map given, planning disabled")
+            return None
+        n0, e0, _, h = home
+        c, s = math.cos(h), math.sin(h)
+        to_ne = lambda f, l: (n0 + f * c + l * s, e0 + f * s - l * c)  # noqa: E731
+        try:
+            f0, f1, l0, l1 = (float(x) for x in m["bounds"])
+            corners = [to_ne(f, l) for f, l in ((f0, l0), (f0, l1), (f1, l0), (f1, l1))]
+            grid = P.Grid((min(q[0] for q in corners), max(q[0] for q in corners),
+                           min(q[1] for q in corners), max(q[1] for q in corners)),
+                          res=p.plan_res_m, min_hits=p.plan_hits, novel_m=p.plan_novel_m,
+                          prefer_m=p.plan_prefer_m)
+            nn, ee = grid._cell_centres()
+            f = (nn - n0) * c + (ee - e0) * s                 # inverse of to_ne
+            l = (nn - n0) * s - (ee - e0) * c
+            grid.prior |= (f < f0) | (f > f1) | (l < l0) | (l > l1)
+            for a, b, c2, d in m.get("rects", []):
+                grid.add_polygon([to_ne(a, b), to_ne(c2, b), to_ne(c2, d), to_ne(a, d)])
+            for f_, l_, r in m.get("circles", []):
+                grid.add_circle(*to_ne(f_, l_), r)
+            grid._touch(prior=True)
+        except (ValueError, TypeError, KeyError) as exc:
+            out.events.append(f"plan: map unusable ({exc}), planning disabled")
+            return None
+        return grid
+
+    def _points_ne(self, v, pts):
+        """Depth points (forward, right, down in the level heading frame) -> NED (n, e)."""
+        c, s = math.cos(v.heading), math.sin(v.heading)
+        return np.stack([v.pos[0] + pts[:, 0] * c - pts[:, 1] * s, v.pos[1] + pts[:, 0] * s + pts[:, 1] * c], axis=1)
+
+    def _observe(self, v):
+        """Once per new depth frame: obstacle-height points within range become grid evidence."""
+        p = self.p
+        if self.depth_pts is None or self._obs_t == self.depth_t or len(self.depth_pts) == 0:
+            return
+        self._obs_t = self.depth_t
+        pts = self.depth_pts
+        sel = (np.abs(pts[:, 2]) < p.band_m) & (pts[:, 0] < p.plan_obs_range_m)
+        if sel.any():
+            self.grid.observe(self._points_ne(v, pts[sel]))
+
+    def _plan_leg(self):
+        """Replace the next waypoint by the map-planned path to it, if that path is not straight."""
+        start = (self.sp[0], self.sp[1])
+        path = self.grid.plan(start, self._plan_goal(), self.p.plan_inflate_m)
+        if path is None:
+            self.counts["plan_failed"] += 1                   # keep the pre-planned leg: it is what we had
+        elif self.p.plan_goal or len(path) > 2:
+            self.counts["plan_adjusted"] += 1
+            self._splice(path)
+
+    def _plan_goal(self):
+        """What the planner aims at: the last route point (plan_goal) or just the next waypoint."""
+        return self.targets[-1] if self.p.plan_goal else self.targets[self.leg]
+
+    def _splice(self, path):
+        """Put a planned path (first point = where we are) in place of what it replaces."""
+        end = len(self.targets) if self.p.plan_goal else self.leg + 1
+        self.targets[self.leg:end] = path[1:]
+
+    def _path_blocked(self, v):
+        """Does the rest of this leg cross an OBSERVED (new) obstacle? Prior-map structure is not
+        judged here: the planner already routed around it, and depth drift must not re-judge it."""
+        g = self.grid
+        tn, te = self.targets[self.leg]
+        dn, de = tn - v.pos[0], te - v.pos[1]
+        dist = math.hypot(dn, de)
+        if dist < 0.35:
+            return False
+        skip = 0.25 / dist
+        a = (v.pos[0] + dn * skip, v.pos[1] + de * skip)
+        return not g.segment_free(a, (tn, te), self.p.plan_inflate_m * 0.6,
+                                  blocked=g.observed_blocked(self.p.plan_inflate_m * 0.6))
+
+    def _replan(self, now, out, v, why):
+        """Plan from where the aircraft is to the current waypoint and restart the leg. False: no path
+        (or the replan budget is spent): the caller falls back to its old behaviour."""
+        if self.counts["replans"] >= self.p.replan_max:
+            return False
+        path = self.grid.plan((v.pos[0], v.pos[1]), self._plan_goal(), self.p.plan_inflate_m)
+        if path is None:
+            self.counts["plan_failed"] += 1
+            return False
+        self.counts["replans"] += 1
+        self.sp[0], self.sp[1] = v.pos[0], v.pos[1]           # stop where the aircraft is, then re-aim
+        self._splice(path)
+        out.events.append(f"replan #{self.counts['replans']}: {why}; {len(path) - 1} legs to the waypoint "
+                          f"(inflation {self.grid.last_inflate:.2f} m)")
+        self._begin_leg(now, out)
+        return True
+
+    def _blocked_replan(self, now, out, v, clr):
+        """The depth stop fired: what is in the corridor ahead becomes a mapped obstacle NOW (trusting
+        the camera over a map that put the way free), then replan."""
+        if self.grid is None or self.depth_pts is None:
+            return False
+        p = self.p
+        b = _wrap(self.leg_heading - v.heading)
+        c, s = math.cos(b), math.sin(b)
+        pts = self.depth_pts
+        along = pts[:, 0] * c + pts[:, 1] * s
+        across = -pts[:, 0] * s + pts[:, 1] * c
+        sel = (along > 0.0) & (along < clr + 0.3) & (np.abs(across) < p.corridor_half_m) & (np.abs(pts[:, 2]) < p.band_m)
+        if not sel.any():
+            return False
+        self.grid.observe(self._points_ne(v, pts[sel]), force=True)
+        return self._replan(now, out, v, f"obstacle {clr:.2f} m ahead")
 
     def _clearance(self, v):
         """Clearance along the leg CONFIRMED by the last confirm_frames frames that OBSERVED the
@@ -523,14 +713,27 @@ class Mission:
                 self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
                 if p.vault_on_obstacle:
                     self._set("vault_approach", now, out, f"wall detected at {clr:.2f} m, initiating vault")
+                elif self._blocked_replan(now, out, v, clr):
+                    pass
                 else:
                     self.counts["obstacle_stops"] += 1
                     self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead on leg {self.leg + 1}")
                 return
+            if self.grid is not None and self._path_blocked(v):
+                if self._replan(now, out, v, "newly observed obstacle on the leg"):
+                    return
             self.s = min(self.s + p.speed_mps * dt, self.leg_len, max(proj, 0.0) + p.lead_max_m)
         else:
             self.counts["depth_holds"] += 1                  # no live evidence: the carrot waits
-        self.sp[0], self.sp[1] = n0 + un * self.s, e0 + ue * self.s
+        lat = 0.0
+        if p.center:
+            self._center_update(v)
+            fade = max(0.0, min(1.0, (self.leg_len - self.s) / 0.4))    # no offset at the waypoint itself
+            step = p.center_rate_mps * dt
+            self.center_app += max(-step, min(step, self.center_off * fade - self.center_app))
+            lat = self.center_app
+        # right of the leg direction (un, ue) in NED is (-ue, un)
+        self.sp[0], self.sp[1] = n0 + un * self.s - ue * lat, e0 + ue * self.s + un * lat
         tn, te = self.targets[self.leg]
         if self.s >= self.leg_len - 1e-6 and math.hypot(v.pos[0] - tn, v.pos[1] - te) < p.arrive_m:
             self._set("hold", now, out, f"arrived leg {self.leg + 1}")

@@ -22,6 +22,24 @@ not the solid 0.65 m boxes modelled here, and the tunnel tube (oval 1.47 x 1.83 
 y -0.305-1.219) is missing. route.json was planned against this wrong geometry. See the other team's
 corridor-centred window route: https://github.com/machmoon/dronehacks-sim (mission/course.json).
 
+## Update (2026-11-07): map planning (`plan_goal`) fixes most of it; centering does nothing here
+`refnav/plan.py` adds a clearance-preferring A* planner over a known map plus camera-confirmed
+obstacles. With `plan` + `plan_goal` the route file is only a destination and the planner chooses the
+path (wider margins than the hand-built route). 16 seeds each, completions without ground-truth collision:
+
+| scenario | base | center only | goal plan | goal plan + center |
+|---|---|---|---|---|
+| placement only (perfect VIO) | 6/16 | 6/16 | 13/16 | 13/16 |
+| VIO drift 0.25% | 2/16 | 2/16 | 8/16 | 9/16 |
+| VIO drift 0.5% | 2/16 | 2/16 | 7/16 | 7/16 |
+| VIO drift 1% | 2/16 | 2/16 | 4/16 | 4/16 |
+
+Lateral centering never triggers on this course: collisions happen beside wall ends, outside the
+camera's field of view, and it only centres between two *seen* walls. Replanning on new obstacles
+never fired (static course). Remaining failures track VIO error. Still subject to the course.py
+geometry errors above and the placeholder 25 cm drone radius. Run: `MC_VARIANT=goal python3 montecarlo.py ../route.json 16`
+or `python3 sim.py ../route.json --variant goal` (variants: base, center, plan, both, goal, goal+center).
+
 Run: `cd local_sim && python3 sim.py ../route.json --seed 3` or `python3 montecarlo.py ../route.json 16`
 (`MC_SET=jig` for the careful-placement scenarios; `--model kinematic` for the old idealised model).
 

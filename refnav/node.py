@@ -67,6 +67,9 @@ class RefNav(Node):
         for k, v in vars(C.Params()).items():
             if k == "route":
                 continue
+            if k == "plan_map":                    # structured data: from the route file, not a ROS parameter
+                prm.plan_map = dict(doc.get("plan_map", {}))
+                continue
             default = doc.get("params", {}).get(k, v)
             val = self.declare_parameter(k, default).value
             setattr(prm, k, type(v)(val))

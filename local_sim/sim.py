@@ -20,7 +20,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from refnav import core as C  # noqa: E402
 
-from course import HALF, LAUNCH_XY, course_to_ne, nearest_obstacle_dist, outside_net, segments, true_clearance  # noqa: E402,F401
+from course import (HALF, LAUNCH_XY, course_to_ne, nearest_obstacle_dist, outside_net, plan_map_route_frame,  # noqa: E402,F401
+                    segments, true_clearance)
 import dynamics as D  # noqa: E402
 
 # A rough stand-in for the OAK-D S2's forward stereo pair: proportionally scaled down from the
@@ -113,7 +114,7 @@ def load_route(path):
 
 
 def run(route_path, seconds=600.0, dt=0.05, depth_hz=DEPTH_HZ, trace=None, model="dynamics", seed=0,
-        noise=True, stop_on_collision=True, est_params=None):
+        noise=True, stop_on_collision=True, est_params=None, variant="base"):
     """model: "dynamics" (PX4-like physics + estimator, see dynamics.py) or "kinematic" (the old
     idealised model). seed: estimator/turbulence/sensor-noise randomness. trace: optional list,
     one dict per tick (truth + estimate + attitude + events + the depth frame delivered)."""
@@ -125,6 +126,12 @@ def run(route_path, seconds=600.0, dt=0.05, depth_hz=DEPTH_HZ, trace=None, model
         if k in params_doc:
             setattr(prm, k, type(v)(params_doc[k]))
     prm.depth_border_px = 6  # 24px real-camera border, scaled for this 160-wide test camera
+    # variant: base | center | plan | both  (lateral centering / map replanning, see refnav/core.py)
+    prm.plan = variant in ("plan", "both", "goal", "goal+center")
+    prm.plan_goal = variant in ("goal", "goal+center")      # route.json is only the destination
+    prm.center = variant in ("center", "both", "goal+center")
+    if prm.plan:
+        prm.plan_map = plan_map_route_frame()
 
     rng = np.random.default_rng(seed)
     m = C.Mission(prm)
@@ -193,8 +200,9 @@ if __name__ == "__main__":
     ap.add_argument("--model", default="dynamics", choices=["dynamics", "kinematic"])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-noise", action="store_true")
+    ap.add_argument("--variant", default="base", choices=["base", "center", "plan", "both", "goal", "goal+center"])
     a = ap.parse_args()
-    r = run(a.route, model=a.model, seed=a.seed, noise=not a.no_noise)
+    r = run(a.route, model=a.model, seed=a.seed, noise=not a.no_noise, variant=a.variant)
     print(f"route file:       {a.route}  (model={r['model']}, seed={r['seed']})")
     print(f"result:           {r['result']}  ({r['why']})" if r["why"] else f"result:           {r['result']}")
     print(f"legs done:        {r['legs_done']} / {r['legs']}")

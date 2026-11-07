@@ -95,3 +95,15 @@ def true_clearance(x, y, z_bottom=0.0):
         for cx, cy, r in BOULDERS:
             best = min(best, math.hypot(x - cx, y - cy) - r)
     return best
+
+
+def plan_map_route_frame(launch_xy=LAUNCH_XY, with_boulders=False):
+    """The course as a refnav `plan_map`: (forward, left) metres from the launch mark, launch facing
+    +y (forward = +y, left = -x). Walls only unless with_boulders (boulders are below flight height).
+    NOTE: inherits this file's known geometry errors (C1/C2 are modelled as boxes, no tunnel)."""
+    lx, ly = launch_xy
+    f = lambda y: y - ly          # noqa: E731
+    l = lambda x: -(x - lx)       # noqa: E731
+    rects = [[f(ymin), l(xmax), f(ymax), l(xmin)] for _, xmin, xmax, ymin, ymax in WALL_BOXES]
+    circles = [[f(cy), l(cx), r] for cx, cy, r in BOULDERS] if with_boulders else []
+    return {"bounds": [f(-HALF), f(HALF), l(HALF), l(-HALF)], "rects": rects, "circles": circles}

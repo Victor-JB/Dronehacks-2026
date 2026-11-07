@@ -30,9 +30,12 @@ if os.environ.get("MC_SET") == "jig":
     SCENARIOS = SCENARIOS_JIG
 
 
+VARIANT = os.environ.get("MC_VARIANT", "base")   # base | center | plan | both
+
+
 def one(job):
     route, name, est, seed = job
-    r = S.run(route, seed=seed, est_params=est)
+    r = S.run(route, seed=seed, est_params=est, variant=VARIANT)
     return name, seed, r["result"], r["legs_done"], r["worst_clearance_m"], r["flight_s"], r["final_est_err_m"]
 
 
@@ -42,7 +45,7 @@ def main():
     jobs = [(route, name, est, 1000 * i + s) for i, (name, est) in enumerate(SCENARIOS) for s in range(n)]
     with get_context("spawn").Pool(max(1, (os.cpu_count() or 2) - 1)) as pool:
         res = pool.map(one, jobs, chunksize=1)
-    print(f"{route}: {n} seeds per scenario, DRONE_RADIUS_M={S.DRONE_RADIUS_M}")
+    print(f"{route}: {n} seeds per scenario, DRONE_RADIUS_M={S.DRONE_RADIUS_M}, variant={VARIANT}")
     for name, _ in SCENARIOS:
         rs = [r for r in res if r[0] == name]
         ok = sum(r[2] == "complete" for r in rs)
