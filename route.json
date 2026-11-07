@@ -1,1 +1,16 @@
-{"route": [], "params": {"explore": true}}
+{
+  "note": "Course route: forward/left metres from the launch mark, taking off facing the course's +Y (north). From sim/mission/course-window-x500.json (CAD) on victor/sim; regenerate with victor/sim's tools/route_from_course.py.",
+  "route": [[1.67, 0.0], [1.67, -1.143], [0.057, -1.143], [0.057, -2.261], [1.67, -2.261], [1.67, -3.465], [1.286, -4.826], [0.686, -4.826], [-1.634, -4.826], [-2.614, -4.645], [-2.814, -2.815], [-3.374, -2.56], [-2.998, -1.527], [-1.707, -0.472]],
+  "params": {
+    "explore": false,
+    "height_m": 0.9,
+    "hover_s": 3.0,
+    "speed_mps": 0.4,
+    "arrive_m": 0.15,
+    "corridor_half_m": 0.35,
+    "stop_m": 0.55,
+    "slow_m": 1.1,
+    "blocked_wait_s": 4.0,
+    "clear_past_leg_m": 0.35
+  }
+}

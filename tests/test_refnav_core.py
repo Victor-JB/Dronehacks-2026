@@ -457,3 +457,48 @@ def test_too_little_depth_never_arms_and_says_how_much_there_was():
 def test_no_depth_at_all_is_said_as_such():
     m, px4, log = fly(C.Params(route=[], wait_s=5.0), depth_on=lambda t: False, seconds=10.0)
     assert m.result == "refused: waiting for live depth: no depth frame has arrived after 5 s", m.result
+
+
+# ---- course options: slow zone, hold at an obstacle, walls past a corner waypoint (all off by default)
+
+COURSE = dict(slow_m=1.1, stop_m=0.55, blocked_wait_s=4.0, clear_past_leg_m=0.35)
+
+
+def test_a_wall_just_past_a_corner_waypoint_is_not_an_obstacle():
+    wall = [(0, 3.5, -5.0, 5.0)]                          # 0.5 m past the end of the first leg
+    m, px4, log = fly(C.Params(route=[(3.0, 0.0), (3.0, 2.0)]), walls=wall)
+    assert m.result.startswith("landed: route blocked"), m.result      # the default: it ends the route
+    m, px4, log = fly(C.Params(route=[(3.0, 0.0), (3.0, 2.0)], **COURSE), walls=wall)
+    assert m.result == "complete", (m.result, m.why)
+    assert m.counts["obstacle_stops"] == 0
+
+
+def test_the_slow_zone_keeps_the_carrot_out_of_the_stop_zone():
+    wall = [(0, 4.5, -5.0, 5.0)]
+    m, px4, log = fly(C.Params(route=[(8.0, 0.0)], **COURSE), walls=wall)
+    assert m.result.startswith("landed: route blocked"), m.result
+    nearest = max(pos[0] for *_, pos in log)
+    assert 4.5 - 1.1 < nearest < 4.5 - 0.55 + 0.05       # slowed, then stopped about stop_m short
+    assert m.counts["obstacle_stops"] == 1
+
+
+def test_an_obstacle_that_clears_is_waited_for():
+    seen = {}                                             # the box leaves 2 s after the leg's check began
+    m, px4, log = fly(C.Params(route=[(8.0, 0.0)], **COURSE),
+                      on_tick=lambda t, m: seen.setdefault("check", t) if m.phase == "check" else None,
+                      depth_fn=lambda t, img: img if t > seen.get("check", math.inf) + 2.0 else _box(img))
+    assert m.result == "complete", (m.result, m.why)
+    assert m.counts["obstacle_stops"] == 1
+
+
+def test_an_obstacle_that_stays_ends_the_route_after_the_wait():
+    m, px4, log = fly(C.Params(route=[(8.0, 0.0)], **COURSE), depth_fn=lambda t, img: _box(img))
+    assert m.result.startswith("landed: route blocked"), m.result
+    held = [t for t, ph, *_ in log if ph in ("check", "go")]
+    assert held and held[-1] - held[0] >= 4.0
+
+
+def _box(img):
+    img = img.copy()
+    img[30:70, 50:110] = 0.35                             # 0.51 m from the body origin, dead ahead
+    return img

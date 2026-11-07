@@ -146,9 +146,15 @@ pilot's Position switch can hand over; gives up after `arm_wait_s` 120 s) -> `cl
   over. It does not use `/skybeta/hold`, which holds the last (unreached) setpoint and is cancelled
   by the next one.
 
-**Current route:** `route.json` is `{"route": [], "params": {"explore": true}}`, open-space
-exploration for 60 s after takeoff. **Change it to a plain hover for first flights**:
-`{"route": [], "params": {"explore": false, "height_m": 1.0, "hover_s": 5.0}}`.
+**Current route:** `route.json` is the course: 14 legs from the launch mark through the maze, Gate A,
+the tunnel, the chicane and the window to the pad, at 0.9 m and 0.4 m/s. **Take off on the launch mark
+facing the course's +Y**: the route is in the takeoff frame, so a heading error rotates all of it.
+Its params turn on three refnav options (all off by default): `slow_m` (the carrot slows near an
+obstacle and never enters `stop_m`), `blocked_wait_s` (hold up to 4 s for an obstacle to clear before
+ending), and `clear_past_leg_m` (a wall just past a corner waypoint is planned geometry, not an
+obstacle; without it the route ends at the first corner). `corridor_half_m` is 0.35: the maze leaves
+~5 cm beside the drone, so the corridor watches what is ahead, not the walls the route skims. For a
+first flight use a plain hover: `{"route": [], "params": {"explore": false, "height_m": 1.0, "hover_s": 5.0}}`.
 
 `/refnav/status` (JSON, 2 Hz) reports the phase, why it is waiting, depth age/coverage, rejects,
 `motion_check` and `frozen_enu`.
@@ -272,7 +278,6 @@ cannot `git pull`: the GitHub repo is private and the drone has no credentials.
 - **VIO latency with depth on is ~290 ms; PX4 has no local position** (`PICKUP.md`, the next thing to fix).
 - The camera page subscribes to the GPU converter's `/oak/left/image_mono` and slows that chain while open (`PICKUP.md` §2.6).
 - Nothing has flown; the arm -> Position -> Offboard handover is untested on this airframe.
-- `route.json` is in explore mode (§4).
 - Depth override not yet cleared with the organisers (§5).
 - The yaw offset between VIO and PX4 is unmeasured (`odom_to_ned_yaw_offset_rad`, organisers' guide §1).
 - The mission does not plan with the map yet.

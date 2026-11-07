@@ -18,7 +18,10 @@ Safety behaviour (each one is a test in tests/test_refnav_core.py):
   < min_valid_frac), future-stamped, stale-on-arrival or out-of-order frame refreshes nothing; no
   usable depth for depth_lost_land_s lands;
 * an obstacle closer than stop_m ahead stops the aircraft and ends the route (it lands where it
-  is: route blocked; planning around obstacles is the student's job);
+  is: route blocked; planning around obstacles is the student's job). Optional, off by default:
+  the carrot slows inside slow_m and never goes closer than stop_m to the obstacle; the aircraft
+  holds up to blocked_wait_s for it to clear before ending; and anything farther than the leg's
+  end plus clear_past_leg_m is ignored (the wall a corner waypoint is planned in front of);
 * PX4 leaving Offboard while airborne (a pilot or a failsafe) is never fought: the mission stops
   streaming and commanding and ends ("yielded");
 * PX4 owns the landing: once AUTO_LAND is observed the mission stops streaming setpoints (PX4's
@@ -65,6 +68,9 @@ class Params:
     depth_stale_s: float = 0.5
     depth_lost_land_s: float = 3.0
     stop_m: float = 0.9
+    slow_m: float = 0.0                         # carrot slows when an obstacle is nearer (<= stop_m: off)
+    blocked_wait_s: float = 0.0                 # hold this long at an obstacle before ending (0: end at once)
+    clear_past_leg_m: float = math.inf          # obstacles beyond leg end + this are expected, not obstacles
     corridor_half_m: float = 0.6
     band_m: float = 0.4
     min_obstacle_px: int = 1200                 # an obstacle covers at least this many image pixels (~35 x 35):
@@ -180,6 +186,7 @@ class Mission:
         self.leg_start = None
         self.leg_dir = None
         self.leg_len = 0.0
+        self.blocked_t = None         # when the current obstacle hold began (blocked_wait_s)
         self.leg_heading = 0.0
         self.s = 0.0
         self.counts = {"depth_frames": 0, "obstacle_stops": 0, "depth_holds": 0, "unconfirmed_obstacles": 0,
@@ -412,9 +419,9 @@ class Mission:
                 if clr is not None and self.corridor_fresh(now):
                     self.last_clearance = clr
                     if clr < p.stop_m:
-                        self.counts["obstacle_stops"] += 1
-                        self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead at leg {self.leg + 1}")
+                        self._blocked(now, out, v, clr, "at leg")
                     else:
+                        self.blocked_t = None
                         self.s = 0.0
                         self._set("go", now, out)
         elif ph == "go":
@@ -460,6 +467,7 @@ class Mission:
         self.leg_dir = (dn / self.leg_len, de / self.leg_len) if self.leg_len > 1e-6 else (1.0, 0.0)
         self.leg_heading = math.atan2(de, dn) if self.leg_len > 1e-6 else self.sp[3]
         self.clr_hist, self.corr_t = [], None
+        self.blocked_t = None
         self._set("turn", now, out, f"leg {self.leg + 1}/{len(self.targets)}")
 
     def _clearance(self, v):
@@ -486,7 +494,26 @@ class Mission:
         confirmed = max(c for _, c in self.clr_hist)
         if min(c for _, c in self.clr_hist) < self.p.stop_m <= confirmed:
             self.counts["unconfirmed_obstacles"] += 1
+        if math.isfinite(p.clear_past_leg_m) and v.pos is not None:
+            n0, e0 = self.leg_start
+            proj = (v.pos[0] - n0) * self.leg_dir[0] + (v.pos[1] - e0) * self.leg_dir[1]
+            if confirmed > max(0.0, self.leg_len - proj) + p.clear_past_leg_m:
+                return math.inf                          # past the leg's end: planned geometry, not in the way
         return confirmed
+
+    def _blocked(self, now, out, v, clr, where):
+        """An obstacle nearer than stop_m: hold where the aircraft is for up to blocked_wait_s
+        (it may clear: a person walking through), then end the route. True = ended."""
+        p = self.p
+        self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
+        if self.blocked_t is None:
+            self.blocked_t = now
+            self.counts["obstacle_stops"] += 1
+        if now - self.blocked_t >= p.blocked_wait_s:
+            self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead {where} {self.leg + 1}")
+            return True
+        self.why = f"holding: obstacle {clr:.2f} m ahead, {now - self.blocked_t:.1f}/{p.blocked_wait_s:g} s"
+        return False
 
     def _go(self, now, dt, out, v):
         p = self.p
@@ -498,13 +525,19 @@ class Mission:
             clr = None                                       # the latest evidence of this corridor is too old
         if clr is not None:
             self.last_clearance = clr
-            if clr < p.stop_m:
-                # stop where the aircraft is (not where the carrot was)
-                self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
-                self.counts["obstacle_stops"] += 1
-                self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead on leg {self.leg + 1}")
+            slowing = p.slow_m > p.stop_m
+            if clr < p.stop_m or (slowing and clr < p.stop_m + 0.05):
+                # stop where the aircraft is (not where the carrot was); inside the slow zone, a
+                # carrot that can no longer advance 5 cm is a stop too, or it would creep forever
+                self._blocked(now, out, v, clr, "on leg")
                 return
-            self.s = min(self.s + p.speed_mps * dt, self.leg_len, max(proj, 0.0) + p.lead_max_m)
+            self.blocked_t = None
+            speed, lead = p.speed_mps, p.lead_max_m
+            if slowing and clr < p.slow_m:
+                speed *= (clr - p.stop_m) / (p.slow_m - p.stop_m)
+                lead = min(lead, clr - p.stop_m)         # the carrot never enters the stop zone
+                self.s = min(self.s, max(proj, 0.0) + lead)
+            self.s = min(self.s + speed * dt, self.leg_len, max(proj, 0.0) + lead)
         else:
             self.counts["depth_holds"] += 1                  # no live evidence: the carrot waits
         self.sp[0], self.sp[1] = n0 + un * self.s, e0 + ue * self.s
