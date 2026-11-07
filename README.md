@@ -35,6 +35,8 @@ A separate injected camera-aid blackout passed eight fault-response checks. PX4 
 
 The later [learned-policy camera-aid loss test](docs/experiments/policy-blackout-02/README.md) reached the expected freshness fault, landed and disarmed, but did not pass its full assessment. Eight of nine checks passed; a 204 ms gap in the independent pose recording prevented certification of the entire abort path. The failed result and unchanged scoring threshold are retained.
 
+The [repeat with improved recording](docs/experiments/policy-blackout-03/README.md) certified the modeled abort path but also failed one strict check: a pre-cutoff camera sample reached PX4 4 ms after injection. The send count stayed fixed and no later updates appeared. Both attempts are preserved rather than combined into a single passing result.
+
 ## Run locally
 
 For a fresh clone, follow the [Apple Silicon setup guide](docs/mac-quickstart.md) to build the Gazebo/PX4 images and install the host policy dependencies. The commands below assume those images already exist. The Mac setup uses Docker and Colima in a separate Compose project. Start the simulator and viewer in separate terminals:
