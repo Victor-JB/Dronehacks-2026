@@ -6,6 +6,8 @@ The navigation-source audit checks the running world/model sources, absence of a
 
 ## Start, view, and record
 
+For a new Mac checkout, first complete the [image builds and host setup](mac-quickstart.md). That guide uses the packaged v1 checkpoint, explicit patched PX4 image, and FALS7 settings from the latest paired trials. The historical baseline commands below assume the simulator images already exist.
+
 Start the dedicated marker-free PX4/Gazebo container from the repository root. This starts the simulator but does not arm or fly it:
 
 ```sh

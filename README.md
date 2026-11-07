@@ -35,7 +35,7 @@ A separate injected camera-aid blackout passed eight fault-response checks. PX4 
 
 ## Run locally
 
-The Mac setup uses Docker, Colima and the existing `dronehacks-px4:local` image in a separate Compose project. Start the simulator and viewer in separate terminals:
+For a fresh clone, follow the [Apple Silicon setup guide](docs/mac-quickstart.md) to build the Gazebo/PX4 images and install the host policy dependencies. The commands below assume those images already exist. The Mac setup uses Docker and Colima in a separate Compose project. Start the simulator and viewer in separate terminals:
 
 ```sh
 ./runtime/run-markerfree.sh
@@ -69,7 +69,7 @@ python3 runtime/train_overnight.py --stop
 
 ## Physical transfer and reused work
 
-These runs demonstrate transfer from an analytic training model to Gazebo/PX4. Physical-camera transfer remains unvalidated. Gazebo's ideal depth, opaque net proxies, the known static survey and the x500 surrogate differ from the real OAK-D camera and Skybeta aircraft. The [OAK depth handoff](docs/oak-depth-handoff.md) provides passive capture checks and the required calibration evidence.
+These runs demonstrate transfer from an analytic training model to Gazebo/PX4. Physical-camera transfer remains unvalidated. Gazebo's ideal depth, opaque net proxies, the known static survey and the x500 surrogate differ from the real OAK-D camera and Skybeta aircraft. The [OAK depth handoff](docs/oak-depth-handoff.md) provides passive capture checks and the required calibration evidence. The [timing audit](docs/timing-budget.md) separates simulated camera age from host policy latency and lists the timing measurements still needed on the real platform.
 
 The [competition references](docs/competition-reuse.md) and [local SAND.O review](docs/sando-reuse.md) explain which projects were investigated. SAND.O's full ROS 2/Gurobi planner is not integrated. Its acceleration-limited graph model is useful as a stopping-distance reference, but does not account for this command delay.
 
