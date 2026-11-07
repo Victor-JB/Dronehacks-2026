@@ -17,6 +17,7 @@ from learning.inference import (CAMERA_HEIGHT, CAMERA_WIDTH, PolicyClient, Polic
                                 validate_transfer_contract)
 from learning.sim import DT as POLICY_STEP
 from .core import CourseController, ZERO, limited, norm, sub, vector, wrap
+from .custom_controller import CustomRoute
 from .boundary_brake import BoundaryBrake
 from .heading import route_yaw
 from .landing import LandingMonitor
@@ -289,7 +290,7 @@ def prepare_course(args, launch):
     if args.task != 'hover' and (len(course['waypoints']) < 2 or not course.get('window')
                                  or not any(w['phase'] == 'WINDOW_CROSS' for w in course['waypoints'])):
         raise ValueError('course must include the full window route')
-    if args.task != 'hover':
+    if args.task != 'hover' and args.hover_summary is not None:
         proof = json.loads(args.hover_summary.read_text())
         if not (proof.get('task') == 'hover' and proof.get('result') == 'completed'
                 and proof.get('landed_and_disarmed') is True and proof.get('route_completed') is True
@@ -318,8 +319,11 @@ def run(args):
     launch = dict(position_enu=list(vector(args.launch_position)), yaw_enu_deg=args.launch_yaw_deg)
     course, takeoff_course = prepare_course(args, launch)
     takeoff = CourseController(takeoff_course, speed_scale=args.speed_scale)
-    route = None if args.task == 'hover' else CourseController(
-        dict(course, waypoints=course['waypoints'][1:]), speed_scale=args.speed_scale)
+    if args.controller is not None:
+        route = CustomRoute(args.controller, dict(course, waypoints=course['waypoints'][1:]))
+    else:
+        route = None if args.task == 'hover' else CourseController(
+            dict(course, waypoints=course['waypoints'][1:]), speed_scale=args.speed_scale)
     landing = LandingMonitor(course['landing']['position'], args.pad_radius,
                              AIRCRAFT_RADIUS, args.landing_timeout)
     # The default .40 s lead budgets .24 s actuator delay and the maximum
@@ -523,7 +527,11 @@ def run(args):
                                     landing.start(sim_s)
                                     continue
                         else:
-                            command = route.update(position_enu, velocity_enu, stamp)
+                            if args.controller is not None:
+                                command = route.update(position_enu, velocity_enu, stamp, frame=frame,
+                                                       yaw=wrap(math.pi/2 - attitude.yaw))
+                            else:
+                                command = route.update(position_enu, velocity_enu, stamp)
                             phase = command.phase
                             if command.done:
                                 route_time = sim_s-start
@@ -534,11 +542,14 @@ def run(args):
                                 log.event('Route complete; requesting PX4 AUTO_LAND',
                                           route_elapsed_sim_s=route_time)
                                 continue
-                            following_index = route.waypoint_index + 1
-                            following = (route.waypoints[following_index]['position']
-                                         if following_index < len(route.waypoints) else None)
-                            goal_yaw = route_yaw(position_enu, command.target, following,
-                                                 phase, args.heading_lookahead)
+                            if args.controller is not None:
+                                goal_yaw = route.yaw
+                            else:
+                                following_index = route.waypoint_index + 1
+                                following = (route.waypoints[following_index]['position']
+                                             if following_index < len(route.waypoints) else None)
+                                goal_yaw = route_yaw(position_enu, command.target, following,
+                                                     phase, args.heading_lookahead)
                             if goal_yaw is not None:
                                 limit = (1.6 if learned else route.max_yaw_rate)*dt
                                 yaw_command = wrap(yaw_command + max(-limit, min(limit, wrap(goal_yaw-yaw_command))))
@@ -687,6 +698,8 @@ def main():
     parser.add_argument('--launch-position', type=float, nargs=3, required=True, metavar=('X', 'Y', 'Z'))
     parser.add_argument('--launch-yaw-deg', type=float, required=True)
     parser.add_argument('--hover-summary', type=Path)
+    parser.add_argument('--controller', type=Path,
+                        help='team controller directory (controller.py); runs with --task course')
     parser.add_argument('--policy-dir', type=Path)
     parser.add_argument('--policy-sha256')
     parser.add_argument('--policy-depth-mode', choices=('virtual', 'raw'), default='raw',
@@ -716,7 +729,9 @@ def main():
         value = getattr(args, option)
         if value is not None and (not math.isfinite(value) or value <= 0):
             parser.error('--' + option.replace('_', '-') + ' must be finite and positive')
-    if args.task != 'hover' and args.hover_summary is None:
+    if args.controller is not None and args.task != 'course':
+        parser.error('--controller runs with --task course')
+    if args.task != 'hover' and args.hover_summary is None and args.controller is None:
         parser.error('course and policy tasks require --hover-summary')
     if args.task == 'policy' and (args.policy_dir is None or args.policy_sha256 is None):
         parser.error('policy task requires --policy-dir and --policy-sha256')
