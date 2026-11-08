@@ -215,6 +215,35 @@
         [-3.342, -0.608],
         [-3.059, -0.321]
       ]
+    },
+    "10": {
+      "name": "autonomous",
+      "_comment": "No hand-placed waypoints: the route is only the checkpoints (window entry, window exit, landing pad). Each leg is planned on board by clearance-aware A* over a map (maps/course_scan_1p08.json: the 2026-11-06 scan at flight height); the depth camera adds obstacles the map did not have, and a blocked or newly obstructed leg is replanned from where the drone is (up to replan_max). Settings otherwise as mode 8.",
+      "plan_map": "maps/course_scan_1p08.json",
+      "params_override": {
+        "explore": false,
+        "height_m": 1.08,
+        "hover_s": 3.0,
+        "speed_mps": 0.4,
+        "arrive_m": 0.15,
+        "corridor_half_m": 0.3,
+        "band_m": 0.13,
+        "stop_m": 0.45,
+        "slow_m": 0.9,
+        "blocked_wait_s": 4.0,
+        "clear_past_leg_m": 0.25,
+        "climb_forward_m": 0.15,
+        "climb_rate_mps": 0.25,
+        "require_depth": true,
+        "plan": true,
+        "plan_inflate_m": 0.3,
+        "plan_prefer_m": 0.6
+      },
+      "route": [
+        [-3.243, -2.608],
+        [-2.867, -1.575],
+        [-3.059, -0.321]
+      ]
     }
   }
 }
