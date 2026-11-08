@@ -40,31 +40,18 @@ if StationaryMissionNode.force_dry_run is not True:
 print('Installed imports OK; no node instantiated by import')
 PY
 export DH_COURSE_OBJ=/reviewed/course.obj
+python3 -m pytest --collect-only -q --color=no \
+  /reviewed/ros2_ws/src/dh_autonomy/test/test_ros_graph_dry_run.py \
+  /reviewed/ros2_ws/src/dh_autonomy/test/test_ros_perception_dry_run.py > evidence/collection.log 2>&1
+cat evidence/collection.log
+python3 /reviewed/check_test_evidence.py --stage collection
 # Tests execute sequentially: synthetic camera, TF, odometry and /dh/start only.
 timeout --signal=INT --kill-after=10s 300s colcon test \
   --base-paths /reviewed/ros2_ws/src --packages-select dh_core dh_autonomy \
-  --executor sequential --event-handlers console_direct+ --pytest-args -v
+  --executor sequential --event-handlers console_direct+ --python-testing pytest \
+  --return-code-on-test-failure --pytest-args -v
 colcon test-result --verbose | tee evidence/test-results.txt
-python3 - <<'PY'
-from pathlib import Path
-import xml.etree.ElementTree as E
-cases = []
-for path in Path('build').rglob('*.xml'):
-    try:
-        root = E.parse(path).getroot()
-    except E.ParseError:
-        continue
-    if root.tag in ('testsuite', 'testsuites'):
-        cases.extend(root.iter('testcase'))
-if not cases:
-    raise RuntimeError('No actual JUnit test evidence')
-if any(c.find(tag) is not None for c in cases for tag in ('failure', 'error', 'skipped')):
-    raise RuntimeError('Inspect failing/skipped XML')
-names = {c.attrib.get('name', '') for c in cases}
-if not {'test_commands_only_on_dry_run_topic', 'test_real_images_clearance_and_isolation'} <= names:
-    raise RuntimeError('Required DDS test cases missing: ' + str(names))
-print('Required real-DDS test cases executed, without skips:', len(cases))
-PY
+python3 /reviewed/check_test_evidence.py --stage tests
 # Also exercise the dedicated installed stationary executable with hostile parameters.
 # No /dh/start is sent here; this is a constructor/graph check in the sandbox only.
 mission_pid=
@@ -99,6 +86,9 @@ for attempt in 1 2 3 4 5 6; do
   test "$rc" = 2  # Incomplete discovery can be retried; forbidden/error cannot.
 done
 test "$passed" = true
+cp "evidence/isolation-${attempt}.log" evidence/isolation-final.log
+printf '{"executed":true,"returncode":0}\n' > evidence/isolation-result.json
+python3 /reviewed/check_test_evidence.py --stage complete
 cleanup
 mission_pid=
 echo 'PHASE 2 SYNTHETIC CHECKS PASSED; STOP BEFORE LIVE SENSOR STARTUP'

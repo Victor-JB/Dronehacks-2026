@@ -11,6 +11,7 @@ setup(
                 ("share/" + pkg + "/launch", glob("launch/*.py")),
                 ("share/" + pkg + "/config", glob("config/*.yaml"))],
     install_requires=["setuptools"],
+    tests_require=["pytest"],
     zip_safe=True,
     maintainer="DroneHacks team",
     description="DroneHacks ROS 2 nodes.",
