@@ -28,12 +28,13 @@ from .online_map import FREE, OCCUPIED, UNKNOWN, OnlineMap
 class OpeningParams:
     half_span: float = 0.8              # cross-section sampled +-this around the point (m)
     res: float = 0.05
-    margin: float = 0.05                # extra lateral/vertical margin beyond the body
+    margin: float = 0.0                 # extra lateral margin (robot_radius already holds body + margin + 2 sigma)
     max_turn_deg: float = 35.0          # axis search around the travel direction
     min_observed: float = 0.95          # share of envelope cells that must be observed FREE
     slice_step: float = 0.10            # spacing of cross-sections along the traversal
     verify_len: float = 1.2             # verify cross-sections this far before and after the opening point
     turn_cost: float = 0.04             # m of free run a 1-degree turn away from the travel direction must buy
+    min_side_run: float = 0.6           # straight free run needed on BOTH sides to accept the smallest-turn axis
 
 
 @dataclass
@@ -175,7 +176,9 @@ def _best_axis(m: OnlineMap, c, n, hw, prm: OpeningParams):
                     break
                 k += 1
             runs[sign] = k * v
-        score = runs[1] + runs[-1] - prm.turn_cost * abs(deg)      # prefer square-on unless clearly longer
+        if runs[1] >= prm.min_side_run and runs[-1] >= prm.min_side_run:
+            return d, runs[-1], runs[1]          # smallest turn with a straight run on both sides: take it
+        score = runs[1] + runs[-1] - prm.turn_cost * abs(deg)
         if score > best[0] + 1e-9:
             best = (score, d, runs[-1], runs[1])
     return best[1], best[2], best[3]

@@ -34,11 +34,13 @@ class ExplorerParams:
     v_explore: float = 0.45
     a_max: float = 0.8
     scan_rate: float = 0.7              # rad/s
+    scan_timeout: float = 25.0          # s
     look_s: float = 1.5
     replan_s: float = 1.0
     goal_tol: float = 0.20
-    preferred_clearance: float = 0.45
-    narrow: float = 0.42                # path clearance below this triggers the opening check
+    preferred_clearance: float = 0.55
+    v_narrow: float = 0.15              # speed where clearance is at its minimum (openings, tight corridors)
+    narrow: float = 0.45                # path clearance below this triggers the opening check
     blacklist_r: float = 0.5
     w_size: float = 0.02                # score bonus per frontier cell in a cluster
     w_turn: float = 0.6                 # penalty for frontiers behind (avoid back-tracking)
@@ -49,7 +51,15 @@ class ExplorerParams:
     max_inspect: int = 2
     standoff: float = 0.6               # straight run before/after a verified opening's centre
     max_target_views: int = 3
-    switch_ratio: float = 0.5           # switch frontier only if the best new one costs < this x the current
+    approach_max: float = 0.8           # a frontier needs a traversable approach cell within this distance
+    tile: float = 0.8                   # frontier cells are grouped into tiles of this size (m)
+    reactivate_ratio: float = 2.0       # a blacklisted frontier comes back if its cluster grows this much
+    persist_r: float = 1.0              # the current goal is "the same" frontier within this distance (>= tile: its
+                                        # approach point moves as the map grows; 0.4 let goals flip every replan)
+    switch_gain: float = 1.0            # switch only if another frontier scores this much better (m)
+    unreachable_retry_s: float = 20.0   # an unreachable frontier is skipped this long, then retried
+    progress_m: float = 0.15            # watchdog: at least this much motion ...
+    progress_s: float = 8.0             # ... within this long while following a plan
 
 
 @dataclass
@@ -69,6 +79,8 @@ class Explorer:
         self.tracker = TargetTracker(tprm)
         self.state = "SCAN"
         self.scan_left = 2 * math.pi
+        self._scan_yaw = None
+        self._scan_t0 = None
         self.follower: Optional[TrajectoryFollower] = None
         self.goal: Optional[np.ndarray] = None
         self.blacklist: List[np.ndarray] = []
@@ -84,6 +96,10 @@ class Explorer:
         self.plan_times: List[float] = []
         self.replans = 0
         self.target_views = 0
+        self.frontier_sizes = {}
+        self._prog = None
+        self.looked = set()
+        self.n_frontier_cells = 0
 
     # ------------------------------------------------------------------ perception
     def on_frame(self, t, depth, rgb, K, R_wc, o_w, loc_ok: bool):
@@ -93,6 +109,14 @@ class Explorer:
         if rgb is not None:
             for d in detect(rgb, depth, K, R_wc, o_w, self.lprm):
                 self.tracker.update(d)
+
+    def on_rgb(self, t, rgb, K, R_wc, o_w, loc_ok: bool, depth=None):
+        """A colour frame from its OWN camera (intrinsics K, pose R_wc/o_w at capture). Without an aligned
+        depth image the detector projects onto the floor plane (z = floor_z) using the odometry height."""
+        if not loc_ok or rgb is None:
+            return
+        for d in detect(rgb, depth, K, R_wc, o_w, self.lprm):
+            self.tracker.update(d)
 
     # ------------------------------------------------------------------ policy
     def step(self, t, pos, yaw, vel, loc_ok: bool) -> Intent:
@@ -105,9 +129,15 @@ class Explorer:
         if self.state == "OVER_TARGET":
             return Intent(np.zeros(3), 0.0, "OVER_TARGET", "descent disabled: hovering over the target estimate")
         if self.state == "SCAN":
-            if self.scan_left > 0:
-                self.scan_left -= p.scan_rate * 0.1
+            # count the rotation actually measured (a vetoed yaw command must not look like a finished scan)
+            if self._scan_yaw is not None:
+                self.scan_left -= abs((yaw - self._scan_yaw + math.pi) % (2 * math.pi) - math.pi)
+            self._scan_yaw = yaw
+            self._scan_t0 = t if self._scan_t0 is None else self._scan_t0
+            if self.scan_left > 0 and t - self._scan_t0 < p.scan_timeout:
                 return Intent(self._hold_z(pos), p.scan_rate, "SCAN")
+            if self.scan_left > 0:
+                self.log.append("%.1f scan incomplete (%.0f deg left): exploring anyway" % (t, math.degrees(self.scan_left)))
             self.state = "EXPLORE"
         # target logic has priority once a square is tracked
         if self.tracker.xy is not None and self.state not in ("TO_TARGET",):
@@ -144,6 +174,18 @@ class Explorer:
                 return Intent(self._hold_z(pos), 0.0, self.state, "no plan")
         if self.goal is not None and np.linalg.norm(pos[:2] - self.goal) < p.goal_tol:
             return self._arrived(t, pos, yaw)
+        # no-progress watchdog: a plan the final-command gate keeps refusing must not deadlock the mission
+        if self._prog is None or np.linalg.norm(pos[:2] - self._prog[1]) > p.progress_m:
+            self._prog = (t, pos[:2].copy())
+        elif t - self._prog[0] > p.progress_s:
+            self.log.append("%.1f no progress for %.0f s towards (%.2f, %.2f): goal retired for %.0f s, replanning"
+                            % (t, t - self._prog[0], self.goal[0], self.goal[1], p.unreachable_retry_s))
+            self.blacklist.append({"p": self.goal.copy(), "size": 10 ** 6, "until": t + p.unreachable_retry_s})
+            self._prog = (t, pos[:2].copy())
+            if self.state in ("TO_TARGET", "VIEW_TARGET", "INSPECT"):
+                self.state = "EXPLORE"
+            self.follower = None
+            return Intent(self._hold_z(pos), 0.0, self.state, "no progress")
         v, yr, _, _ = self.follower.step(pos, yaw, 0.1)
         return Intent(v, yr, self.state)
 
@@ -179,6 +221,12 @@ class Explorer:
 
     def _arrived(self, t, pos, yaw):
         p = self.prm
+        if self.state == "TO_TARGET":
+            # reached the tracked target estimate: hover (the generic frontier "arrival" used to fire first,
+            # blacklist the pad and drop out of TO_TARGET)
+            self.state = "OVER_TARGET"
+            self.log.append("%.1f over target (sigma %.2f m); descent disabled" % (t, self.tracker.sigma))
+            return Intent(np.zeros(3), 0.0, "OVER_TARGET")
         if self.state == "VIEW_TARGET":
             self.state, self.t_state = "LOOK", t
             self.look_yaw = math.atan2(self.tracker.xy[1] - pos[1], self.tracker.xy[0] - pos[0])
@@ -191,8 +239,8 @@ class Explorer:
             self.inspecting["recheck"] = True          # re-evaluated after the look (new evidence)
             self.inspecting = None
             return Intent(self._hold_z(pos), 0.0, "LOOK", "inspecting opening")
-        # frontier reached: blacklist it (dead-end memory) and look at the unknown beyond it
-        self.blacklist.append(self.goal.copy())
+        # frontier reached: remember it (dead-end memory, with its size for re-activation) and look beyond
+        self.blacklist.append({"p": self.goal.copy(), "size": self.frontier_sizes.get(tuple(np.round(self.goal, 3)), 10 ** 6)})
         self.look_yaw = self._unknown_bearing(pos)
         self.state, self.t_state = "LOOK", t
         self.follower = None
@@ -201,7 +249,7 @@ class Explorer:
     def _unknown_bearing(self, pos):
         cls = self.cls if self.cls is not None else self.map.classify()
         X, Y = self.map.grid_coords()
-        m = (cls == UNKNOWN) & ((X - pos[0]) ** 2 + (Y - pos[1]) ** 2 < 1.5 ** 2)
+        m = self.map.frontiers(cls) & ((X - pos[0]) ** 2 + (Y - pos[1]) ** 2 < 1.5 ** 2)   # not wall backsides
         if not m.any():
             return None
         return math.atan2(Y[m].mean() - pos[1], X[m].mean() - pos[0])
@@ -211,6 +259,7 @@ class Explorer:
             return True
         cls = self.map.classify()
         g = self.map.planning_grid(cls)
+        self._apply_verified(g)
         self._apply_vetoes(g)
         dist = g.distance()
         tr = self.follower.traj
@@ -240,6 +289,41 @@ class Explorer:
                 v["permanent"] = True
                 self.log.append("%.1f opening rejected for good: %s" % (t, op.reason))
 
+    def _nearest_reachable(self, pos, target, pl):
+        """The cell reachable from pos (same connected traversable region) nearest to target, if within 2.5 m."""
+        try:
+            from scipy.ndimage import label as _lab
+            lab, _ = _lab(pl.free)
+        except ImportError:
+            lab = np.zeros(pl.free.shape, int)
+            for i, (rr, cc) in enumerate(label(pl.free)):
+                lab[rr, cc] = i + 1
+        s0 = pl._nearest_free(pl.grid.to_cell(pos[:2]))
+        if s0 is None or lab[s0] == 0:
+            return None
+        cells = np.argwhere(lab == lab[s0])
+        W = pl.grid.origin + (cells[:, ::-1] + 0.5) * pl.grid.res
+        d = np.linalg.norm(W - np.asarray(target)[:2], axis=1)
+        k = int(np.argmin(d))
+        return W[k] if d[k] <= 2.5 else None
+
+    def _apply_verified(self, grid):
+        """A 3-D-verified opening (true envelope fits in observed-free voxels slice by slice) is trusted by the
+        2-D planner along its axis: cells within the body envelope of the verified centreline are cleared.
+        Real walls lie farther than robot_radius from the axis and stay. Re-checked on every use."""
+        r = self.mprm.robot_radius - grid.res
+        for o in self.verified_openings:
+            a = o.centre[:2] - o.normal[:2] * self.prm.standoff
+            b = o.centre[:2] + o.normal[:2] * self.prm.standoff
+            n = max(2, int(np.linalg.norm(b - a) / (0.5 * grid.res)) + 1)
+            for q in a + np.linspace(0, 1, n)[:, None] * (b - a):
+                rr, cc = grid.to_cell(q)
+                k = int(math.ceil(r / grid.res))
+                ys, xs = np.mgrid[max(0, rr - k):rr + k + 1, max(0, cc - k):cc + k + 1]
+                cen = grid.origin + (np.stack([xs, ys], -1) + 0.5) * grid.res
+                inside = np.linalg.norm(cen - q, axis=-1) <= r
+                grid.occ[ys[inside], xs[inside]] = False
+
     def _apply_vetoes(self, grid):
         for v in self.vetoes:
             if v.get("cleared"):
@@ -256,6 +340,7 @@ class Explorer:
         self.cls = cls = self.map.classify()
         grid = self.map.planning_grid(cls)
         self._recheck_vetoes(t)
+        self._apply_verified(grid)
         self._apply_vetoes(grid)
         self.pl = pl = ClearancePlanner(grid, self.mprm.robot_radius, self.prm.preferred_clearance, 4.0)
         if self.state in ("TO_TARGET", "VIEW_TARGET", "INSPECT") and self.goal is not None:
@@ -266,19 +351,38 @@ class Explorer:
             if not goals and any(not (v.get("cleared") or v.get("permanent")) for v in self.vetoes):
                 self._recheck_vetoes(t, force=True)            # stuck: maybe a vetoed opening is now verified
                 grid = self.map.planning_grid(cls)
+                self._apply_verified(grid)
                 self._apply_vetoes(grid)
                 self.pl = pl = ClearancePlanner(grid, self.mprm.robot_radius, self.prm.preferred_clearance, 4.0)
                 goals = self._frontier_goals(pos, yaw, cls, pl)
             if not goals:
                 self.follower = None
-                self._set("HOLD", t, "no reachable frontier")
+                self._set("HOLD", t, "exploration exhausted: no safely reachable frontier")
                 self.plan_times.append(_t.perf_counter() - t0)
                 return
         for g in goals[:6]:
             path = pl.astar(pos[:2], g)
             if path is None or len(path) < 2:
                 if self.state == "EXPLORE":
-                    self.blacklist.append(np.asarray(g, float))
+                    key = tuple(np.round(np.asarray(g) / 0.3).astype(int))
+                    if key not in self.looked:
+                        # unreachable only because the space between is unobserved? go as close as we can
+                        # and LOOK at it (e.g. the unseen half of a tunnel) before giving up on it
+                        self.looked.add(key)
+                        near = self._nearest_reachable(pos, g, pl)
+                        if near is not None:
+                            self.inspecting = {"p": np.asarray(g, float), "axis": (np.asarray(g) - near), "tries": 0}
+                            self.log.append("%.1f frontier (%.2f, %.2f) unreachable: approaching (%.2f, %.2f) to look"
+                                            % (t, g[0], g[1], near[0], near[1]))
+                            self._goto(t, pos, yaw, vel, near, "INSPECT")
+                            path = pl.astar(pos[:2], near)
+                            if path is not None and len(path) >= 2:
+                                self.follower = self._trajectory(np.vstack([pos[:2], path]), pl, vel)
+                                self.plan_times.append(_t.perf_counter() - t0)
+                                return
+                    # still unreachable after looking: retry later (the map keeps changing)
+                    self.blacklist.append({"p": np.asarray(g, float), "size": self.frontier_sizes.get(tuple(np.round(g, 3)), 10 ** 6),
+                                           "until": t + self.prm.unreachable_retry_s})
                 continue
             path = np.vstack([pos[:2], path])
             ok, path, anchors = self._openings_ok(t, pos, path, pl, g)
@@ -295,44 +399,54 @@ class Explorer:
         self.plan_times.append(_t.perf_counter() - t0)
 
     def _frontier_goals(self, pos, yaw, cls, pl) -> List[np.ndarray]:
+        """Frontier clusters -> approach goals (the traversable cell nearest each cluster), scored by
+        distance, heading change, how visited the area is, and cluster size (information). Dead-end memory:
+        a blacklisted goal is skipped unless its cluster has grown (new information re-activates it).
+        Persistence: the current goal is kept while its cluster still exists and nothing is clearly better."""
         p = self.prm
-        cells = self.map.frontiers(cls, pl.free, self.mprm.robot_radius + 3 * self.mprm.voxel)
-        if len(cells) == 0:
+        fmask = self.map.frontiers(cls)
+        trav = np.argwhere(pl.free)
+        self.n_frontier_cells = int(fmask.sum())
+        if not fmask.any() or len(trav) == 0:
             return []
-        mask = np.zeros(cls.shape, bool)
-        mask[cells[:, 0], cells[:, 1]] = True
-        cand = []
+        T = pl.grid.origin + (trav[:, ::-1] + 0.5) * pl.grid.res          # traversable cell centres (x, y)
         hd = np.array([math.cos(yaw), math.sin(yaw)])
-        for rows, cols in label(mask):
-            if len(rows) < p.min_cluster:
+        cand = []
+        fr = np.argwhere(fmask)
+        P = pl.grid.origin + (fr[:, ::-1] + 0.5) * pl.grid.res
+        # tiles, not connected components: a frontier boundary is often ONE long connected cluster, and
+        # retiring it on the first visit removed every frontier at once
+        keys = np.floor(P / p.tile).astype(int)
+        uniq, inv = np.unique(keys, axis=0, return_inverse=True)
+        for ti in range(len(uniq)):
+            pts = P[inv.ravel() == ti]
+            n = len(pts)
+            if n < p.min_cluster:
                 continue
-            pts = np.array([pl.grid.to_world(r, c) for r, c in zip(rows, cols)])
-            if self.blacklist:                       # dead-end memory excludes cells, not whole clusters
-                bl = np.array(self.blacklist)
-                far = np.min(np.linalg.norm(pts[:, None, :] - bl[None, :, :], axis=2), axis=1) >= p.blacklist_r
-                pts = pts[far]
-                if len(pts) < p.min_cluster:
-                    continue
-            g = pts[np.argmin(np.linalg.norm(pts - pts.mean(0), axis=1))]
-            d = g - pos[:2]
-            dist = float(np.linalg.norm(d))
-            turn = 0.0 if dist < 1e-6 else 1.0 - float(np.dot(d / dist, hd))
-            r, c = pl.grid.to_cell(g)
-            rad = 6
-            vis = self.map.visited[max(0, r - rad):r + rad, max(0, c - rad):c + rad].mean()
-            cand.append((dist + p.w_turn * turn + p.w_visit * vis - p.w_size * len(rows), g))
+            c = pts[np.argmin(np.linalg.norm(pts - pts.mean(0), axis=1))]
+            d = np.linalg.norm(T - c, axis=1)
+            k = int(np.argmin(d))
+            if d[k] > p.approach_max:
+                continue                                    # no safe spot near this frontier (yet)
+            g = T[k]
+            bl = [b for b in self.blacklist if np.linalg.norm(g - b["p"]) < p.blacklist_r
+                  and b.get("until", math.inf) > self.t_plan]
+            if bl and n < p.reactivate_ratio * max(b["size"] for b in bl):
+                continue
+            dv = g - pos[:2]
+            dist = float(np.linalg.norm(dv))
+            turn = 0.0 if dist < 1e-6 else 1.0 - float(np.dot(dv / dist, hd))
+            r, cc = pl.grid.to_cell(g)
+            vis = float(self.map.visited[max(0, r - 6):r + 6, max(0, cc - 6):cc + 6].mean())
+            cand.append((dist + p.w_turn * turn + p.w_visit * vis - p.w_size * n, g, n))
         cand.sort(key=lambda x: x[0])
-        goals = [g for _, g in cand]
-        # goal persistence: keep chasing the current frontier while it is still one and not clearly beaten,
-        # otherwise replanning every second flips between frontiers and the drone wanders (back-tracking)
+        self.frontier_sizes = {tuple(np.round(g, 3)): n for _, g, n in cand}
+        goals = [g for _, g, _ in cand]
         cur = self.goal if self.state == "EXPLORE" else None
-        if cur is not None and len(cells):
-            fr = np.array([pl.grid.to_world(r, c) for r, c in cells[:: max(1, len(cells) // 2000)]])
-            still = np.min(np.linalg.norm(fr - cur, axis=1)) < 0.3
-            cur_cost = float(np.linalg.norm(cur - pos[:2]))
-            best_cost = cand[0][0] if cand else math.inf
-            if still and not any(np.linalg.norm(cur - b) < p.blacklist_r for b in self.blacklist)                     and best_cost > p.switch_ratio * cur_cost:
-                goals = [cur] + [g for g in goals if np.linalg.norm(g - cur) > 0.3]
+        if cur is not None and cand:
+            same = [(sc, g) for sc, g, _ in cand if np.linalg.norm(g - cur) < p.persist_r]
+            if same and cand[0][0] > same[0][0] - p.switch_gain:        # not clearly beaten: keep it
+                goals = [same[0][1]] + [g for g in goals if np.linalg.norm(g - same[0][1]) > 1e-6]
         return goals
 
     def _openings_ok(self, t, pos, path, pl, goal):
@@ -346,7 +460,17 @@ class Explorer:
         n = b - a
         if np.linalg.norm(n) < 1e-6:
             return True, path, []
-        op = evaluate_opening(self.map, path[k], n, True, self.oprm)
+        known = [o for o in self.verified_openings if np.linalg.norm(o.centre[:2] - path[k]) < 0.4]
+        if known:
+            # already verified: re-use its centre/axis unless the map now shows something inside the envelope
+            o = known[0]
+            recheck = evaluate_opening(self.map, o.centre[:2], o.normal[:2], True, self.oprm)
+            if "occupied" in recheck.reason:
+                self.verified_openings.remove(o)          # new evidence: no longer trusted
+                self.log.append("%.1f opening at (%.2f, %.2f) no longer verified: %s" % (t, o.centre[0], o.centre[1], recheck.reason))
+            op = recheck if (recheck.verified or "occupied" in recheck.reason) else o
+        else:
+            op = evaluate_opening(self.map, path[k], n, True, self.oprm)
         if op.kind in ("open", "none"):
             return True, path, []
         if op.verified:
@@ -359,6 +483,10 @@ class Explorer:
             ax = op.normal[:2] * (1.0 if np.dot(op.normal[:2], n) >= 0 else -1.0)
             s = self.prm.standoff
             ea, eb = op.centre[:2] - ax * s, op.centre[:2] + ax * s
+            if not pl.segment_clear(ea, eb, self.mprm.robot_radius):
+                # the estimated axis would not fit as a straight line (e.g. skewed in a tube): keep A*'s own
+                # path, which is collision-free by construction, rather than forcing a straight line
+                return True, path, []
             via = pl.plan_via([pos[:2], ea, eb, goal])
             if via is not None:
                 via = np.vstack([pos[:2], via])
@@ -400,7 +528,7 @@ class Explorer:
 
         def vlim(q):
             d = pl.clearance_at(q)
-            return 0.25 + (p.v_explore - 0.25) * float(np.clip((d - r) / max(p.preferred_clearance - r, 1e-6), 0, 1))
+            return p.v_narrow + (p.v_explore - p.v_narrow) * float(np.clip((d - r) / max(p.preferred_clearance - r, 1e-6), 0, 1))
         v0 = min(float(np.linalg.norm(np.asarray(vel)[:2])), p.v_explore) if vel is not None else 0.0
         tr = time_parameterize(p3, p.v_explore, p.a_max, p.a_max, vlim, v_start=v0, kappa=kappa)
         return TrajectoryFollower(tr, FollowerParams(v_cap=p.v_explore + 0.1, v_lead=0.3))

@@ -30,8 +30,11 @@ class CommandSafetyParams:
     alt_limits: Tuple[float, float] = (0.3, 3.0)    # organizer flight_interface clamp
     v_iface_max: float = 1.5                        # organizer twist cap
     robot_radius: float = 0.27
+    hard_radius: Optional[float] = 0.28            # last-line body clearance (physical 0.24 + 4 cm); the planner keeps
+                                                   # the larger robot_radius (+2 sigma pose). None = robot_radius
     march_max: float = 3.0
     yaw_in_place_ok: bool = True                    # rotating in place is allowed at a wall if data are valid
+    hold_vz: float = 0.05                           # vertical speed still counted as "holding" during a rotation
     geofence: Optional[Tuple[float, float, float, float]] = None   # xmin xmax ymin ymax (ENU odom); None = refuse
     geofence_margin: float = 0.4                    # keep the body centre this far inside (netting may not show in depth)
 
@@ -44,7 +47,7 @@ class CommandSafety:
     def map_free_distance(self, dist, grid, pos, dir_xy) -> float:
         """Distance the body centre can move along dir before the inflated body meets OCCUPIED or UNKNOWN.
         If it already overlaps, only motion that does not get closer is allowed."""
-        r = self.prm.robot_radius
+        r = self.prm.hard_radius if self.prm.hard_radius is not None else self.prm.robot_radius
         res = grid.res
 
         def d_at(q):
@@ -85,19 +88,24 @@ class CommandSafety:
         if dist is None or grid is None:
             free = None
         elif vh > 1e-3:
-            free = self.map_free_distance(dist, grid, pos, v[:2] / vh) + p.robot_radius
+            free = self.map_free_distance(dist, grid, pos, v[:2] / vh) + p.safety.vehicle_radius
         else:
-            free = self.map_free_distance(dist, grid, pos, np.array([1.0, 0.0])) + p.robot_radius
+            free = self.map_free_distance(dist, grid, pos, np.array([1.0, 0.0])) + p.safety.vehicle_radius
         if free is not None and depth_corridor_free is not None:
             free = min(free, depth_corridor_free)
         inp = SensorInputs(now=now, free_distance=free, depth_stamp=depth_stamp, depth_rx=depth_rx,
                            odom_stamp=odom_stamp, odom_rx=odom_rx, pos_std=pos_std, transform_valid=True,
                            loc_mode=loc_mode)
+        if p.yaw_in_place_ok and vh < 1e-3 and abs(v[2]) <= p.hold_vz:
+            # pure rotation needs no clearance (the body is treated as radially symmetric), but it still needs
+            # fresh data and valid localization: judge only those (no map is required, e.g. at start-up)
+            inp.free_distance = p.safety.reliable_range
+            verdict = self.gate.update(inp, 0.0)
+            ok = verdict.verdict in ("SAFE", "LIMIT") or verdict.reason == "NO_STOPPING_ROOM"
+            out = np.array([0.0, 0.0, v[2]]) if ok else np.zeros(3)     # altitude hold stays inside the band guard
+            return out, (float(yaw_rate) if ok else 0.0), verdict
         verdict = self.gate.update(inp, float(math.hypot(vh, v[2])))
-        yaw_keep = yaw_rate
         v_out, yaw_out = self.gate.clamp(v, yaw_rate)
-        if (p.yaw_in_place_ok and vh < 1e-3 and verdict.reason == "NO_STOPPING_ROOM"):
-            yaw_out = yaw_keep                                  # turning on the spot cannot hit anything
         n = float(np.linalg.norm(v_out))
         if n > p.v_iface_max:
             v_out *= p.v_iface_max / n

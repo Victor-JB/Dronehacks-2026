@@ -170,7 +170,8 @@ def detect(rgb, depth, K, R_wc, o_w, prm: LandingParams = LandingParams()) -> Li
 @dataclass
 class TrackParams:
     gate_m: float = 0.6
-    q_per_s: float = 0.005            # sigma^2 growth per second (m^2/s)
+    q_per_s: float = 0.0002           # sigma^2 growth per second (m^2/s): a fixed pad only drifts with VIO
+                                      # (0.005 lost verification ~10 s after the pad left the view)
     q_per_m: float = 0.0004           # sigma^2 growth per metre flown (VIO drift)
     verify_n: int = 3
     verify_sigma: float = 0.12

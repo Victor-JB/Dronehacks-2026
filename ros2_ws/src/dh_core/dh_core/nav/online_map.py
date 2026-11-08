@@ -38,14 +38,16 @@ class MapParams:
     stride: int = 2                     # on the 160x100 sim image (= stride 4 at 320x200)
     cruise_z: float = 0.75
     drone_half_height: float = 0.12
-    z_margin: float = 0.08              # clearance above/below the body
+    z_margin: float = 0.05              # clearance above/below the body
     z_uncert: float = 0.05              # altitude-estimate uncertainty
     obstacle_min_z: float = 0.15        # anything taller than this under the drone needs an observed top
     free_fraction: float = 0.25         # share of the band's voxels that must be seen free. A 0-deg forward
                                         # camera cannot see the band's top/bottom within ~0.5 m of itself, so
                                         # requiring half the band left a permanent unknown ring around the drone
     roof_merge_m: float = 0.15          # observed overhead structure within this distance counts as a roof
-    robot_radius: float = 0.27
+    # planning inflation = physical half-span 0.24 + margin 0.04 + 2 x pose sigma 0.025 (was 0.27: only 3 cm
+    # beyond the body, and the closed loop came within 1.4 cm of contact)
+    robot_radius: float = 0.33
 
     @property
     def band(self) -> Tuple[float, float]:
@@ -140,8 +142,14 @@ class OnlineMap:
         out[inside] = s
         return out
 
-    def frontiers(self, cls: np.ndarray, traversable: np.ndarray, reach: float) -> np.ndarray:
-        """(row, col) of traversable cells within `reach` metres of an UNKNOWN cell."""
+    def frontiers(self, cls: np.ndarray) -> np.ndarray:
+        """Boolean mask of FREE cells with an UNKNOWN 8-neighbour (the classic frontier). An occupied cell in
+        between breaks adjacency, so the never-seen back side of a wall is NOT a frontier (the previous
+        distance-based test made every free cell along every wall one, and the drone kept returning)."""
         unk = cls == UNKNOWN
-        d = Grid2D(self.vm.lo[:2], self.vm.voxel, unk).distance()
-        return np.argwhere(traversable & (d <= reach))
+        nb = np.zeros_like(unk)
+        nb[1:, :] |= unk[:-1, :]; nb[:-1, :] |= unk[1:, :]
+        nb[:, 1:] |= unk[:, :-1]; nb[:, :-1] |= unk[:, 1:]
+        nb[1:, 1:] |= unk[:-1, :-1]; nb[:-1, :-1] |= unk[1:, 1:]
+        nb[1:, :-1] |= unk[:-1, 1:]; nb[:-1, 1:] |= unk[1:, :-1]
+        return (cls == FREE) & nb

@@ -68,6 +68,7 @@ class NavPolicyNode(Node):
         d("depth_topic", "/oak/stereo/image_raw")          # main's config/drone.yaml
         d("depth_info_topic", "/oak/stereo/camera_info")
         d("rgb_topic", "")                                  # NONE on the drone today (see docs); '' disables the target
+        d("rgb_info_topic", "")                             # its CameraInfo ('' = <rgb_topic dir>/camera_info)
         d("base_frame", "base_link")
         d("rate_hz", 10.0)
         d("geofence", [0.0])                                # [xmin, xmax, ymin, ymax] ENU odom; anything else = unset
@@ -99,7 +100,6 @@ class NavPolicyNode(Node):
         self.start = None
         self.was_active = False
         self.last_verdict = None
-        self.rgb = None
         self._last_depth_used = None
         self._said = {}
 
@@ -111,8 +111,11 @@ class NavPolicyNode(Node):
         self.create_subscription(CameraInfo, g("depth_info_topic"), lambda m: self.mon.on_camera_info(m, self._now()),
                                  qos_profile_sensor_data)
         self.create_subscription(Image, g("depth_topic"), self._on_depth, qos_profile_sensor_data)
+        self.K_rgb, self.extr_rgb = None, None
         if g("rgb_topic"):
             self.create_subscription(Image, g("rgb_topic"), self._on_rgb, qos_profile_sensor_data)
+            info = g("rgb_info_topic") or g("rgb_topic").rsplit("/", 1)[0] + "/camera_info"
+            self.create_subscription(CameraInfo, info, self._on_rgb_info, qos_profile_sensor_data)
         try:
             from isaac_ros_visual_slam_interfaces.msg import VisualSlamStatus
             self.create_subscription(VisualSlamStatus, g("vo_status_topic"),
@@ -130,10 +133,33 @@ class NavPolicyNode(Node):
     def _now(self):
         return self.get_clock().now().nanoseconds * 1e-9
 
+    def _on_rgb_info(self, m):
+        if len(m.k) == 9 and m.k[0] > 0 and m.k[4] > 0:
+            self.K_rgb = (float(m.k[0]), float(m.k[4]), float(m.k[2]), float(m.k[5]))
+
     def _on_rgb(self, m):
+        """Colour frames are their own camera: own intrinsics, own TF extrinsic, odometry pose at capture.
+        Depth stays in its stereo frame (no alignment), so the depth path is untouched."""
         img = decode_rgb(m)
-        if img is not None:
-            self.rgb = (stamp_of(m), str(m.header.frame_id), img)
+        st, frame = stamp_of(m), str(m.header.frame_id)
+        if img is None or st is None or self.K_rgb is None:
+            return
+        if self.extr_rgb is None or self.extr_rgb.frame_id != frame:
+            try:
+                from rclpy.time import Time
+                tf = self.tf_buffer.lookup_transform(self.base_frame, frame, Time())
+                r, t = tf.transform.rotation, tf.transform.translation
+                self.extr_rgb, _ = validate_extrinsic(frame, D.quat_to_mat(r.w, r.x, r.y, r.z), [t.x, t.y, t.z])
+            except Exception:
+                self.extr_rgb = None
+        if self.extr_rgb is None:
+            return
+        pose = min(self.mon.odom_hist, key=lambda o: abs(o.stamp - st), default=None)
+        if pose is None or abs(pose.stamp - st) > 0.1 or self.mon.loc.evaluate(self._now())[0] not in ("OK", "DEGRADED"):
+            return
+        R_wb = pose.R
+        self.ex.on_rgb(self._now(), img, self.K_rgb, R_wb @ self.extr_rgb.R_body_cam,
+                       pose.pos + R_wb @ self.extr_rgb.t_body_cam, True)
 
     def _on_depth(self, m):
         frame = m.header.frame_id
@@ -164,11 +190,7 @@ class NavPolicyNode(Node):
         R_wb = pose.R
         R_wc = R_wb @ mon.extr.R_body_cam
         o_w = pose.pos + R_wb @ mon.extr.t_body_cam
-        rgb = None
-        if self.rgb is not None and self.rgb[0] is not None and abs(self.rgb[0] - dep.stamp) < 0.05 \
-                and self.rgb[1] == dep.frame_id and self.rgb[2].shape[:2] == dep.depth_m.shape:
-            rgb = self.rgb[2]                                # only an aligned, same-size, synchronous image
-        self.ex.on_frame(now, dep.depth_m, rgb, mon.intr.K, R_wc, o_w, True)
+        self.ex.on_frame(now, dep.depth_m, None, mon.intr.K, R_wc, o_w, True)   # colour arrives via _on_rgb
 
     # ------------------------------------------------------------------ helpers
     def _say(self, key, text, every=5.0, warn=False):

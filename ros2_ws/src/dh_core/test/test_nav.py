@@ -230,11 +230,13 @@ def test_explorer_scans_then_plans_to_a_frontier_and_replans_when_blocked():
         yaw = (yaw + it.yaw_rate * 0.1 + math.pi) % (2 * math.pi) - math.pi
         if ex.follower is not None:
             break
-    assert ex.state == "EXPLORE" and ex.follower is not None and ex.goal[0] > 1.0   # down the open corridor
+    # a frontier goal away from the start (either open end of the corridor is a valid choice)
+    assert ex.state == "EXPLORE" and ex.follower is not None and np.linalg.norm(ex.goal) > 1.0
+    assert ex.pl.clearance_at(ex.goal) > ex.mprm.robot_radius                 # a safe approach cell
     # an unexpected wall across the corridor, between the drone and its goal, appears and is observed
     xw = 0.55 * ex.goal[0]
     w.boxes.append((xw, xw + 0.1, -1.2, 1.2, 0, 1.7))
-    yaw = 0.0
+    yaw = 0.0 if ex.goal[0] > 0 else math.pi                          # look at it
     for k in range(3):
         Rwc, o = cam(pos, yaw)
         d, _ = w.render(o, Rwc, K, W, H, color=False)
@@ -244,3 +246,23 @@ def test_explorer_scans_then_plans_to_a_frontier_and_replans_when_blocked():
     ex.step(21.0, pos, yaw, np.zeros(3), True)
     assert ex.replans == n0 + 1
     assert ex.follower is None or ex._traj_still_clear()                # new plan avoids the wall (or holds)
+
+
+def test_rotation_in_place_allowed_without_a_map_only_with_fresh_data():
+    """Regression: before any map existed the gate zeroed the yaw rate, so the start-up scan never turned."""
+    cs = CommandSafety(CommandSafetyParams(geofence=(-1.0, 4.0, -2.0, 2.0)))
+    now = 10.0
+    v, yr, _ = cs.filter([0, 0, 0], 0.7, np.array([0, 0, 0.75]), now, None, None, now - 0.02, now - 0.01, now - 0.05, now - 0.04, "OK")
+    assert np.allclose(v, 0) and yr == 0.7
+    v, yr, _ = cs.filter([0, 0, 0], 0.7, np.array([0, 0, 0.75]), now, None, None, now - 3, now - 3, now - 0.05, now - 0.04, "OK")
+    assert yr == 0.0                                                   # stale odometry: no rotation either
+    v, yr, _ = cs.filter([0, 0, 0], 0.7, np.array([0, 0, 0.75]), now, None, None, now - 0.02, now - 0.01, now - 0.05, now - 0.04, "HOVER")
+    assert yr == 0.0                                                   # localization lost
+
+
+def test_scan_counts_measured_rotation_not_commands():
+    ex = Explorer(MapParams(), ExplorerParams())
+    pos = np.array([0.0, 0.0, 0.75])
+    for k in range(50):                                                # yaw command ignored: drone does not turn
+        it = ex.step(0.1 * k, pos, 0.0, np.zeros(3), True)
+        assert it.state == "SCAN"

@@ -75,7 +75,10 @@ def course_a(pad=(1.0, 4.6, 0.6), window=(0.2, 1.1, 0.4, 1.2), tube_r=(0.47, 0.5
     boxes = [(lo - T, lo, lo, hi, 0, H), (hi, hi + T, lo, hi, 0, H), (lo, hi, lo - T, lo, 0, H), (lo, hi, hi, hi + T, 0, H)]
     boxes.append((1.2, hi, 0.8, 0.9, 0, H))                                   # dead-end corridor partition
     boxes += wall_with_window(0, 1.6, lo, hi, T, H, *window)                 # wall + window
-    boxes.append((2.0, 2.5, 2.3, 2.8, 0, H))                                  # pillar
+    # obstacle in the middle room. Originally a pillar at y 2.3-2.8, which left two 0.6 m gaps; the 0.66 m
+    # planning envelope (0.33 m radius) correctly refuses those, so the east half was unreachable. Now a
+    # 0.5 x 0.1 m post leaving two 0.8 m gaps (narrower than the 0.9 m window).
+    boxes.append((2.0, 2.5, 2.5, 2.6, 0, H))
     tube = Tube(1, 3.0, 4.0, 4.2, 0.75, *tube_r)
     boxes += wall_with_tube(0, 3.4, lo, hi, T, H, tube)                      # wall + tunnel
     boxes += list(extra_boxes)
