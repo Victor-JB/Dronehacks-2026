@@ -54,8 +54,8 @@
     ]
   ],
   "params": {
-    "height_m": 1.08,
-    "speed_mps": 0.4,
+    "height_m": 0.54,
+    "speed_mps": 0.2,
     "stop_m": 0.4,
     "yaw_rate_dps": 90.0,
     "arrive_m": 0.15,

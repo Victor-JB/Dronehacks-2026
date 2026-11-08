@@ -1,5 +1,5 @@
 {
-  "active_mode": 5,
+  "active_mode": 7,
   "global_params": {
     "height_m": 1.2,
     "speed_mps": 0.6,
@@ -105,6 +105,45 @@
         "require_depth": false
       },
       "route": []
+    },
+    "7": {
+      "name": "walk_1107_half",
+      "_comment": "TEST version of mode 5: the same 13 legs at half the height (0.54 m) and half the speed (0.2 m/s). WARNING: at this height the window (opening ~0.88-1.52 m) is a wall: legs 10-11 cross it, and with require_depth false nothing stops it. Take over before the window on the real course. Same start as mode 5: 1 ft ahead of the walkthrough's start, same heading.",
+      "params_override": {
+        "height_m": 0.54,
+        "hover_s": 3.0,
+        "speed_mps": 0.2,
+        "arrive_m": 0.15,
+        "corridor_half_m": 0.3,
+        "band_m": 0.13,
+        "stop_m": 0.4,
+        "slow_m": 0.9,
+        "blocked_wait_s": 6.0,
+        "clear_past_leg_m": 0.25,
+        "climb_forward_m": 0.15,
+        "climb_rate_mps": 0.25,
+        "require_depth": false,
+        "yaw_rate_dps": 90.0,
+        "face_tol_deg": 12.0,
+        "hold_s": 0.3,
+        "confirm_frames": 4,
+        "look_around_deg": 20.0
+      },
+      "route": [
+        [0.875, -0.26],
+        [1.145, -4.1],
+        [0.885, -4.81],
+        [0.555, -5.04],
+        [-0.215, -4.82],
+        [-1.645, -5.09],
+        [-3.035, -4.68],
+        [-3.265, -3.52],
+        [-3.465, -3.29],
+        [-3.545, -1.98],
+        [-3.175, -1.53],
+        [-3.335, -0.93],
+        [-3.355, -0.45]
+      ]
     }
   }
 }

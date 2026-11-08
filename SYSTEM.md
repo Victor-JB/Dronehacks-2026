@@ -163,8 +163,9 @@ square that returns to the start). `python3 set_speed.py <mode> <m/s>` sets one 
 | 2 `box_test_no_depth` | a 1 ft (0.30 m) square | not required |
 | 3 `box_test_with_depth` | a 1 m square, stopping for obstacles | required |
 | 4 `wall_vault` | climb over the wall ahead, cross, land | required |
-| 5 `walk_1107` (active) | the changed course, from the 2026-11-07 evening walk, landing just past the window (below) | required |
+| 5 `walk_1107` | the changed course, from the 2026-11-07 evening walk, landing just past the window (below) | required |
 | 6 `walkthrough` | never flies (`record_only`): carry the drone along the course with `fly.sh start` running; the bag's VIO odometry becomes the next route | not required |
+| 7 `walk_1107_half` (active) | mode 5's route at half height (0.54 m) and half speed (0.2 m/s), for testing; at this height the window is a wall | not required |
 
 `require_depth: false` is a blind fallback (Tanooj, `config-modes-switcher`): no depth gate and no
 obstacle stop, only PX4's position. Use it only with a route already verified.
