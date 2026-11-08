@@ -64,6 +64,8 @@ class Params:
     hold_s: float = 1.0
     climb_tol_m: float = 0.15
     climb_rate_mps: float = 0.5
+    climb_forward_m: float = 0.0                # climb to a point this far ahead of the takeoff point (0: straight up):
+                                                # keeps a takeoff drift aft from carrying the props into a wall behind the mark
     hover_s: float = 0.0                        # hold at height_m this long after the climb (0: straight on)
     start_gate: bool = False                    # after the climb, hover until request_start() (the live view's START)
     start_wait_s: float = 60.0                  # no START this long after reaching the hover: end the mission (0: never)
@@ -431,6 +433,10 @@ class Mission:
             elif v.armed and v.nav_state == NAV_OFFBOARD:
                 self.offboard_seen = True
                 self._capture_home(v)                     # the route starts where Offboard took over
+                if p.climb_forward_m:
+                    hn, he, _, hh = self.home
+                    self.sp[0] = hn + p.climb_forward_m * math.cos(hh)
+                    self.sp[1] = he + p.climb_forward_m * math.sin(hh)
                 self._set("climb", now, out)
             elif now - self.t_phase >= p.stream_lead_s and self._resend(now):
                 out.commands += ["offboard", "arm"]
