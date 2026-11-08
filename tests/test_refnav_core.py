@@ -705,3 +705,24 @@ def test_walkthrough_mode_never_asks_to_fly():
     assert {p for _, p, *_ in log} == {"wait"}
     assert not any(s for _, _, s, *_ in log) and not any(c for _, _, _, c, _ in log)
     assert not px4.armed and m.why.startswith("walkthrough")
+
+
+def test_a_blocked_leg_looks_around_then_skips_to_the_next_waypoint():
+    """skip_blocked_leg: a post on leg 1 that never clears; after the look-around it flies on to
+    waypoint 2 from where it stopped instead of landing, and completes."""
+    wall = [(0, 2.5, -0.4, 3.0)]                      # across leg 1 (n = 2.5), open to its left (e < -0.4)
+    p = C.Params(route=[(3.0, 0.0), (3.0, 3.0)], blocked_wait_s=2.0, look_around_deg=20.0,
+                 skip_blocked_leg=True, confirm_frames=4, corridor_half_m=0.3)
+    m, px4, log = fly(p, walls=wall)
+    assert m.result == "complete", (m.result, m.why)
+    assert m.skips == 1
+    assert np.hypot(px4.pos[0] - 3.0, px4.pos[1] + 3.0) < 0.3          # landed on waypoint 2 (3 m left = e -3)
+    in_front = [pos for *_, pos in log if pos[1] > -0.4]               # where the wall is (e > -0.4)
+    assert max(q[0] for q in in_front) < 2.5 - 0.3                     # never flew into it
+
+
+def test_without_skip_a_blocked_leg_still_lands():
+    wall = [(0, 2.5, -0.4, 3.0)]
+    m, px4, log = fly(C.Params(route=[(3.0, 0.0), (3.0, 3.0)], blocked_wait_s=2.0, look_around_deg=20.0,
+                               corridor_half_m=0.3), walls=wall)
+    assert m.result.startswith("landed: route blocked"), m.result

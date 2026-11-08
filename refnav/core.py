@@ -78,6 +78,11 @@ class Params:
     stop_m: float = 0.9
     slow_m: float = 0.0                         # carrot slows when an obstacle is nearer (<= stop_m: off)
     blocked_wait_s: float = 0.0                 # hold this long at an obstacle before ending (0: end at once)
+    look_around_deg: float = 0.0                # while held at an obstacle, sweep the heading +-this about the leg
+                                                # (fresh views: a false match or a person moving clears)
+    skip_blocked_leg: bool = False              # still blocked after blocked_wait_s: fly on to the NEXT waypoint from
+                                                # where it is (that leg is checked like any other) instead of landing
+    max_skips: int = 2                          # at most this many skipped legs, then a block ends the route
     clear_past_leg_m: float = math.inf          # obstacles beyond leg end + this are expected, not obstacles
     corridor_half_m: float = 0.6
     band_m: float = 0.4
@@ -205,6 +210,7 @@ class Mission:
         self.leg_dir = None
         self.leg_len = 0.0
         self.blocked_t = None         # when the current obstacle hold began (blocked_wait_s)
+        self.skips = 0                # legs skipped because blocked (skip_blocked_leg)
         self.leg_heading = 0.0
         self.s = 0.0
         self.counts = {"depth_frames": 0, "obstacle_stops": 0, "depth_holds": 0, "unconfirmed_obstacles": 0,
@@ -481,6 +487,7 @@ class Mission:
                         self._blocked(now, out, v, clr, "at leg")
                     else:
                         self.blocked_t = None
+                        self.sp[3] = self.leg_heading
                         self.s = 0.0
                         self._set("go", now, out)
         elif ph == "go":
@@ -586,12 +593,25 @@ class Mission:
             self.blocked_t = now
             self.counts["obstacle_stops"] += 1
         if now - self.blocked_t >= p.blocked_wait_s:
+            if (p.skip_blocked_leg and not p.vault_on_obstacle and self.skips < p.max_skips
+                    and self.leg + 1 < len(self.targets)):
+                self.skips += 1
+                self.sp[3] = self.leg_heading
+                self._set("hold", now, out, f"leg {self.leg + 1} blocked ({clr:.2f} m) for {p.blocked_wait_s:g} s: "
+                          f"skipping to waypoint {self.leg + 2} (skip {self.skips}/{p.max_skips})")
+                self.leg += 1
+                self._next_leg(now, out, v)
+                return True
             if p.vault_on_obstacle:
                 next_ph = "vault_approach" if clr > p.vault_standoff_m + 0.05 else "vault_climb"
                 self._start_vault(now, out, next_ph, clr, f"wall detected at {clr:.2f} m, initiating vault")
             else:
                 self._land(now, out, f"route blocked: obstacle {clr:.2f} m ahead {where} {self.leg + 1}")
             return True
+        if p.look_around_deg > 0:                           # look around while held: fresh views of the corridor
+            a = math.radians(p.look_around_deg)
+            period = max(2.0, 4 * a / math.radians(p.yaw_rate_dps))
+            self.sp[3] = _wrap(self.leg_heading + a * math.sin(2 * math.pi * (now - self.blocked_t) / period))
         self.why = f"holding: obstacle {clr:.2f} m ahead, {now - self.blocked_t:.1f}/{p.blocked_wait_s:g} s"
         return False
 
@@ -615,6 +635,7 @@ class Mission:
                     self._blocked(now, out, v, clr, "on leg")
                     return
                 self.blocked_t = None
+                self.sp[3] = self.leg_heading                    # back to facing the leg after a look-around
                 speed, lead = p.speed_mps, p.lead_max_m
                 if slowing and clr < p.slow_m:
                     speed *= (clr - p.stop_m) / (p.slow_m - p.stop_m)
@@ -804,7 +825,7 @@ class Mission:
         return {"phase": self.phase, "why": self.why, "start_gate": self.p.start_gate,
                 "start_wait_left_s": (round(max(0.0, self.p.start_wait_s - (now - self.t_phase)), 1)
                                       if self.phase == "await_start" and self.p.start_wait_s > 0 else None), "result": self.result, "started_t": self.t_started, "leg": self.leg,
-                "legs": len(self.targets), "legs_done": self.legs_done, "home": self.home,
+                "legs": len(self.targets), "legs_done": self.legs_done, "skips": self.skips, "home": self.home,
                 "targets": [list(t) for t in self.targets], "setpoint": list(self.sp) if self.sp else None,
                 "vault_target": list(self.vault_target) if self.vault_target else None,
                 "vault_wall_dist": None if self.vault_wall_dist is None else round(self.vault_wall_dist, 2),

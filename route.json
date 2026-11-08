@@ -56,19 +56,23 @@
   "params": {
     "height_m": 1.08,
     "speed_mps": 0.4,
-    "stop_m": 0.45,
+    "stop_m": 0.4,
     "yaw_rate_dps": 90.0,
     "arrive_m": 0.15,
     "hover_s": 3.0,
     "corridor_half_m": 0.3,
     "band_m": 0.13,
     "slow_m": 0.9,
-    "blocked_wait_s": 4.0,
+    "blocked_wait_s": 6.0,
     "clear_past_leg_m": 0.25,
     "climb_forward_m": 0.15,
     "climb_rate_mps": 0.25,
     "require_depth": true,
     "face_tol_deg": 12.0,
-    "hold_s": 0.3
+    "hold_s": 0.3,
+    "confirm_frames": 4,
+    "look_around_deg": 20.0,
+    "skip_blocked_leg": true,
+    "max_skips": 2
   }
 }
