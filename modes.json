@@ -11,7 +11,6 @@
     "1": {
       "name": "hover_test",
       "params_override": {
-        "explore": false,
         "hover_s": 5.0,
         "require_depth": false,
         "speed_mps": 0.6
@@ -21,7 +20,6 @@
     "2": {
       "name": "box_test_no_depth",
       "params_override": {
-        "explore": false,
         "require_depth": false,
         "speed_mps": 0.6
       },
@@ -31,7 +29,6 @@
     "3": {
       "name": "box_test_with_depth",
       "params_override": {
-        "explore": false,
         "require_depth": true,
         "speed_mps": 0.6
       },
@@ -41,7 +38,6 @@
     "4": {
       "name": "hardcode_maze",
       "params_override": {
-        "explore": false,
         "require_depth": true,
         "corridor_half_m": 0.4,
         "band_m": 0.4,
@@ -80,19 +76,10 @@
         [-1.697, -0.472]
       ]
     },
-    "5": {
-      "name": "vio_explore",
-      "params_override": {
-        "explore": true,
-        "speed_mps": 0.6
-      },
-      "route": []
-    },
     "6": {
       "name": "course_scan",
       "_comment": "Full course (maze, Gate A, tunnel, chicane, window, pad) fitted to the 2026-11-06 point scan at 1.15 m (sim branch: sim/scan/fit_route_to_scan.py). Legs 2-12 and 14 clear real walls by 0.33-0.54 m; the Sky Beta reaches ~0.29 m. Take off on the launch mark facing the course's +Y. Check on site first: SYSTEM.md section 4.",
       "params_override": {
-        "explore": false,
         "height_m": 1.15,
         "hover_s": 3.0,
         "speed_mps": 0.4,
@@ -125,7 +112,6 @@
       "name": "wall_vault",
       "_comment": "Climb out of any gap beneath the wall ahead, lock onto the wall face, approach to standoff, climb until above the top edge of the wall, fly forward over it, descend on the far side, and land.",
       "params_override": {
-        "explore": false,
         "require_depth": true,
         "height_m": 0.6,
         "hover_s": 0.0,

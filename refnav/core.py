@@ -47,19 +47,13 @@ from . import depth as D
 
 NAV_OFFBOARD = 14
 NAV_AUTO_LAND = 18
-AIRBORNE = ("climb", "hover", "await_start", "turn", "check", "go", "hold", "explore",
+AIRBORNE = ("climb", "hover", "await_start", "turn", "check", "go", "hold",
             "vault_find", "vault_approach", "vault_climb", "vault_cross", "vault_descend", "vault_settle")
 
 
 @dataclass
 class Params:
-    explore: bool = False                # after climb/hover, follow open space instead of the route
     require_depth: bool = True           # false: pure dead-reckoning on PX4 position only — no depth gating, no obstacle stop
-    explore_s: float = 60.0              # explore at most this long, then land
-    explore_half_fov_deg: float = 30.0   # candidate bearings span +-this (inside the camera view)
-    explore_bearings: int = 9            # candidate bearings scored per depth frame
-    explore_range_m: float = 6.0         # clearance is capped here (depth points stop at 6 m)
-    explore_straight_bias: float = 1.0   # metres of clearance traded per radian of turning
     route: list = field(default_factory=list)   # [(forward_m, left_m)] from the takeoff point and heading
     height_m: float = 1.2
     speed_mps: float = 0.6
@@ -217,7 +211,7 @@ class Mission:
         self.last_clearance = None
         self.land_request = None      # why an outside landing request was made (request_land), until acted on
         self.start_requested = False  # request_start() accepted while hovering in await_start
-        self.started = False          # past the start gate (or no gate): the route / explore / vault is running
+        self.started = False          # past the start gate (or no gate): the route / vault is running
         self.depth_reject = None      # (key, detail): why the latest refused depth frame was refused
         self.last_valid_frac = None   # fraction of pixels returning depth in the latest decoded frame
         self.vault_target = None      # far-side (North, East) landing target coordinate for wall vault
@@ -358,7 +352,8 @@ class Mission:
             # only the mission's OWN landing may put PX4 in AUTO_LAND; anywhere else that is PX4 (a
             # failsafe) or a pilot taking over, and streaming on would blank PX4's land detector
             allowed = (NAV_OFFBOARD, NAV_AUTO_LAND) if self.phase == "land" else (NAV_OFFBOARD,)
-            if self.offboard_seen and v.nav_state is not None and v.nav_state not in allowed:
+            touched_down = self.phase == "land" and v.armed is False    # disarmed on the floor: not a takeover
+            if self.offboard_seen and v.nav_state is not None and v.nav_state not in allowed and not touched_down:
                 self._end(now, out, f"yielded: PX4 left Offboard (nav_state {v.nav_state}): a pilot or a failsafe has it")
                 out.phase = self.phase
                 return out
@@ -471,8 +466,6 @@ class Mission:
                         self._set("go", now, out)
         elif ph == "go":
             self._go(now, dt, out, v)
-        elif ph == "explore":
-            self._explore(now, dt, out, v)
         elif ph in ("vault_find", "vault_approach", "vault_climb", "vault_cross", "vault_descend", "vault_settle"):
             self._vault(now, dt, out, v)
         elif ph == "hold":
@@ -486,7 +479,9 @@ class Mission:
                 self.land_auto_seen = True
             if not self.land_auto_seen and self._resend(now):
                 out.commands.append("land")
-            if self.land_auto_seen and v.armed is False:
+            # down: disarmed after PX4's own AUTO_LAND, or after the adapter's own descent in Offboard
+            # (skybeta has no land command: dronehacks_nav lands with a downward velocity setpoint)
+            if (self.land_auto_seen or self.offboard_seen) and v.armed is False:
                 why = self.land_reason or ""
                 self._end(now, out, "complete" if why in ("route complete", "vault complete") else f"landed: {why}")
             elif now - self.t_phase > p.land_timeout_s:
@@ -509,17 +504,13 @@ class Mission:
     def _next_leg(self, now, out, v):
         p = self.p
         if (p.start_gate and not self.started and self.phase in ("climb", "hover")
-                and (self.targets or p.explore or p.vault_only)):
+                and (self.targets or p.vault_only)):
             self._set("await_start", now, out, f"hovering at {p.height_m:.2f} m: waiting for START "
                       + (f"(ends after {p.start_wait_s:.0f} s)" if p.start_wait_s > 0 else ""))
             return
         if self.p.vault_only and self.phase in ("climb", "hover", "await_start"):
             self.leg_heading = self.home[3] if self.home is not None else v.heading
             self._start_vault(now, out, "vault_find", None, "climbing to detect wall above bottom gap")
-            return
-        if self.p.explore and self.phase in ("climb", "hover", "await_start"):
-            self.explore_h, self.last_clearance, self._judged_t = None, None, None
-            self._set("explore", now, out, "following open space")
             return
         if self.leg >= len(self.targets):
             self._land(now, out, "route complete")
@@ -617,49 +608,6 @@ class Mission:
         tn, te = self.targets[self.leg]
         if self.s >= self.leg_len - 1e-6 and math.hypot(v.pos[0] - tn, v.pos[1] - te) < p.arrive_m:
             self._set("hold", now, out, f"arrived leg {self.leg + 1}")
-
-    def _explore(self, now, dt, out, v):
-        # Open-space following: steer toward the bearing with the most depth clearance.
-        p = self.p
-        if now - self.t_phase > p.explore_s:
-            self._land(now, out, "explore time up")
-            return
-        if not self.depth_fresh(now) or self.depth_pts is None:
-            self.counts["depth_holds"] += 1      # no live depth: the setpoint stays where it is
-            return
-        if self._judged_t != self.depth_t:       # score each new depth frame once
-            self._judged_t = self.depth_t
-            hits = max(3, round(p.min_obstacle_px / p.depth_stride ** 2))
-            half = math.radians(p.explore_half_fov_deg)
-            n = max(2, p.explore_bearings)
-            best = None
-            for i in range(n):
-                b = -half + 2 * half * i / (n - 1)
-                c = min(D.clearance(self.depth_pts, b, p.corridor_half_m, p.band_m, hits), p.explore_range_m)
-                score = c - p.explore_straight_bias * abs(b)
-                if best is None or score > best[0]:
-                    best = (score, b, c)
-            _, b, c = best
-            self.explore_h = _wrap(v.heading + b)    # absolute heading: turning does not move the goal
-            self.last_clearance = c
-        if self.explore_h is None:
-            return
-        step = math.radians(p.yaw_rate_dps) * dt
-        if self.last_clearance < p.stop_m:
-            # dead end: hold position and rotate right until a new frame shows an opening
-            self.sp[0], self.sp[1] = v.pos[0], v.pos[1]
-            self.sp[3] = _wrap(self.sp[3] + step)
-            return
-        self.sp[3] = _wrap(self.sp[3] + max(-step, min(step, _wrap(self.explore_h - self.sp[3]))))
-        lead = min(p.lead_max_m, self.last_clearance - p.stop_m)
-        gn = v.pos[0] + lead * math.cos(self.explore_h)
-        ge = v.pos[1] + lead * math.sin(self.explore_h)
-        dn, de = gn - self.sp[0], ge - self.sp[1]
-        dist = math.hypot(dn, de)
-        if dist > 1e-6:
-            mv = min(dist, p.speed_mps * dt)
-            self.sp[0] += dn / dist * mv
-            self.sp[1] += de / dist * mv
 
     def _vault_wall_distance(self, v, upper_band_m=None):
         """Distance to the nearest obstacle in the forward corridor from the latest depth frame.

@@ -90,8 +90,8 @@ PX4's limit, and a position estimate that old makes hover sluggish and unstable.
 
 ## 3. Also open
 
-- `route.json` is in explore mode. Switch to a hover for first flights:
-  `{"route": [], "params": {"explore": false, "height_m": 1.0, "hover_s": 5.0}}`.
+- For first flights use a hover:
+  `{"route": [], "params": {"height_m": 1.0, "hover_s": 5.0}}`.
 - Nothing has flown; the arm -> Position -> Offboard handover is untested. Props off first.
 - The depth override has not been cleared with the organisers.
 - The yaw offset between VIO and PX4 is unmeasured (organisers' guide §1).

@@ -20,8 +20,10 @@ land command (skybeta_flight_interface owns /fmu/in/*; never publish there):
 
   offboard, arm   nothing: the safety pilot arms on Altitude, then switches to Position, and the
                   flight interface enters Offboard if this node is streaming setpoints
-  land            nothing: the setpoint stays where the mission stopped it (a hover) and the node
-                  tells the pilot to take over and land
+  land            a downward velocity setpoint (/skybeta/setpoint/twist, land_descent_mps) until PX4
+                  disarms on the floor (COM_DISARM_LAND); no touchdown within land_descent_timeout_s:
+                  it holds where it is and tells the pilot to land. After a motion-check failure it
+                  does NOT descend: it holds the freeze point and the pilot lands
   disarm          nothing (the mission only asks for it on the ground)
 
 Motion check (dronehacks_nav.motion_check), while Offboard is ours and nothing is clamped: if commanding
@@ -44,7 +46,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
                        qos_profile_sensor_data)
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
@@ -105,12 +107,19 @@ class SkybetaNav(Node):
             min_progress_m=float(self.declare_parameter("motion_min_progress_m", 0.1).value),
             z_mismatch_m=float(self.declare_parameter("motion_z_mismatch_m", 0.3).value))
         self.frozen = None              # (x, y, z, yaw) ENU the node holds after a motion-check failure
+        # Self-landing (as test_files' my_mission): the 0.3 m floor applies only to pose setpoints, so the
+        # descent is a twist. Nothing here disarms: PX4 does, COM_DISARM_LAND after it detects the landing.
+        self.land_mps = float(self.declare_parameter("land_descent_mps", 0.3).value)
+        self.land_timeout_s = float(self.declare_parameter("land_descent_timeout_s", 20.0).value)
+        self.land_t = None              # when this run's descent began
+        self.land_hold = None           # (x, y, z, yaw) ENU held after the descent timed out
 
         from tf2_ros import Buffer, TransformListener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.pub_sp = self.create_publisher(PoseStamped, "/skybeta/setpoint/pose", 10)
+        self.pub_tw = self.create_publisher(TwistStamped, "/skybeta/setpoint/twist", 10)
         status_topic = self.declare_parameter("status_topic", "/refnav/status").value
         self.pub_status = self.create_publisher(String, status_topic, 10)
 
@@ -177,7 +186,7 @@ class SkybetaNav(Node):
             (self.get_logger().info if ok else self.get_logger().warning)(msg)
         elif cmd == "stop":
             self.mission.request_land("STOP from the live view")
-            self.get_logger().warning("STOP from the live view: ending the mission (it holds; PILOT, TAKE OVER AND LAND)")
+            self.get_logger().warning("STOP from the live view: ending the mission (it lands itself; the pilot can take over any time)")
         else:
             self.get_logger().warning(f"unknown command on /refnav/command: {m.data!r}")
         self._publish_status()
@@ -293,6 +302,27 @@ class SkybetaNav(Node):
                                     f"PILOT, TAKE OVER AND LAND")
             self.mission.request_land(f"motion check: {why}")
 
+    def _descend(self, now):
+        """The mission is landing: push down at land_descent_mps (ENU world axes) until PX4 disarms,
+        including after touchdown (as test_files does) so the land detector completes. No touchdown
+        within land_descent_timeout_s: hold where the odometry says it is and tell the pilot."""
+        if self.land_t is None:
+            self.land_t = now
+        if self.land_hold is None and now - self.land_t > self.land_timeout_s and not self.v.landed:
+            self.land_hold = (*self.odom_enu, self.odom_yaw_enu)
+            self.get_logger().warning(f"no touchdown after {self.land_timeout_s:.0f} s of descent: holding. "
+                                      f"PILOT, TAKE OVER AND LAND")
+        if self.land_hold is not None:
+            x, y, z, yaw_enu = self.land_hold
+            n, e, d = F.enu_to_ned(x, y, z)
+            self._send(n, e, d, F.yaw_swap(yaw_enu))
+            return
+        msg = TwistStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "odom"
+        msg.twist.linear.z = -self.land_mps
+        self.pub_tw.publish(msg)
+
     def _send(self, n, e, d, yaw_ned):
         if self.frozen is not None:                  # after a motion-check failure, only the freeze point
             x, y, z, yaw_enu = self.frozen
@@ -325,15 +355,20 @@ class SkybetaNav(Node):
         self._check_motion(now, out)
         if out.events:
             self._publish_status()
-        if out.stream and out.setpoint is not None:
+        if out.stream and out.phase == "land" and self.frozen is None:
+            self._descend(now)
+        elif out.stream and out.setpoint is not None:
             self._send(*out.setpoint)
         for c in out.commands:
             if c in ("offboard", "arm"):
                 self._say("ready", f"READY: pilot, arm on Altitude, then switch to Position within a few seconds "
                                    f"(this mission gives up after {self.mission.p.arm_wait_s:.0f} s)")
+            elif c == "land" and self.frozen is not None:
+                self._say("land", f"MISSION ENDED ({self.mission.land_reason}): holding the freeze point. "
+                                  f"PILOT, TAKE OVER AND LAND", warn=True)
             elif c == "land":
-                self._say("land", f"MISSION ENDED ({self.mission.land_reason}): holding position. skybeta has no "
-                                  f"land command: PILOT, TAKE OVER AND LAND", warn=True)
+                self._say("land", f"MISSION ENDED ({self.mission.land_reason}): landing itself at "
+                                  f"{self.land_mps:.1f} m/s; the pilot can take over any time")
             elif c == "disarm":
                 self._say("disarm", "mission ended before Offboard: pilot, disarm", warn=True)
         if out.phase == "done" and self.done_at is None:
@@ -347,6 +382,7 @@ class SkybetaNav(Node):
         """A fresh mission for the next arming: same route and params, no state from the last run."""
         self.mission = C.Mission(self.prm)
         self.frozen, self.done_at, self._wait_log_t = None, None, None
+        self.land_t, self.land_hold = None, None
         self.motion.reset()
         self._said.clear()
         self.get_logger().info(f"disarmed: new mission for the next arming ({why})")

@@ -631,3 +631,32 @@ def test_no_start_ends_the_mission():
 def test_start_gate_does_nothing_for_a_plain_hover():
     m, px4, log = fly(C.Params(route=[], hover_s=2.0, start_gate=True))
     assert m.result == "complete" and "await_start" not in {ph for t, ph, *_ in log}
+
+
+# ---- self-landing on skybeta (2026-11-07): no land command, the adapter descends in Offboard ----------
+class SkybetaPX4(FakePX4):
+    """skybeta: PX4 never sees a land command (the flight interface has none). dronehacks_nav lands
+    by a downward velocity in Offboard; PX4 disarms on the floor (COM_DISARM_LAND)."""
+
+    def apply(self, t, out, dt):
+        out.commands = [c for c in out.commands if c != "land"]
+        if self.armed and self.nav == C.NAV_OFFBOARD and out.phase == "land":
+            self.pos[2] = min(0.0, self.pos[2] + 0.3 * dt)     # the adapter's twist descent
+            if self.pos[2] >= 0.0:
+                self.landed, self.armed = True, False
+                self.nav = 4                                   # PX4 may leave Offboard on disarm
+            return
+        super().apply(t, out, dt)
+
+
+def test_skybeta_self_landing_ends_complete_when_disarmed_on_the_floor():
+    m = C.Mission(C.Params(route=[(2.0, 0.0)], require_depth=False))
+    px4 = SkybetaPX4()
+    t = 0.0
+    while t < 120.0 and m.phase != "done":
+        m.on_health(t, True)
+        out = m.step(t, px4.vehicle())
+        px4.apply(t, out, 0.05)
+        t += 0.05
+    assert m.result == "complete", m.result
+    assert px4.pos[2] >= 0.0 and not px4.armed

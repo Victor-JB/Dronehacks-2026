@@ -137,7 +137,7 @@ the adapter around it:
 
 **Phases:** `wait` (all inputs healthy and 3 s of usable depth) -> `arm` (streams a hold so the
 pilot's Position switch can hand over; on the drone it waits for the pilot indefinitely) -> `climb` to `height_m`
--> optional `hover` -> `await_start` (the start gate: hovers until START ROUTE in the live view; `start_gate`, `start_wait_s`) -> the route (`turn`, `check`, `go`, `hold` per leg) or `explore` -> `land`
+-> optional `hover` -> `await_start` (the start gate: hovers until START ROUTE in the live view; `start_gate`, `start_wait_s`) -> the route (`turn`, `check`, `go`, `hold` per leg) -> `land` (dronehacks_nav descends itself on /skybeta/setpoint/twist until PX4 disarms)
 (hold + pilot) -> `done`.
 
 **Safety behaviour** (each is a unit test):
@@ -163,7 +163,6 @@ square that returns to the start). `python3 set_speed.py <mode> <m/s>` sets one 
 | 2 `box_test_no_depth` | a 1 ft (0.30 m) square | not required |
 | 3 `box_test_with_depth` | a 1 m square, stopping for obstacles | required |
 | 4 `hardcode_maze` | 26-leg A* route from the CAD, launch to Gate B | required |
-| 5 `vio_explore` | 60 s steering toward open space | required |
 | 6 `course_scan` | the full course fitted to the point scan (below) | required |
 
 `require_depth: false` is a blind fallback (Tanooj, `config-modes-switcher`): no depth gate and no
@@ -260,7 +259,7 @@ parameters). Main knobs:
 | `wait_s` | 0 | give up if never ready (0: never) |
 | `exit_when_done` | false | false: after a run, once disarmed, a fresh mission for the next arming (the sim uses true) |
 | `motion_check`, `motion_err_m`, `motion_window_s`, `motion_min_progress_m`, `motion_z_mismatch_m` | true, 0.3, 3.0, 0.1, 0.3 | the motion check |
-| `height_m`, `speed_mps`, `stop_m`, `explore`, `hover_s` (refnav, in `route.json` params) | 1.2, 0.6, 0.9, true, 0 | mission shape |
+| `height_m`, `speed_mps`, `stop_m`, `hover_s` (refnav, in `route.json` params) | 1.2, 0.6, 0.9, 0 | mission shape |
 
 The envelope (`max_altitude_m` 3.0, `min_altitude_m` 0.3, `max_speed_mps` 1.5) is a launch
 argument; tighten it there, do not loosen it without asking the organisers.

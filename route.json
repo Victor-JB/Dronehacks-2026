@@ -6,7 +6,6 @@
     "stop_m": 0.9,
     "yaw_rate_dps": 45.0,
     "arrive_m": 0.3,
-    "explore": false,
     "hover_s": 5.0,
     "require_depth": false
   }

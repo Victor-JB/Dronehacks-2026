@@ -108,7 +108,7 @@ function text(d){
 const KEY=new URLSearchParams(location.search).get("key"),bn=document.getElementById("banner"),
  go=document.getElementById("go"),sp=document.getElementById("stop"),msg=document.getElementById("msg");
 if(!KEY){go.style.display=sp.style.display="none";msg.textContent="view only: use the link fly.sh start prints for the buttons";}
-const FLY=["turn","check","go","hold"],AIR=["climb","hover","await_start","explore"].concat(FLY);
+const FLY=["turn","check","go","hold"],AIR=["climb","hover","await_start"].concat(FLY);
 function words(d){const m=d.mission||{},sk=d.skybeta||{},ph=m.phase;
  if(d.stale||!ph)return["#f44","NO DATA from the mission"];
  if(ph=="wait")return["#fd5","NOT READY: "+(m.why||"")];
@@ -117,7 +117,6 @@ function words(d){const m=d.mission||{},sk=d.skybeta||{},ph=m.phase;
  if(ph=="hover")return["#4af","HOVERING"];
  if(ph=="await_start")return["#3c3","HOVERING: press START ROUTE"+(m.start_wait_left_s!=null?" (ends in "+m.start_wait_left_s.toFixed(0)+" s)":"")];
  if(FLY.includes(ph))return["#4af","FLYING ROUTE: leg "+Math.min(m.leg+1,m.legs)+" of "+m.legs];
- if(ph=="explore")return["#4af","EXPLORING"];
  if(ph.startsWith("vault"))return["#4af","WALL VAULT: "+ph.slice(6)];
  if(ph=="land")return["#f84","MISSION ENDED: pilot, take over and land"];
  if(ph=="done")return["#aaa","DONE: "+(m.result||"")+" (ready again once disarmed)"];
