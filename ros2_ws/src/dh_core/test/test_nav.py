@@ -210,11 +210,11 @@ def test_tracker_fuses_verifies_and_loses_confidence():
 # ------------------------------------------------------------------ explorer
 def test_explorer_never_sees_the_world():
     for f in glob.glob(os.path.join(HERE, "..", "dh_core", "nav", "*.py")):
-        if os.path.basename(f) in ("sim_world.py", "sim_run.py"):
+        if os.path.basename(f).startswith("sim_"):            # the simulator itself (truth worlds, sim loop)
             continue
         tree = ast.parse(open(f, encoding="utf-8").read())
         mods = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        assert not any(m and "sim_world" in m for m in mods), f
+        assert not any(m and "sim_" in m for m in mods), f
 
 
 def test_explorer_scans_then_plans_to_a_frontier_and_replans_when_blocked():

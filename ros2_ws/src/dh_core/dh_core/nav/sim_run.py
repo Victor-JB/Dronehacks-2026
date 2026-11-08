@@ -87,7 +87,8 @@ def course_a(pad=(1.0, 4.6, 0.6), window=(0.2, 1.1, 0.4, 1.2), tube_r=(0.47, 0.5
 
 class Sim:
     def __init__(self, world: World, cfg: SimConfig = SimConfig(), start=(0.0, 0.0, 0.75), yaw0=0.0,
-                 mprm: Optional[MapParams] = None, eprm: Optional[ExplorerParams] = None):
+                 mprm: Optional[MapParams] = None, eprm: Optional[ExplorerParams] = None,
+                 geofence=(-0.7, 5.3, -0.7, 5.3)):
         self.w, self.cfg = world, cfg
         self.rng = np.random.default_rng(cfg.seed)
         self.pos = np.array(start, float)
@@ -97,7 +98,7 @@ class Sim:
         self.mprm = mprm or MapParams(lo_xy=(-1.0, -1.0), size_xy=6.6)
         self.ex = Explorer(self.mprm, eprm or ExplorerParams())
         self.safety = CommandSafety(CommandSafetyParams(band=self.mprm.band, robot_radius=self.mprm.robot_radius,
-                                                          geofence=(-0.7, 5.3, -0.7, 5.3)))
+                                                          geofence=tuple(geofence)))
         self.drift = np.zeros(3)
         self.depth_stamp = None
         self.odom_stamp = None

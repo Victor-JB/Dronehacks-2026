@@ -61,6 +61,7 @@ class ExplorerParams:
     unreachable_retry_s: float = 20.0   # an unreachable frontier is skipped this long, then retried
     progress_m: float = 0.15            # watchdog: at least this much motion ...
     progress_s: float = 8.0             # ... within this long while following a plan
+    target_retry_s: float = 8.0         # a seen-but-unreachable target: explore this long, then try it again
 
 
 @dataclass
@@ -101,6 +102,7 @@ class Explorer:
         self._prog = None
         self.looked = set()
         self.n_frontier_cells = 0
+        self.target_retry_until = -1e9
 
     # ------------------------------------------------------------------ perception
     def on_frame(self, t, depth, rgb, K, R_wc, o_w, loc_ok: bool):
@@ -141,7 +143,8 @@ class Explorer:
                 self.log.append("%.1f scan incomplete (%.0f deg left): exploring anyway" % (t, math.degrees(self.scan_left)))
             self.state = "EXPLORE"
         # target logic has priority once a square is tracked
-        if self.tracker.xy is not None and self.state not in ("TO_TARGET",):
+        if (self.tracker.xy is not None and self.state not in ("TO_TARGET",)
+                and t >= self.target_retry_until):
             if self.tracker.verified:
                 self._goto(t, pos, yaw, vel, self.tracker.xy, "TO_TARGET")
             elif self.tracker.usable and self.state not in ("VIEW_TARGET", "LOOK"):
@@ -183,6 +186,8 @@ class Explorer:
                             % (t, t - self._prog[0], self.goal[0], self.goal[1], p.unreachable_retry_s))
             self.blacklist.append({"p": self.goal.copy(), "size": 10 ** 6, "until": t + p.unreachable_retry_s})
             self._prog = (t, pos[:2].copy())
+            if self.state in ("TO_TARGET", "VIEW_TARGET"):
+                self.target_retry_until = t + p.target_retry_s
             if self.state in ("TO_TARGET", "VIEW_TARGET", "INSPECT"):
                 self.state = "EXPLORE"
             self.follower = None
@@ -363,6 +368,27 @@ class Explorer:
                 return
         for g in goals[:6]:
             path = pl.astar(pos[:2], g)
+            if (path is None or len(path) < 2) and self.state in ("TO_TARGET", "VIEW_TARGET"):
+                # the target is seen but the space around it is not mapped yet (UNKNOWN is blocked): fly to the
+                # reachable point nearest to it, which also looks at it. Nothing closer: explore for a while and
+                # come back (holding with no plan here deadlocked the mission on FINAL Course v3).
+                near = self._nearest_reachable(pos, g, pl)
+                if near is not None and np.linalg.norm(near - pos[:2]) > 1.5 * self.prm.goal_tol:
+                    sub = pl.astar(pos[:2], near)
+                    if sub is not None and len(sub) >= 2:
+                        sub = np.vstack([pos[:2], sub])
+                        ok, sub, anchors = self._openings_ok(t, pos, sub, pl, near)
+                        if ok:
+                            self.follower = self._trajectory(sub, pl, vel, anchors)
+                            self.plan_times.append(_t.perf_counter() - t0)
+                            return
+                self.log.append("%.1f target (%.2f, %.2f) not reachable yet: exploring for %.0f s"
+                                % (t, g[0], g[1], self.prm.target_retry_s))
+                self.target_retry_until = t + self.prm.target_retry_s
+                self.state = "EXPLORE"
+                self.follower = None
+                self.plan_times.append(_t.perf_counter() - t0)
+                return
             if path is None or len(path) < 2:
                 if self.state == "EXPLORE":
                     key = tuple(np.round(np.asarray(g) / 0.3).astype(int))

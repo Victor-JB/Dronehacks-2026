@@ -29,3 +29,19 @@ def test_unknown_course_reaches_the_pad():
 
 def test_unknown_course_with_a_wall_appearing_on_the_route():
     check(Sim(course_a(), SimConfig(t_max=300, popups=[(20.0, (2.15, 2.35, 1.7, 2.5, 0.0, 1.7))])).run())
+
+
+def test_final_course_v3_from_the_step_file():
+    """The organiser's CAD (FINAL Course v3.step, voxelised by tools/sim/step_to_voxels.py) as hidden truth:
+    launch mark -> maze -> tube -> chicanes / C2a window -> 5 ft pad. Regression for the TO_TARGET deadlock
+    (pad seen through the window before the space around it was mapped)."""
+    from dh_core.nav.online_map import MapParams
+    from dh_core.nav.sim_mesh_world import VoxelWorld
+    npz = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "tools", "sim", "final_course_v3.npz")
+    w = VoxelWorld.load(npz)
+    r = Sim(w, SimConfig(t_max=300), start=(-2.515, 0.915, 0.75), mprm=MapParams(lo_xy=(-3.1, -3.1), size_xy=6.2),
+            geofence=(-2.8, 2.8, -2.8, 2.8)).run()
+    assert r.reached and r.final_state == "OVER_TARGET", (r.final_state, r.log[-10:])
+    assert r.collisions == 0 and r.min_clearance >= 0.30
+    assert r.pad_error is not None and r.pad_error < w.pad[2] / 2
+    assert BAND[0] <= r.min_z and r.max_z <= BAND[1]
