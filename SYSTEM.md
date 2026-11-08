@@ -163,7 +163,7 @@ square that returns to the start). `python3 set_speed.py <mode> <m/s>` sets one 
 | 2 `box_test_no_depth` | a 1 ft (0.30 m) square | not required |
 | 3 `box_test_with_depth` | a 1 m square, stopping for obstacles | required |
 | 4 `wall_vault` | climb over the wall ahead, cross, land | required |
-| 5 `walk_1107` | the changed course, from the 2026-11-07 evening walk, to the foot of the tall wall (below) | required |
+| 5 `walk_1107` | the changed course, from the 2026-11-07 evening walk, landing just past the window (below) | required |
 | 6 `walkthrough` (active) | never flies (`record_only`): carry the drone along the course with `fly.sh start` running; the bag's VIO odometry becomes the next route | not required |
 
 `require_depth: false` is a blind fallback (Tanooj, `config-modes-switcher`): no depth gate and no
@@ -171,8 +171,8 @@ obstacle stop, only PX4's position. Use it only with a route already verified.
 
 **Mode 5, `walk_1107`:** 13 legs on the course as changed on 2026-11-07, from that evening's walk (bag
 20261107-194115, recorded in mode 6): forward 1.2 m, right along the now-open maze line, the tunnel, the
-chicane, through the window, to the foot of the tall wall, where it lands. The tall wall and the pad behind
-it are not in the route: cuVSLAM broke at 186 s while the drone was lifted over the wall. Flown at
+chicane, through the window, and lands 0.5 m past it, ~1.9 m from the tall wall (a ladder is expected there).
+The tall wall and what is past it are not in the route: cuVSLAM broke at 186 s while the drone was lifted over the wall. Flown at
 **1.08 m**, it climbs 0.15 m ahead of the mark (`climb_forward_m`). **Take off on the launch mark facing the
 course's +Y**: the route is in the takeoff frame, so a heading error rotates all of it.
 

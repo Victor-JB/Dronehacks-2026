@@ -58,7 +58,7 @@
     },
     "5": {
       "name": "walk_1107",
-      "_comment": "Route from the 2026-11-07 evening walk after the course change (bag 20261107-194115, walkthrough mode, OAK depth + cuVSLAM): forward 1.2 m, right along the open maze line, the tunnel, the chicane, through the window (crossed at ~1.06 m), to the foot of the tall wall, where it lands. Skips the walk's detour back through the window. The tall wall and the pad behind it are NOT in it: VIO broke at 186 s while the drone was lifted over the wall. Settings as the earlier walk route (1.08 m, depth band 0.13, climb 0.15 m ahead). Take off on the launch mark facing the course's +Y.",
+      "_comment": "Route from the 2026-11-07 evening walk after the course change (bag 20261107-194115, walkthrough mode, OAK depth + cuVSLAM): forward 1.2 m, right along the open maze line, the tunnel, the chicane, through the window (crossed at ~1.06 m), then 0.5 m on to land just past the window, 0.43 m clear of anything the walk saw and ~1.9 m from the tall wall (a ladder is expected at that wall), near where the previous walk set down on the pad. Skips the walk's detour back through the window. The tall wall and anything past it are NOT in it: VIO broke at 186 s while the drone was lifted over the wall. Settings as the earlier walk route (1.08 m, depth band 0.13, climb 0.15 m ahead). Take off on the launch mark facing the course's +Y.",
       "params_override": {
         "height_m": 1.08,
         "hover_s": 3.0,
@@ -87,7 +87,7 @@
         [-3.24, -1.98],
         [-2.87, -1.53],
         [-3.03, -0.93],
-        [-1.3, -0.11]
+        [-3.05, -0.45]
       ]
     },
     "6": {
