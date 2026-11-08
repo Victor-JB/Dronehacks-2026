@@ -1,0 +1,150 @@
+# box_route — setup (for a human, or for Claude after `ssh` into the drone)
+
+> **Claude:** do these steps in order on the drone's host shell. Ask the user before step 4
+> (editing `/etc/skybeta/drone.env`) and step 5 (restarting the stack), and only restart with the
+> drone **on the ground, disarmed and still**. Never run a second `flight_interface`.
+
+## What it flies
+
+> **TEST MODE right now (2026-11-08): quarter-size route at 1.0 m, 0.25 m/s** (`SCALE = 0.25`, `HEIGHT_M = 1.0`, `SPEED_MPS = 0.25` at
+> the top of `box_route/box_mission.py`). The tables below are the **full-size** course. After the
+> test, set `SCALE = 1.0` (and `SPEED_MPS` back to 0.2 if wanted), rebuild, restart the stack. In test mode it lands about
+> 0.84 m behind and 0.11 m right of the take-off point. Start 3 in ahead of the walkthrough start.
+
+```
+climb to 1.08 m -> 13 waypoints from the 2026-11-07 odom map (walk_1107) -> land at the last one
+```
+
+Waypoints (metres from the take-off point: x forward, y LEFT), copied from
+`testFiles/test_files/my_mission.py` `ROUTE`. All at `HEIGHT_M` = 1.08 m (inside the window
+opening, ~0.88-1.52 m, and under the tunnel overhang).
+
+| # | (fwd, left) | | # | (fwd, left) |
+|---|---|---|---|---|
+| 0 | (0, 0) climb | | 7 | (-3.035, -4.680) |
+| 1 | (0.875, -0.260) | | 8 | (-3.265, -3.520) |
+| 2 | (1.145, -4.100) | | 9 | (-3.465, -3.290) |
+| 3 | (0.885, -4.810) | | 10 | (-3.545, -1.980) |
+| 4 | (0.555, -5.040) | | 11 | (-3.175, -1.530) |
+| 5 | (-0.215, -4.820) | | 12 | (-3.335, -0.930) |
+| 6 | (-1.645, -5.090) | | 13 | (-3.355, -0.450) then land |
+
+**Take off 1 ft ahead of the walkthrough's start, facing the same way as the walkthrough.**
+The route is rotated to the nose heading when Offboard starts. It lands about 3.4 m behind and
+0.45 m right of the take-off point. Then: hover 2 s, descend 0.3 m/s by twist, PX4 disarms ~2 s
+after touchdown. No touchdown after 20 s: hovers, logs `Pilot, take over and land`.
+
+A waypoint counts as reached within 0.3 m horizontally; height must be within 0.15 m too, but only
+for the first 3 s there (after that it moves on and logs `height off by ...`), and only once
+PX4 says airborne and VIO has it at least half way up.
+
+Safety rules (from the 2026-11-07/08 flight data; constants at the top of `box_mission.py`):
+
+- **Won't start** if VIO's height differs from PX4's by more than 0.4 m (a drifted VIO made it climb
+  to the 3 m ceiling). The live view shows the difference; the banner says REFUSED. Fix: land, then
+  `docker rm -f skybeta-stack` on the ground.
+- **Hovers 3 s at the climb point** before leg 1 (every take-off slid 0.2-0.4 m, then came back).
+- **Heights come from PX4** (rangefinder): waypoint height checks and every hold. VIO reads 0.1-0.4 m low.
+- **VIO watchdog -> stop the route and land** (logs `route stopped, LANDING`): no odometry for 0.5 s,
+  a jump > 0.3 m in one frame, VIO vs PX4 > 0.5 m horizontally or > 0.6 m in height, or a waypoint
+  not reached 10 s after the setpoint got there. All three crashes so far were VIO failing at a wall.
+- **Turns while moving:** faces along each leg and blends toward the next leg's heading over the last
+  0.5 m (at most half the leg), so the camera turns away from the wall ahead; at sharp corners the
+  setpoint waits while it finishes the turn (45 deg/s).
+
+It starts **only** when the drone arms first and Offboard comes on after (the pilot's switch to
+Position). If Offboard is already on at arming (leftover PX4 state, e.g. after a kill-switch stop),
+it logs `armed with Offboard already on (leftover state): NOT starting` and does nothing: disarm and
+power-cycle the Pixhawk.
+Speeds and tuning: constants at the top of `box_route/box_mission.py`. Waypoints: `ROUTE`.
+
+## Files
+
+```
+box_route/
+  package.xml, setup.py, setup.cfg, resource/box_route    ament_python package "box_route"
+  box_route/box_mission.py                                the node (entry point box_mission)
+  box_route/live_view.py                                  web live view on :8080 (entry point live_view)
+  scripts/fly.sh                                          bag + foxglove + live view
+  launch/box_mission.launch.py                            flight_interface (auto_offboard_on_arm, anchor_setpoints) + box_mission
+```
+
+## 1. Check the drone
+
+```bash
+cat ~/skybeta/VERSION                         # must be 0.3.3 or later
+docker ps --format '{{.Names}} {{.Status}}'   # skybeta-stack must be Up
+ls ~/team_ws/src/box_route                    # this package
+```
+
+## 2. Build (inside the container)
+
+```bash
+docker exec -it skybeta-stack bash
+team_build.sh --packages-select box_route
+source /root/team_ws/install/setup.bash
+ros2 launch box_route box_mission.launch.py --show-args    # parses = good
+exit
+```
+
+The **whole** of `~/team_ws/src` must build, or the stack launches nothing at power-up.
+
+## 3. Sanity check the route (in the container: the host has no rclpy)
+
+```bash
+docker exec -w /root/team_ws/src/box_route skybeta-stack bash -lc \
+  'source /root/team_ws/install/setup.bash && python3 -c "from box_route.box_mission import route_body; print(route_body())"'
+# test: [(0.0, 0.0, 1.0), (0.21875, -0.065, 1.0), ... 14 points ..., (-0.83875, -0.1125, 1.0)]
+```
+
+## 4. Point the stack at it (ask first)
+
+```bash
+grep COMPETITOR /etc/skybeta/drone.env
+sudo cp /etc/skybeta/drone.env /etc/skybeta/drone.env.bak
+sudo sed -i 's/^COMPETITOR_PKG=.*/COMPETITOR_PKG=box_route/; s/^COMPETITOR_LAUNCH=.*/COMPETITOR_LAUNCH=box_mission.launch.py/' /etc/skybeta/drone.env
+grep COMPETITOR /etc/skybeta/drone.env
+```
+
+To go back to the old mission: `COMPETITOR_PKG=test_files`, `COMPETITOR_LAUNCH=my_mission.launch.py`
+(or restore `drone.env.bak`).
+
+## 5. Restart the stack (ask first; on the ground, disarmed, still)
+
+**PX4 must be connected first** (battery in, `"px4_link": true` in `/skybeta/state`). If the stack
+starts before PX4 has a valid position, flight_interface logs `anchor_setpoints is true but EKF2 had
+no valid local position` and VIO and PX4 heights disagree (flight 2026-11-08: ~0.24 m low).
+If you see that warning, restart again once PX4 is up.
+
+```bash
+docker rm -f skybeta-stack        # comes back in ~10 s, re-zeroes the position origin
+sleep 20
+docker exec skybeta-stack tmux capture-pane -p -J -t skybeta:competitor | tail -20
+```
+
+Look for `course route: 1.0 m up, scale 0.25, 13 waypoints from the odom map, 0.4 m/s ...` (test) or `1.0 m up, scale 1.0` (full) and no `team_ws build failed`.
+
+## Live view, bag, Foxglove (`scripts/fly.sh`, ported from dronehacks main)
+
+```bash
+~/team_ws/src/box_route/scripts/fly.sh start          # bag + foxglove + live view (no depth: no extra load)
+~/team_ws/src/box_route/scripts/fly.sh start --depth  # also depth + occupancy map (dronehacks_nav map_node)
+~/team_ws/src/box_route/scripts/fly.sh stop           # on the ground, closes the bag cleanly
+```
+
+Live view: `http://skybeta-02.local:8080/`, view only (no buttons, publishes nothing). Top-down
+odometry: green = track, yellow = drone + heading, blue dashed = route it wants to fly (dim =
+preview from where it stands, before Offboard), orange = next waypoint, pink = current setpoint.
+Plus the camera, PX4 armed/Offboard, PX4-vs-VIO height. The route and setpoint come from
+`/box_route/status`, a read-only JSON the mission publishes at 5 Hz.
+
+## 6. Fly
+
+1. Place the drone 1 ft ahead of the walkthrough's start, facing the walkthrough's direction. Keep it still ~1 min.
+2. Pilot arms on **Altitude**, then within a few seconds switches to **Position** → mission runs.
+3. Take over any time: throttle to centre / move a stick. One run per arming.
+4. Live view + bag: `~/team_ws/src/box_route/scripts/fly.sh start`, open http://skybeta-02.local:8080/,
+   `... stop` after landing.
+
+Watch the log: `docker exec -it skybeta-stack tmux attach -t skybeta` → `Ctrl-b 3`, leave with
+`Ctrl-b d` (never Ctrl-C there).

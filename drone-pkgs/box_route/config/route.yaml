@@ -1,0 +1,59 @@
+# box_route flight settings, read by box_mission (box_route/box_mission.py).
+#
+# Edit and save. box_mission re-reads this file by itself within ~1 s, but ONLY while the drone is
+# DISARMED and the mission is idle -- never in flight (a change made while armed waits for the
+# disarm). No rebuild, no stack restart. Check it took:
+#   competitor log:  "config loaded: ..."   or   "config REJECTED: <why>" (the old settings stay)
+#   live view:       the route redraws, and the settings line shows the new values
+#
+# Waypoints are metres from the take-off point, in the nose direction at Offboard start:
+# fwd = forward, left = LEFT (negative = right). The climb to height_m comes first, at the take-off
+# point. wall: true -> the leg INTO that waypoint is flown at wall_speed_mps instead of speed_mps.
+# height: (optional, 0.3 - 2.0) this waypoint only: it climbs/descends IN PLACE to it before flying
+# the leg in, and goes back to height_m (in place) before the next leg.
+#
+# wall flags (2026-11-08) from the 2026-11-06 point scan (dronehacks branch origin/sim,
+# sim/scan/): this route fitted onto the scan (take-off ~0.8 m ahead of the launch mark, -3 deg),
+# leg clearance = route line to the nearest scanned surface at 1.1 +- 0.12 m. wall: true where it is
+# under 0.45 m (props reach 0.29 m). CAVEAT: the scan is a day older than this route's walk; leg 2
+# shows 0.02 m (the maze has probably moved since), so treat these as approximate.
+#
+# WINDOW (waypoints 10-11): a clear opening, 0.88-1.52 m high in the 2026-11-06 scan (no bar,
+# confirmed on site 2026-11-08). 1.2 m is its middle: 0.32 m clear above and below. It climbs to
+# 1.2 in place at 9, flies 9 -> 10 (through the window) -> 11 at 1.2, and comes back down to 1.1 in
+# place at 11 (10 is only ~0.2 m past the window wall). Do NOT go above ~1.4: the wall starts at 1.52.
+
+height_m: 1.1           # flight height above take-off, m (0.3 - 2.0). Tunnel overhang ~1.23 m
+scale: 1.0              # multiplies every fwd/left below (0.25 = quarter-size test)
+speed_mps: 0.3         # nominal speed along a leg, m/s (0.05 - 1.0)
+wall_speed_mps: 0.15    # speed along legs marked wall: true, m/s (0.05 - 1.0)
+waypoints_to_fly: 0     # fly waypoints 1..N, then land at N. 0 = all of them
+
+# turning
+turn_early: true        # true: start turning toward the next leg turn_ahead_m before each waypoint
+                        # (the nose turns away from the wall ahead). false: fly to the waypoint,
+                        # stop, turn in place, then go
+turn_ahead_m: 0.5       # (0.05 - 2.0) capped at half the leg's length
+
+# safety limits (any left out of this file keep these defaults)
+height_check_m: 0.4     # (0.1 - 2.0)  won't START if VIO height vs PX4 height differ by more
+vio_quiet_s: 1.0        # (0.2 - 5.0)  in flight: no VIO odometry for this long -> stop route, land
+vio_jump_m: 0.4         # (0.1 - 2.0)  in flight: VIO moves this far in one frame (~33 ms) -> land
+vio_px4_xy_m: 0.5       # (0.1 - 3.0)  in flight: VIO vs PX4 sideways position differ by more -> land
+vio_px4_z_m: 0.6        # (0.1 - 3.0)  in flight: VIO vs PX4 height differ by more -> land
+waypoint_timeout_s: 15  # (3 - 120)    in flight: setpoint sat at a waypoint this long, not reached -> land
+
+waypoints:              # the 2026-11-07 odom map (walk_1107)
+  - {fwd:  0.875, left: -0.260, wall: true}   # 1  clearance 0.31 m
+  - {fwd:  1.145, left: -4.100, wall: true}   # 2  clearance 0.02 m
+  - {fwd:  0.885, left: -4.810, wall: true}   # 3  clearance 0.38 m
+  - {fwd:  0.555, left: -5.040, wall: false}   # 4  clearance 0.60 m
+  - {fwd: -0.215, left: -4.820, wall: false}   # 5  clearance 0.50 m
+  - {fwd: -1.645, left: -5.090, wall: false}   # 6  clearance 0.50 m
+  - {fwd: -3.035, left: -4.680, wall: true}   # 7  clearance 0.33 m
+  - {fwd: -3.500, left: -3.520, wall: true}   # 8  clearance 0.41 m
+  - {fwd: -3.465, left: -3.290, wall: false}   # 9  clearance 0.73 m
+  - {fwd: -3.545, left: -1.980, wall: true, height: 1.2}   # 10 WINDOW: the leg into 10 crosses the window wall
+  - {fwd: -3.175, left: -1.530, wall: false, height: 1.2}   # 11 still 1.2: comes down to 1.1 only here, past the window
+  - {fwd: -3.335, left: -0.930, wall: false}   # 12 clearance 0.67 m
+  - {fwd: -3.355, left: -0.450, wall: false}   # 13 clearance 0.63 m  landing point

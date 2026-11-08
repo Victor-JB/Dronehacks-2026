@@ -7,6 +7,50 @@ file is the quick start.
 > **Before flying, read `PICKUP.md`:** with depth on, VIO reaches PX4 ~290 ms late and PX4 has no
 > position. That is the next thing to fix.
 
+## What flies now: `box_route_v2` (2026-11-08)
+
+On competition day the drone flies **`drone-pkgs/box_route_v2`**, a waypoint mission over the full
+course. It's built from our own flight and walkthrough data. **`drone-pkgs/box_route`** is v1, the
+fallback. Both are byte-for-byte the copies on the Jetson (`~/team_ws/src/`), and
+`/etc/skybeta/drone.env` (`COMPETITOR_PKG=`) picks the one the stack starts. Everything it flies is
+in one file, `drone-pkgs/box_route_v2/config/route.yaml`. The drone re-reads it while disarmed, so
+there's no rebuild.
+
+**How the route was made.** We flew the course twice, then carried the drone through it forwards and
+backwards. Every track went into one frame: the walkthroughs were rotated by their start heading, and
+the two independent walks then agree on the landing pad to 4 cm. A 2026-11-06 Scaniverse scan of the
+course was registered onto a depth map from an earlier walk (median 2.5 cm), which gives wall and
+window heights. Every leg of the route is within 9 cm of a path the drone has physically flown or
+been carried along.
+
+![Today's tracks in the route frame](docs/images/tracks-2026-11-08.png)
+
+**What the data showed, and what v2 changes:**
+- **Run 1** hit the tunnel-exit wall because v1 rotated the whole route to the nose heading at
+  Offboard start. That heading was 4° that day, which moved the route 0.3 m sideways at the tunnel
+  exit. v2 keeps the route fixed to the course (`rotate_to_heading: false`).
+- **Run 2** went under the bridge and hit **window 2**. v1 crossed it 0.32 m to the drone's right of
+  the opening's centre. v2 crosses at the centre, which both walkthroughs and the scan agree on, at
+  1.2 m. Window legs are flown dead straight (`straight: true`, lined up within 5°).
+- The back half of v1 was 0.23–0.64 m inside where we walked today. v2 follows today's walk.
+- Both flight bags were cut off by the power going, which lost 30 s of run 2. v2's `fly.sh` now
+  splits the bag every 10 s and flushes to disk every 2 s.
+
+![v2 mission over the scan, with side views of the wall and both windows](docs/images/v2-mission-check.png)
+
+**The full mission:** course → hover over pad 1 → over the 1.9 m wall at 2.2 m, staying right of
+the ladder → hover over pad 2 → the whole thing in reverse → land. Each section has its own `enabled`
+in route.yaml, and the drone lands at the last one enabled. PX4 holds height on the rangefinder
+(`EKF2_HGT_REF = 2`), which sees the wall top. So in the wall section our checks use VIO height, an
+outer loop on VIO trims the height if PX4 gets fooled, and a VIO fault there means hold, not descend.
+`drone-pkgs/box_route_v2/test/sim_offline.py` flies the real mission code without ROS, including the
+worst-case rangefinder effect.
+
+![2026-11-06 scan fitted to today's tracks](docs/images/scan-fit-2026-11-08.png)
+
+The analysis scripts (bag reader, alignment, scan fit, plots) are in `drone-logs/analysis/`. The bags
+themselves aren't in git.
+
 | Path | What it is |
 |---|---|
 | `refnav/core.py`, `refnav/depth.py` | The mission's flight logic and depth processing. The mission logic; the sim flies this exact file (below) |

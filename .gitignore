@@ -9,3 +9,11 @@ __pycache__/
 build/
 install/
 log/
+
+# Flight data stays out of git: bags (GBs) and the analysis' intermediate arrays (rebuilt by the scripts)
+drone-logs/**/*.mcap
+drone-logs/**/metadata.yaml
+drone-logs/metadata.yaml
+drone-logs/analysis/*.npy
+drone-logs/analysis/*.pkl
+.DS_Store

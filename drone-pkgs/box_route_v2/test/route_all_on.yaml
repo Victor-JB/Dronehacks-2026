@@ -1,0 +1,119 @@
+# box_route_v2 flight settings, read by box_mission (box_route_v2/box_mission.py). v1 = box_route, untouched.
+#
+# Edit and save. box_mission re-reads this file by itself within ~1 s, but ONLY while the drone is
+# DISARMED and the mission is idle -- never in flight. No rebuild, no stack restart.
+#   competitor log:  "config loaded: ..."   or   "config REJECTED: <why>" (the old settings stay)
+#
+# Waypoints are metres from the take-off point: fwd = forward, left = LEFT (negative = right), in the
+# heading the drone had when the STACK STARTED (rotate_to_heading: false). Place it on the start mark,
+# facing down the course, BEFORE the stack starts, and don't turn it after.
+#   wall: true      the leg INTO that waypoint is flown at wall_speed_mps
+#   height: x       this waypoint only: climbs/descends IN PLACE to x before the leg in, back to
+#                   height_m (in place) before the next leg
+#   straight: true  the leg INTO that waypoint: no early turn toward the next leg, and it only moves
+#                   while lined up within 5 deg (the window)
+#
+# WAYPOINTS (2026-11-08, from the morning bags; analysis in drone-logs/analysis/ on the Mac):
+#   frame  = run 2 (20261108-055648, started at heading 0, flew the route as commanded). The two
+#            walkthroughs (065240 forward, 065751 reverse) are rotated by their start heading; after that
+#            they agree on pad 1 to 4 cm and on the far side to 2 cm.
+#   1-3    v1, unchanged: run 2 flew them clean. (Run 1 hit the tunnel-exit wall because v1 rotated the
+#          route by the 4 deg the nose had at Offboard start: 0.3 m off there. Fixed by rotate_to_heading.)
+#   4      BRIDGE: one straight leg 3 -> 4 under it at y -4.86 (run 2 passed at -5.00; walks -4.79/-4.91).
+#   10     WINDOW 2 (the one run 2 hit: v1 crossed 0.32 m right of its centre): crossed at x -3.83, 1.2 m.
+#          Run 2's bag stops at the bridge only because the recording was cut off (power): the flight went on.
+#   5-14   the forward walkthrough (065240), simplified: every leg is within 9 cm of where the drone was
+#          carried. v1's waypoints 6-12 were 0.23-0.64 m inside today's walks (the 11-07 course).
+#   14     PAD 1: (-3.347, -0.386); both walks set down within 4 cm of it.
+#   every leg is within 9 cm of a track flown or walked today.
+
+height_m: 1.1           # flight height above take-off, m (0.3 - 2.0). Tunnel overhang ~1.23 m
+scale: 1.0              # multiplies every fwd/left below (0.25 = quarter-size test)
+speed_mps: 0.3          # nominal speed along a leg, m/s (0.05 - 1.0)
+wall_speed_mps: 0.15    # speed along legs marked wall: true, m/s (0.05 - 1.0)
+waypoints_to_fly: 0     # fly waypoints 1..N, then land at N. 0 = all of them
+rotate_to_heading: false  # false (v2): the route is fixed to the course. true = v1 behaviour (rotated
+                          # to the nose at Offboard start; this is what put run 1 into the wall)
+
+# turning
+turn_early: true        # true: start turning toward the next leg turn_ahead_m before each waypoint
+                        # (not on a leg into a straight: true waypoint)
+turn_ahead_m: 0.5       # (0.05 - 2.0) capped at half the leg's length
+
+# safety limits (any left out of this file keep these defaults)
+height_check_m: 0.4     # (0.1 - 2.0)  won't START if VIO height vs PX4 height differ by more
+vio_quiet_s: 1.0        # (0.2 - 5.0)  in flight: no VIO odometry for this long -> stop route, land
+vio_jump_m: 0.4         # (0.1 - 2.0)  in flight: VIO moves this far in one frame (~33 ms) -> land
+vio_px4_xy_m: 0.5       # (0.1 - 3.0)  in flight: VIO vs PX4 sideways position differ by more -> land
+vio_px4_z_m: 0.6        # (0.1 - 3.0)  in flight: VIO vs PX4 height differ by more -> land
+waypoint_timeout_s: 15  # (3 - 120)    in flight: setpoint sat at a waypoint this long, not reached -> land
+
+waypoints:              # max distance of the leg INTO it from today's tracks, in the comment
+  - {fwd:  0.875, left: -0.260, wall: true}                   # 1  v1           0.04
+  - {fwd:  1.145, left: -4.100, wall: true}                   # 2  v1 (tunnel)  0.06
+  - {fwd:  0.885, left: -4.810, wall: true}                   # 3  v1           0.06  turns onto the window-1 line here
+  - {fwd: -0.275, left: -4.900, wall: true, straight: true}   # 4  BRIDGE       0.05  leg 3->4 passes under it at y -4.86
+                                                              #    (run 2 went under at -5.00 fine; walks -4.79/-4.91; scan:
+                                                              #    1.2 m wide, arched top 1.2-1.6 m: cruise 1.1 m fits)
+  - {fwd: -2.056, left: -4.897, wall: false}                  # 5               0.08
+  - {fwd: -3.089, left: -5.104, wall: false}                  # 6               0.05
+  - {fwd: -3.532, left: -5.144, wall: true}                   # 7  corner       0.09
+  - {fwd: -3.755, left: -4.931, wall: true}                   # 8  corner       0.02
+  - {fwd: -3.932, left: -3.859, wall: true}                   # 9               0.05  climbs to 1.2 HERE, in place (1.1 m before the window wall)
+  - {fwd: -3.808, left: -2.553, wall: true, straight: true, height: 1.2}   # 10 WINDOW 2  0.04  leg 9->10 crosses its wall 0.17 m before 10
+                                                              #    (scan: opening 0.9-1.5 m high, ~0.7 m wide; walks crossed
+                                                              #    at x -3.79 / -3.85, this leg at -3.83. v1 crossed at -3.50:
+                                                              #    0.32 m to the drone's right -> run 2 hit it. 0.5 m left of v1
+                                                              #    (x -4.00) would put the left props into the frame)
+  - {fwd: -3.639, left: -1.921, wall: false}                  # 11              0.02  back down to 1.1 at 10, in place
+  - {fwd: -3.807, left: -1.430, wall: false}                  # 12              0.05
+  - {fwd: -3.668, left: -0.940, wall: false}                  # 13              0.04
+  - {fwd: -3.347, left: -0.386, wall: true}                   # 14 PAD 1        0.02
+
+# ---- after pad 1: every section below has its own `enabled` -------------------------------------------
+# Order: course -> pad1_hover -> wall -> pad2_hover -> reverse (wall back -> pad 1 again -> course back).
+# It LANDS (the real landing, PX4 disarms) at the last step of whatever is enabled. All off = v1: land on pad 1.
+# A pad hover only happens when more follows it (the final stop is a landing).
+pad1_hover:
+  enabled: true
+  height_m: 0.35        # (0.3 - 1.0) flight_interface refuses pose setpoints under 0.3 m. Over the pad, NOT
+                        # touching it: a touchdown would make PX4 disarm in 2 s (COM_DISARM_LAND). If PX4 still
+                        # reports landed, it climbs back at once.
+  hover_s: 3.0          # (0 - 30) time hovering low
+  restabilize_s: 3.0    # (0 - 30) after climbing back to cruise: settle (as after take-off) before going on
+
+wall:
+  enabled: true
+  speed_mps: 0.25       # (0.05 - 1.0) along the wall legs
+  ignore_px4_height: true   # our checks use VIO height here, not PX4's: PX4 flies on the rangefinder
+                            # (EKF2_HGT_REF = 2), which sees the wall top. (Flight itself is still PX4's.)
+  vio_height_hold: true     # if PX4's height is pulled off by the wall top and it climbs/drops, VIO sees it and
+                            # the command is shifted back (outer loop on VIO height)
+  vio_hold_guard_m: 0.25    # (0.05 - 1.0) deadband of that loop
+  on_vio_fault: hold        # hold | land. A VIO fault here: hold where it is (pilot lands). 'land' would
+                            # descend, possibly onto the wall.
+  # From the 2026-11-06 scan, fitted to today's tracks: the wall is a 0.2 m slab, solid 0.2-1.9 m, at
+  # x -1.7..-1.5 (scan) / -1.45..-1.2 (where both walks were highest): planned for anywhere in -1.75..-1.15.
+  # The LADDER is at y > ~-0.15 (scan, x -1.4..-1.1, up to 1.8 m): the pass is at y -0.60.
+  # 2.2 m = scan top 1.9 + 0.3. Nothing above it in the scan up to the ceiling (5.3 m).
+  waypoints:            # [fwd, left, up]; the first is pad 1 at cruise, the last is pad 2 at cruise
+    - [-3.347, -0.386, 1.1]   # pad 1
+    - [-2.600, -0.600, 1.1]   # climb point: >= 0.44 m before the earliest wall face (-1.75 - 0.29 props - 0.15)
+    - [-2.600, -0.600, 2.2]   # climb in place
+    - [-0.600, -0.600, 2.2]   # over the wall, level, 0.16 m clear of the ladder side
+    - [-0.600, -0.600, 1.1]   # descend in place, >= 0.44 m past the latest wall face (-1.15)
+    - [-0.128,  0.030, 1.1]   # PAD 2 (the take-off spot area; both walks ended within 0.3 m of it)
+
+pad2_hover:
+  enabled: true
+  height_m: 0.35
+  hover_s: 3.0
+  restabilize_s: 3.0
+
+reverse:
+  enabled: true
+  wall: true            # back over the wall first (must be true when wall is enabled)
+  pad1_hover: true      # hover over pad 1 again on the way back (if pad1_hover is enabled)
+  # then the course backwards to the take-off spot, each leg with the same height / slow / straight as
+  # the forward leg over the same ground (both windows are crossed the same way), and it lands there.
+

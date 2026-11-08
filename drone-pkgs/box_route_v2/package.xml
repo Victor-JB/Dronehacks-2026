@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>box_route_v2</name>
+  <version>0.1.0</version>
+  <description>
+    Course route mission: wait for Offboard, climb 1.08 m, fly the 13 waypoints from the
+    2026-11-07 odom map (walk_1107), then land (descent by twist, PX4 auto-disarms).
+  </description>
+  <maintainer email="sakethdesu@tamu.edu">dronehacks</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>skybeta_flight_interface</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
