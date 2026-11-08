@@ -54,7 +54,10 @@ img{width:100%;image-rendering:pixelated;background:#000}
 #st{flex:1 1 320px;font:15px monospace;white-space:pre;color:#ddd}
 #bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 8px;background:#1b1b1b;position:sticky;top:0;z-index:1}
 #banner{flex:1 1 420px;font:bold 22px sans-serif}button{font:bold 20px sans-serif;padding:12px 22px;border:0;border-radius:6px;cursor:pointer}
+#flash{display:none;white-space:pre-line;position:fixed;left:0;right:0;top:0;bottom:0;z-index:9;align-items:center;justify-content:center;
+ font:bold 64px sans-serif;color:#fff;text-align:center;padding:20px}
 #go{background:#2a2;color:#fff}#stop{background:#c22;color:#fff}button:disabled{background:#444;color:#888;cursor:default}#msg{font:14px monospace;color:#fd5}.bad{color:#f66}.ok{color:#8f8}.warn{color:#fd5}</style></head><body>
+<div id="flash"></div>
 <div id="bar"><div id="banner">connecting...</div>
 <button id="go" disabled>START ROUTE</button><button id="stop" disabled>STOP</button><span id="msg"></span></div>
 <div id="pos"><canvas id="c" width="640" height="640"></canvas><div id="st">waiting for /state.json</div></div>
@@ -119,15 +122,29 @@ function words(d){const m=d.mission||{},sk=d.skybeta||{},ph=m.phase;
  if(ph=="await_start")return["#3c3","HOVERING: press START ROUTE"+(m.start_wait_left_s!=null?" (ends in "+m.start_wait_left_s.toFixed(0)+" s)":"")];
  if(FLY.includes(ph))return["#4af","FLYING ROUTE: leg "+Math.min(m.leg+1,m.legs)+" of "+m.legs];
  if(ph.startsWith("vault"))return["#4af","WALL VAULT: "+ph.slice(6)];
- if(ph=="land")return["#f84","MISSION ENDED: pilot, take over and land"];
+ if(ph=="land")return["#f84","LANDING ITSELF: "+(m.why||"")+" (pilot can take over)"];
  if(ph=="done")return["#aaa","DONE: "+(m.result||"")+" (ready again once disarmed)"];
  return["#ddd",ph];}
+// --- make a START press impossible to miss: SENDING..., then a full-screen RECEIVED / ROUTE STARTED / NOT ACCEPTED
+const fl=document.getElementById("flash");let flashT=null,startSent=null,lastPh=null;
+function flash(t,bg,ms){fl.textContent=t;fl.style.background=bg;fl.style.display="flex";clearTimeout(flashT);
+ flashT=setTimeout(()=>{fl.style.display="none"},ms||2500);}
+fl.onclick=()=>{fl.style.display="none"};
 function bar(d){const [c,t]=words(d),ph=(d.mission||{}).phase;bn.style.color=c;bn.textContent=t;
- go.disabled=ph!="await_start";sp.disabled=!(ph=="wait"||ph=="arm"||AIR.includes(ph)||(ph||"").startsWith("vault"));}
+ if(lastPh=="await_start"&&FLY.includes(ph)){flash("\\u2713 ROUTE STARTED\\nflying leg 1","#1a7f1a",3000);startSent=null;}
+ if(startSent&&Date.now()-startSent>2500&&ph=="await_start"){msg.textContent="START sent, the drone has not started yet: press again";startSent=null;}
+ lastPh=ph;
+ if(go.textContent!="START ROUTE"&&ph!="await_start")go.textContent="START ROUTE";
+ go.disabled=ph!="await_start"||go.textContent!="START ROUTE";sp.disabled=!(ph=="wait"||ph=="arm"||AIR.includes(ph)||(ph||"").startsWith("vault"));}
 async function send(cmd){
  if(cmd=="start"&&!confirm("START ROUTE: fly the route now?"))return;
+ if(cmd=="start"){go.textContent="SENDING...";go.disabled=true;}
  try{const r=await fetch("/command?cmd="+cmd+"&key="+encodeURIComponent(KEY),{method:"POST"});
-  const j=await r.json();msg.textContent=j.ok?(cmd.toUpperCase()+" sent"):("refused: "+j.error);}catch(e){msg.textContent="could not send "+cmd;}}
+  const j=await r.json();msg.textContent=j.ok?(cmd.toUpperCase()+" sent"):("refused: "+j.error);
+  if(cmd=="start"&&j.ok){flash("\\u2713 START RECEIVED","#1a7f1a",1500);startSent=Date.now();go.textContent="START SENT";}
+  else if(cmd=="start"){flash("\\u2717 START NOT ACCEPTED\\n"+j.error,"#a11",4000);go.textContent="START ROUTE";}
+  if(cmd=="stop"&&j.ok)flash("STOP RECEIVED: landing","#a60",2500);}
+ catch(e){msg.textContent="could not send "+cmd;if(cmd=="start"){flash("\\u2717 START DID NOT REACH THE DRONE","#a11",4000);go.textContent="START ROUTE";}}}
 go.onclick=()=>send("start");sp.onclick=()=>send("stop");
 setInterval(async()=>{try{const d=await (await fetch("/state.json")).json();draw(d);text(d);bar(d);}catch(e){st.innerHTML='<span class="bad">page cannot reach the drone</span>';bn.style.color="#f44";bn.textContent="page cannot reach the drone";}},200);
 </script></body></html>"""
