@@ -67,13 +67,16 @@ class SafetyParams:
     vehicle_radius: float = 0.27        # m, half diagonal incl. props (route.RouteParams.robot_radius)
     uncertainty_margin: float = 0.10    # m, fixed margin for depth range error / calibration
     k_pos_std: float = 2.0              # extra margin = k * reported odometry position std
-    latency_s: float = 0.40             # s, command -> velocity change (pessimistic placeholder; MEASURE)
+    latency_s: float = 0.80             # s, sensing -> velocity change. Placeholder: odometry capture->receipt
+                                        # alone was p99 0.36 s / max 0.41 s in the 2026-11-07 drone bag, plus the
+                                        # ~0.3 s PX4 velocity-loop lag and a 0.1 s loop. Depth latency UNMEASURED.
     brake_decel: float = 1.0            # m/s^2 guaranteed braking (pessimistic placeholder; MEASURE)
     v_max: float = 1.0                  # m/s hard speed ceiling (organizer interface caps twist at 1.5)
     stop_speed: float = 0.05            # m/s below which an allowed speed counts as STOP
     reliable_range: float = 3.0         # m, depth is trusted only this far ahead
     depth_timeout_s: float = 0.30       # s, depth older than this (stamp or receipt) is stale
-    odom_timeout_s: float = 0.40        # s
+    odom_timeout_s: float = 0.60        # s, by capture stamp AND receipt. Bag: stamp-age at a 10 Hz poll reached
+                                        # 0.43 s with healthy tracking (0.40 would false-trip); main uses 0.5 s receipt
     min_valid_fraction: float = 0.50    # fraction of the corridor's depth pixels that must be valid
     degraded_margin: float = 0.15       # m, extra margin while localization is DEGRADED
     degraded_speed_cap: float = 0.5     # m/s cap while localization is DEGRADED

@@ -159,7 +159,8 @@ def test_bad_depth_clock():
 
 
 def test_stale_missing_invalid_odometry():
-    check(good(odom_stamp=NOW - 0.5, odom_rx=NOW - 0.01), UNKNOWN, "ODOM_STALE")
+    to = SafetyParams().odom_timeout_s                                               # 0.6 s (bag evidence)
+    check(good(odom_stamp=NOW - to - 0.05, odom_rx=NOW - 0.01), UNKNOWN, "ODOM_STALE")
     check(good(odom_stamp=NOW - 0.7, odom_rx=NOW - 0.6), UNKNOWN, "ODOM_STALE")
     check(good(odom_stamp=NOW - 0.01, odom_rx=NOW - 0.6), UNKNOWN, "ODOM_INVALID")    # received before captured
     check(good(odom_stamp=None, odom_rx=None), UNKNOWN, "ODOM_MISSING")

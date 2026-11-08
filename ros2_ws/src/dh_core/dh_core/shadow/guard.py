@@ -1,0 +1,69 @@
+"""Enforcement that shadow-mode code has no flight-command path. PURE.
+
+Two checks:
+  check_endpoints  - runtime: the endpoints a node actually created. Publishers allowed: only rclpy's
+                     implicit infrastructure (/rosout, /parameter_events). Service CLIENTS: none.
+                     Service servers: only rclpy's implicit parameter services. Action clients: none.
+  scan_sources     - static: AST scan of source files for publisher/client creation, px4_msgs imports
+                     and flight-command topic strings (docstrings ignored).
+"""
+from __future__ import annotations
+
+import ast
+from typing import Iterable, List, Tuple
+
+FORBIDDEN_TOPIC_PREFIXES = ("/skybeta/setpoint", "/fmu/in", "/mavros/setpoint", "/mavros/cmd")
+FORBIDDEN_WORDS = ("vehicle_command", "offboard_control_mode", "trajectory_setpoint")
+IMPLICIT_PUBLISHERS = frozenset({"/rosout", "/parameter_events"})
+IMPLICIT_SERVICE_SUFFIXES = ("/describe_parameters", "/get_parameter_types", "/get_parameters",
+                             "/list_parameters", "/set_parameters", "/set_parameters_atomically",
+                             "/get_type_description")
+ENDPOINT_FACTORIES = ("create_publisher", "create_client", "ActionClient", "create_action_client")
+
+
+def _forbidden_name(name: str) -> bool:
+    n = name.lower()
+    return any(n.startswith(p) for p in FORBIDDEN_TOPIC_PREFIXES) or any(w in n for w in FORBIDDEN_WORDS)
+
+
+def check_endpoints(publisher_topics: Iterable[str], client_names: Iterable[str] = (),
+                    service_names: Iterable[str] = (), action_client_names: Iterable[str] = ()) -> List[str]:
+    v = []
+    for t in publisher_topics:
+        if t not in IMPLICIT_PUBLISHERS:
+            v.append("publisher %s%s" % (t, " (FLIGHT COMMAND)" if _forbidden_name(t) else ""))
+    for c in client_names:
+        v.append("service client %s" % c)
+    for s in service_names:
+        if not s.endswith(IMPLICIT_SERVICE_SUFFIXES):
+            v.append("service server %s" % s)
+    for a in action_client_names:
+        v.append("action client %s" % a)
+    return v
+
+
+def scan_sources(paths: Iterable[str]) -> List[Tuple[str, int, str]]:
+    hits = []
+    for path in paths:
+        src = open(path, encoding="utf-8").read()
+        tree = ast.parse(src, filename=path)
+        doc_ids = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                b = node.body
+                if b and isinstance(b[0], ast.Expr) and isinstance(getattr(b[0], "value", None), ast.Constant):
+                    doc_ids.add(id(b[0].value))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                fn = node.func
+                name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+                if name in ENDPOINT_FACTORIES:
+                    hits.append((path, node.lineno, "calls %s" % name))
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                mods = [a.name for a in node.names] + ([node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
+                if any(m and m.split(".")[0] == "px4_msgs" for m in mods):
+                    hits.append((path, node.lineno, "imports px4_msgs"))
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in doc_ids:
+                if _forbidden_name(node.value.strip()):
+                    hits.append((path, node.lineno, "flight-command string %r" % node.value))
+    return hits

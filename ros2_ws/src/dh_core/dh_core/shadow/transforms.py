@@ -1,0 +1,106 @@
+"""Camera->body extrinsics and body->level rotation. PURE.
+
+The camera's pose on the body comes from TF (base_link <- depth optical frame), exactly as main's
+dronehacks_nav/skybeta_node.py does; it is never hard-coded. The 2026-11-07 bag's /tf_static chain:
+  base_link -> oak_parent_frame  t=(0.1053, 0, 0.0304), identity
+  oak_parent_frame -> oak -> oak_rgb_camera_frame        identity
+  oak_rgb_camera_frame -> oak_rgb_camera_optical_frame   q=(-0.5, 0.5, -0.5, 0.5)  (REP 103 optical)
+and /oak/stereo/camera_info.header.frame_id = oak_rgb_camera_optical_frame (320x200).
+`StaticTransformTree` composes such a chain offline (replay/tests); the ROS node uses tf2 and passes
+the looked-up (R, t) through `validate_extrinsic`, so both paths apply the same checks.
+"""
+from __future__ import annotations
+
+import math
+from collections import deque
+from dataclasses import dataclass
+from typing import Dict, Optional, Tuple
+
+import numpy as np
+
+from .observation import rot_from_quat_xyzw
+
+
+@dataclass
+class Extrinsic:
+    frame_id: str
+    R_body_cam: np.ndarray       # body FLU <- camera optical
+    t_body_cam: np.ndarray       # camera origin in the body frame, metres
+    axis_off_forward_deg: float
+
+
+def validate_extrinsic(frame_id: str, R, t, max_off_forward_deg: float = 25.0,
+                       max_offset_m: float = 0.5) -> Tuple[Optional[Extrinsic], str]:
+    R = np.asarray(R, float)
+    t = np.asarray(t, float)
+    if R.shape != (3, 3) or t.shape != (3,) or not (np.all(np.isfinite(R)) and np.all(np.isfinite(t))):
+        return None, "tf_nonfinite"
+    if np.abs(R.T @ R - np.eye(3)).max() > 1e-3 or abs(np.linalg.det(R) - 1.0) > 1e-3:
+        return None, "tf_not_rotation"
+    if np.linalg.norm(t) > max_offset_m:
+        return None, "tf_offset_implausible"
+    fwd = R[:, 2]                                   # optical axis in the body frame
+    ang = math.degrees(math.acos(max(-1.0, min(1.0, float(fwd[0])))))
+    if ang > max_off_forward_deg:
+        return None, "camera_not_forward"
+    return Extrinsic(frame_id, R, t, ang), ""
+
+
+class StaticTransformTree:
+    def __init__(self):
+        self.edges: Dict[str, Dict[str, Tuple[np.ndarray, np.ndarray]]] = {}
+
+    def add(self, parent: str, child: str, t, q_xyzw) -> bool:
+        q = np.asarray(q_xyzw, float)
+        t = np.asarray(t, float)
+        if not (np.all(np.isfinite(q)) and np.all(np.isfinite(t))) or abs(np.linalg.norm(q) - 1.0) > 1e-2:
+            return False
+        R = rot_from_quat_xyzw(*(q / np.linalg.norm(q)))
+        self.edges.setdefault(parent, {})[child] = (R, t)                # parent <- child
+        self.edges.setdefault(child, {})[parent] = (R.T, -R.T @ t)       # child <- parent
+        return True
+
+    def lookup(self, target: str, source: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """(R, t) with p_target = R p_source + t, or None if the frames are not connected."""
+        if target == source:
+            return np.eye(3), np.zeros(3)
+        prev = {target: None}
+        dq = deque([target])
+        while dq:
+            f = dq.popleft()
+            for g in self.edges.get(f, {}):
+                if g not in prev:
+                    prev[g] = f
+                    dq.append(g)
+        if source not in prev:
+            return None
+        R, t = np.eye(3), np.zeros(3)        # walk source -> target, accumulating target <- source
+        f = source
+        while f != target:
+            p = prev[f]
+            Re, te = self.edges[p][f]       # p <- f
+            R, t = Re @ R, Re @ t + te
+            f = p
+        return R, t
+
+
+def level_rotation_enu_flu(quat_xyzw) -> np.ndarray:
+    """Rotation taking body-FLU vectors into the LEVEL heading frame used by refnav.depth.DepthFrame:
+    (forward horizontal, right horizontal, down). Input: odometry orientation (ENU <- FLU)."""
+    R = rot_from_quat_xyzw(*quat_xyzw)               # ENU <- FLU
+    yaw = math.atan2(R[1, 0], R[0, 0])
+    c, s = math.cos(yaw), math.sin(yaw)
+    Rz_inv = np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])   # heading frame (fwd, left, up) <- ENU
+    return np.diag([1.0, -1.0, -1.0]) @ Rz_inv @ R                    # (fwd, right, down) <- FLU
+
+
+def heading_dir_to_world(yaw: float, bearing_right: float) -> np.ndarray:
+    """Unit ENU horizontal vector of a bearing measured to the RIGHT of the heading."""
+    a = yaw - bearing_right
+    return np.array([math.cos(a), math.sin(a), 0.0])
+
+
+def world_dir_to_bearing(yaw: float, v_world) -> float:
+    """Bearing (to the right of the heading) of a world horizontal vector."""
+    return -math.atan2(math.sin(math.atan2(v_world[1], v_world[0]) - yaw),
+                       math.cos(math.atan2(v_world[1], v_world[0]) - yaw))

@@ -18,11 +18,11 @@ follower still commands motion toward a reference ahead of the drone; with 0.5 i
 on STOP/UNKNOWN. `tracker.py` is unchanged.
 
 ## Placeholders that MUST be measured on the real drone before any flight use
-- `latency_s = 0.40` (pose latency + PX4 velocity-loop lag + loop period) - pessimistic guess.
+- `latency_s = 0.80` (raised from 0.40 after the 2026-11-07 bag showed odometry latency p99 0.36 s; depth latency still unmeasured).
 - `brake_decel = 1.0 m/s^2` - pessimistic guess; the sim's 3 m/s^2 cap is not evidence about the airframe.
 - `vehicle_radius`, `uncertainty_margin`, `reliable_range`, timeouts.
 
 ## Not covered yet
-Computing `free_distance` and `depth_valid_fraction` from a depth image (swept-corridor extraction), lateral
-and vertical clearance (the filter judges one distance along the travel direction), integration into
-`mission_node`, and hardware timing. Closed-loop tests use a point-mass plant, not PX4.
+Corridor extraction from depth images now exists in shadow mode (Milestone 2, `docs/STAGE4_SHADOW.md`).
+Still missing: lateral and vertical clearance (the filter judges one distance along the travel direction),
+any connection to a command path, and hardware timing. Closed-loop tests use a point-mass plant, not PX4.

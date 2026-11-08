@@ -1,0 +1,176 @@
+"""Normalized observations built from ROS-shaped messages (duck-typed: real rclpy messages, the SIL
+fakes and replay namespaces all work). PURE: no ROS imports.
+
+Frames (REP 103/105, verified against the 2026-11-07 drone bag):
+  /visual_slam/tracking/odometry : header.frame_id 'odom' (ENU world), child_frame_id 'base_link' (FLU body).
+  pose is base_link in odom. twist is expressed in the CHILD frame (ROS nav_msgs convention); in the
+  bag, rotating it body->world halved the error against finite-differenced positions (RMS 0.20 vs
+  0.40 m/s while moving), so world velocity = R_odom_base * twist.linear. `twist_in_child_frame`
+  stays configurable because the organizer document could not be checked from the repository.
+  /skybeta/state : std_msgs/String JSON (keys seen in the bag: stamp, px4_link, armed, landed,
+  nav_state, nav_state_name, offboard_active, odom_enu, origin_enu, local_enu, envelope_ok,
+  setpoint_mode, clamped, frozen, envelope{min_altitude_m, max_altitude_m, max_speed_mps}).
+  depth : sensor_msgs/Image 16UC1 mm or 32FC1 m, decoded by refnav.depth.decode_depth (reused).
+"""
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
+
+import numpy as np
+
+from refnav import depth as D
+
+
+def stamp_of(msg) -> Optional[float]:
+    try:
+        st = msg.header.stamp
+        t = float(st.sec) + 1e-9 * float(st.nanosec)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return t if math.isfinite(t) and t > 0.0 else None
+
+
+def yaw_from_quat_xyzw(x, y, z, w) -> float:
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def rot_from_quat_xyzw(x, y, z, w) -> np.ndarray:
+    return D.quat_to_mat(w, x, y, z)
+
+
+@dataclass
+class OdomObs:
+    stamp: Optional[float]
+    rx: float
+    frame_id: str
+    child_frame_id: str
+    pos: np.ndarray                  # ENU, metres
+    quat: Tuple[float, float, float, float]   # x y z w, normalized
+    yaw: float                       # ENU heading of body +x, rad CCW from +x(east)
+    vel_world: np.ndarray            # ENU m/s
+    vel_body: np.ndarray             # FLU m/s
+    pos_std: Optional[float]         # sqrt of the largest position variance, None if not reported
+    valid: bool
+    reasons: List[str] = field(default_factory=list)
+
+    @property
+    def R(self) -> np.ndarray:
+        return rot_from_quat_xyzw(*self.quat)
+
+
+def odom_from_msg(m, rx: float, twist_in_child_frame: bool = True, quat_tol: float = 0.05) -> OdomObs:
+    reasons = []
+    try:
+        p, o = m.pose.pose.position, m.pose.pose.orientation
+        pos = np.array([p.x, p.y, p.z], float)
+        q = np.array([o.x, o.y, o.z, o.w], float)
+        tw = m.twist.twist.linear
+        v = np.array([tw.x, tw.y, tw.z], float)
+        cov = list(m.pose.covariance)
+        frame, child = str(m.header.frame_id), str(m.child_frame_id)
+    except (AttributeError, TypeError, ValueError):
+        return OdomObs(stamp_of(m), rx, "", "", np.full(3, np.nan), (0.0, 0.0, 0.0, 1.0), math.nan,
+                       np.full(3, np.nan), np.full(3, np.nan), None, False, ["malformed"])
+    n = float(np.linalg.norm(q)) if np.all(np.isfinite(q)) else math.nan
+    if not np.all(np.isfinite(pos)):
+        reasons.append("position_nonfinite")
+    if not math.isfinite(n) or abs(n - 1.0) > quat_tol:
+        reasons.append("quaternion_invalid")
+        q = np.array([0.0, 0.0, 0.0, 1.0])
+    else:
+        q = q / n
+    if not np.all(np.isfinite(v)):
+        reasons.append("twist_nonfinite")
+    R = rot_from_quat_xyzw(*q)
+    if twist_in_child_frame:
+        v_body, v_world = v, R @ v
+    else:
+        v_world, v_body = v, R.T @ v
+    pos_std = None
+    if len(cov) >= 15:
+        var = [cov[0], cov[7], cov[14]]
+        if all(isinstance(c, (int, float)) and math.isfinite(c) for c in var):
+            if max(var) > 0.0:                    # all zeros = not reported (cuVSLAM often sends zeros)
+                pos_std = math.sqrt(max(var))
+        else:
+            reasons.append("covariance_nonfinite")
+    if stamp_of(m) is None:
+        reasons.append("unstamped")
+    yaw = yaw_from_quat_xyzw(*q) if "quaternion_invalid" not in reasons else math.nan
+    return OdomObs(stamp_of(m), rx, frame, child, pos, tuple(float(c) for c in q), yaw, v_world, v_body,
+                   pos_std, not reasons, reasons)
+
+
+@dataclass
+class StateObs:
+    rx: float
+    stamp: Optional[float]
+    px4_link: Optional[bool]
+    armed: Optional[bool]
+    landed: Optional[bool]
+    nav_state: Optional[int]
+    nav_state_name: Optional[str]
+    offboard_active: Optional[bool]
+    clamped: List[str]
+    envelope: dict
+    raw: dict
+
+
+def state_from_json(data: str, rx: float) -> Tuple[Optional[StateObs], str]:
+    try:
+        d = json.loads(data)
+    except (TypeError, ValueError):
+        return None, "state_json_invalid"
+    if not isinstance(d, dict):
+        return None, "state_json_not_object"
+
+    def b(k):
+        v = d.get(k)
+        return None if v is None else bool(v)
+
+    st = d.get("stamp")
+    st = float(st) if isinstance(st, (int, float)) and math.isfinite(st) and st > 0 else None
+    nav = d.get("nav_state")
+    return StateObs(rx, st, b("px4_link"), b("armed"), b("landed"),
+                    int(nav) if isinstance(nav, (int, float)) else None, d.get("nav_state_name"),
+                    b("offboard_active"), list(d.get("clamped") or []), dict(d.get("envelope") or {}), d), ""
+
+
+@dataclass
+class Intrinsics:
+    K: Tuple[float, float, float, float]          # fx fy cx cy
+    width: int
+    height: int
+    frame_id: str
+
+
+def intrinsics_from_msg(m) -> Tuple[Optional[Intrinsics], str]:
+    try:
+        k = [float(x) for x in m.k]
+        w, h = int(m.width), int(m.height)
+    except (AttributeError, TypeError, ValueError):
+        return None, "camera_info_malformed"
+    if len(k) != 9 or not all(math.isfinite(x) for x in k) or k[0] <= 0 or k[4] <= 0 or w <= 0 or h <= 0:
+        return None, "camera_info_invalid"
+    return Intrinsics((k[0], k[4], k[2], k[5]), w, h, str(m.header.frame_id)), ""
+
+
+@dataclass
+class DepthObs:
+    stamp: Optional[float]
+    rx: float
+    frame_id: str
+    depth_m: np.ndarray            # float32 metres, NaN = no return
+    valid_fraction: float          # whole image
+
+
+def depth_from_msg(m, rx: float) -> Tuple[Optional[DepthObs], str]:
+    try:
+        d = D.decode_depth(m.encoding, int(m.height), int(m.width), int(m.step), bytes(m.data))
+    except (ValueError, AttributeError, TypeError) as e:
+        return None, "depth_undecodable"
+    vf = float(np.isfinite(d).mean()) if d.size else 0.0
+    return DepthObs(stamp_of(m), rx, str(m.header.frame_id), d, vf), ""
