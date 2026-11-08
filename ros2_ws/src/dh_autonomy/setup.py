@@ -22,5 +22,6 @@ setup(
         "stereo_scan = dh_autonomy.stereo_scan_node:main",
         "line = dh_autonomy.line_node:main",
         "sitl_odom = dh_autonomy.sitl_odom_node:main",
+        "nav_policy = dh_autonomy.nav_policy_node:main",
     ]},
 )

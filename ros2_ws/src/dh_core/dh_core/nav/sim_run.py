@@ -93,7 +93,8 @@ class Sim:
         self.extr = bag_extrinsic()
         self.mprm = mprm or MapParams(lo_xy=(-1.0, -1.0), size_xy=6.6)
         self.ex = Explorer(self.mprm, eprm or ExplorerParams())
-        self.safety = CommandSafety(CommandSafetyParams(band=self.mprm.band, robot_radius=self.mprm.robot_radius))
+        self.safety = CommandSafety(CommandSafetyParams(band=self.mprm.band, robot_radius=self.mprm.robot_radius,
+                                                          geofence=(-0.7, 5.3, -0.7, 5.3)))
         self.drift = np.zeros(3)
         self.depth_stamp = None
         self.odom_stamp = None

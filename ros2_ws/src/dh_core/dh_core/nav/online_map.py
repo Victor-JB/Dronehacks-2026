@@ -41,7 +41,9 @@ class MapParams:
     z_margin: float = 0.08              # clearance above/below the body
     z_uncert: float = 0.05              # altitude-estimate uncertainty
     obstacle_min_z: float = 0.15        # anything taller than this under the drone needs an observed top
-    free_fraction: float = 0.5          # share of the band's voxels that must be seen free
+    free_fraction: float = 0.25         # share of the band's voxels that must be seen free. A 0-deg forward
+                                        # camera cannot see the band's top/bottom within ~0.5 m of itself, so
+                                        # requiring half the band left a permanent unknown ring around the drone
     roof_merge_m: float = 0.15          # observed overhead structure within this distance counts as a roof
     robot_radius: float = 0.27
 
@@ -75,7 +77,7 @@ class OnlineMap:
         return self.vm.grid[:, :, self._k(z0):self._k(z1) + 1].sum(axis=2).T
 
     def mark_visited(self, pos) -> None:
-        r = self.prm.robot_radius
+        r = self.prm.robot_radius + 0.10           # the body (plus margin) occupied this space: it is free
         g = self.grid_coords()
         X, Y = g
         m = (X - pos[0]) ** 2 + (Y - pos[1]) ** 2 <= r * r

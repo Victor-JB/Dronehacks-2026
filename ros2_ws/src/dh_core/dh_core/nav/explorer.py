@@ -49,6 +49,7 @@ class ExplorerParams:
     max_inspect: int = 2
     standoff: float = 0.6               # straight run before/after a verified opening's centre
     max_target_views: int = 3
+    switch_ratio: float = 0.5           # switch frontier only if the best new one costs < this x the current
 
 
 @dataclass
@@ -187,6 +188,7 @@ class Explorer:
             ax = self.inspecting["axis"]
             self.look_yaw = math.atan2(ax[1], ax[0])
             self.inspecting["tries"] += 1
+            self.inspecting["recheck"] = True          # re-evaluated after the look (new evidence)
             self.inspecting = None
             return Intent(self._hold_z(pos), 0.0, "LOOK", "inspecting opening")
         # frontier reached: blacklist it (dead-end memory) and look at the unknown beyond it
@@ -208,17 +210,37 @@ class Explorer:
         if self.follower is None or self.pl is None:
             return True
         cls = self.map.classify()
+        g = self.map.planning_grid(cls)
+        self._apply_vetoes(g)
+        dist = g.distance()
         tr = self.follower.traj
-        k0 = int(np.searchsorted(tr.t, self.follower.tau))
-        g = self.pl.grid
-        for q in tr.p[k0::5]:
-            r, c = g.to_cell(q)
-            if cls[r, c] != FREE:
-                return False
-        return True
+        k0 = max(0, int(np.searchsorted(tr.t, self.follower.tau)) - 1)
+        p = tr.p[k0:, :2]
+        if len(p) < 2:
+            return True
+        # the WHOLE remaining path, densified to half a voxel, must keep the body clear of blocked cells
+        s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))])
+        q = np.arange(0.0, s[-1] + 1e-9, 0.5 * g.res)
+        pts = np.stack([np.interp(q, s, p[:, 0]), np.interp(q, s, p[:, 1])], 1)
+        ij = np.floor((pts - g.origin) / g.res).astype(int)
+        ok = (ij[:, 0] >= 0) & (ij[:, 1] >= 0) & (ij[:, 0] < dist.shape[1]) & (ij[:, 1] < dist.shape[0])
+        if not ok.all():
+            return False
+        return bool((dist[ij[:, 1], ij[:, 0]] >= self.mprm.robot_radius - 0.02).all())
+
+    def _recheck_vetoes(self, t, force=False):
+        for v in self.vetoes:
+            if v.get("cleared") or v.get("permanent") or not (force or v.pop("recheck", False)):
+                continue
+            op = evaluate_opening(self.map, v["p"], v["axis"], True, self.oprm)
+            if op.verified or op.kind == "open":
+                v["cleared"] = True
+                self.log.append("%.1f opening re-checked: %s" % (t, "verified" if op.verified else "open space"))
+            elif v["tries"] >= self.prm.max_inspect:
+                v["permanent"] = True
+                self.log.append("%.1f opening rejected for good: %s" % (t, op.reason))
 
     def _apply_vetoes(self, grid):
-        X, Y = None, None
         for v in self.vetoes:
             if v.get("cleared"):
                 continue
@@ -233,6 +255,7 @@ class Explorer:
         self.replans += 1
         self.cls = cls = self.map.classify()
         grid = self.map.planning_grid(cls)
+        self._recheck_vetoes(t)
         self._apply_vetoes(grid)
         self.pl = pl = ClearancePlanner(grid, self.mprm.robot_radius, self.prm.preferred_clearance, 4.0)
         if self.state in ("TO_TARGET", "VIEW_TARGET", "INSPECT") and self.goal is not None:
@@ -240,6 +263,12 @@ class Explorer:
         else:
             self.state = "EXPLORE"
             goals = self._frontier_goals(pos, yaw, cls, pl)
+            if not goals and any(not (v.get("cleared") or v.get("permanent")) for v in self.vetoes):
+                self._recheck_vetoes(t, force=True)            # stuck: maybe a vetoed opening is now verified
+                grid = self.map.planning_grid(cls)
+                self._apply_vetoes(grid)
+                self.pl = pl = ClearancePlanner(grid, self.mprm.robot_radius, self.prm.preferred_clearance, 4.0)
+                goals = self._frontier_goals(pos, yaw, cls, pl)
             if not goals:
                 self.follower = None
                 self._set("HOLD", t, "no reachable frontier")
@@ -278,9 +307,13 @@ class Explorer:
             if len(rows) < p.min_cluster:
                 continue
             pts = np.array([pl.grid.to_world(r, c) for r, c in zip(rows, cols)])
+            if self.blacklist:                       # dead-end memory excludes cells, not whole clusters
+                bl = np.array(self.blacklist)
+                far = np.min(np.linalg.norm(pts[:, None, :] - bl[None, :, :], axis=2), axis=1) >= p.blacklist_r
+                pts = pts[far]
+                if len(pts) < p.min_cluster:
+                    continue
             g = pts[np.argmin(np.linalg.norm(pts - pts.mean(0), axis=1))]
-            if any(np.linalg.norm(g - b) < p.blacklist_r for b in self.blacklist):
-                continue
             d = g - pos[:2]
             dist = float(np.linalg.norm(d))
             turn = 0.0 if dist < 1e-6 else 1.0 - float(np.dot(d / dist, hd))
@@ -289,7 +322,18 @@ class Explorer:
             vis = self.map.visited[max(0, r - rad):r + rad, max(0, c - rad):c + rad].mean()
             cand.append((dist + p.w_turn * turn + p.w_visit * vis - p.w_size * len(rows), g))
         cand.sort(key=lambda x: x[0])
-        return [g for _, g in cand]
+        goals = [g for _, g in cand]
+        # goal persistence: keep chasing the current frontier while it is still one and not clearly beaten,
+        # otherwise replanning every second flips between frontiers and the drone wanders (back-tracking)
+        cur = self.goal if self.state == "EXPLORE" else None
+        if cur is not None and len(cells):
+            fr = np.array([pl.grid.to_world(r, c) for r, c in cells[:: max(1, len(cells) // 2000)]])
+            still = np.min(np.linalg.norm(fr - cur, axis=1)) < 0.3
+            cur_cost = float(np.linalg.norm(cur - pos[:2]))
+            best_cost = cand[0][0] if cand else math.inf
+            if still and not any(np.linalg.norm(cur - b) < p.blacklist_r for b in self.blacklist)                     and best_cost > p.switch_ratio * cur_cost:
+                goals = [cur] + [g for g in goals if np.linalg.norm(g - cur) > 0.3]
+        return goals
 
     def _openings_ok(self, t, pos, path, pl, goal):
         """A path squeezing through a narrow, ENCLOSED opening is only kept if the opening is verified;

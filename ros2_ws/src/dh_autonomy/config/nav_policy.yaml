@@ -1,0 +1,20 @@
+# nav_policy parameters. Topic names are the repository's (main config/drone.yaml, 2026-11-07 bag).
+nav_policy:
+  ros__parameters:
+    odometry_topic: /visual_slam/tracking/odometry
+    state_topic: /skybeta/state
+    vo_status_topic: /visual_slam/status
+    depth_topic: /oak/stereo/image_raw          # NOT in the recorded bag: verify it is published before flight
+    depth_info_topic: /oak/stereo/camera_info
+    rgb_topic: ""                               # the team's OAK config publishes NO colour stream: target off
+    base_frame: base_link
+    rate_hz: 10.0
+    # REQUIRED before any live run: the test area in the VIO frame (origin = where the stack started,
+    # +x = nose at start), [xmin, xmax, ymin, ymax] metres. Left unset ([0.0]) the policy never moves sideways.
+    geofence: [0.0]
+    cruise_z: 0.75
+    v_max: 0.35
+    map_lo_xy: [-7.0, -7.0]
+    map_size: 14.0
+    brake_decel: 1.0                            # PLACEHOLDER until measured
+    latency_s: 0.8                              # PLACEHOLDER until measured

@@ -96,6 +96,10 @@ def label(mask):
     return comps
 
 
+def _cross2(a, b):
+    return float(a[0] * b[1] - a[1] * b[0])
+
+
 def _hull_area(pts):
     pts = np.unique(np.round(pts, 4), axis=0)
     if len(pts) < 3:
@@ -105,7 +109,7 @@ def _hull_area(pts):
     def half(ps):
         out = []
         for p in ps:
-            while len(out) >= 2 and np.cross(out[-1] - out[-2], p - out[-2]) <= 0:
+            while len(out) >= 2 and _cross2(out[-1] - out[-2], p - out[-2]) <= 0:
                 out.pop()
             out.append(p)
         return out
@@ -184,7 +188,7 @@ class TargetTracker:
         self.last_pos = None
 
     def predict(self, t: float, pos) -> None:
-        if self.xy is None:
+        if self.xy is None or self.t_last is None:
             self.t_last, self.last_pos = t, np.asarray(pos[:2], float)
             return
         dt = max(0.0, t - self.t_last)

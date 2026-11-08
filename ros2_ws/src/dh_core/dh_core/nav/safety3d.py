@@ -32,6 +32,8 @@ class CommandSafetyParams:
     robot_radius: float = 0.27
     march_max: float = 3.0
     yaw_in_place_ok: bool = True                    # rotating in place is allowed at a wall if data are valid
+    geofence: Optional[Tuple[float, float, float, float]] = None   # xmin xmax ymin ymax (ENU odom); None = refuse
+    geofence_margin: float = 0.4                    # keep the body centre this far inside (netting may not show in depth)
 
 
 class CommandSafety:
@@ -69,6 +71,16 @@ class CommandSafety:
         z_lo, z_hi = max(p.band[0], p.alt_limits[0]), min(p.band[1], p.alt_limits[1])
         if (pos[2] >= z_hi and v[2] > 0) or (pos[2] <= z_lo and v[2] < 0):
             v[2] = 0.0
+        # geofence: unset = no horizontal motion at all; at the margin, no motion further out
+        if p.geofence is None:
+            v[0] = v[1] = 0.0
+        else:
+            x0, x1, y0, y1 = p.geofence
+            m = p.geofence_margin
+            if (pos[0] <= x0 + m and v[0] < 0) or (pos[0] >= x1 - m and v[0] > 0):
+                v[0] = 0.0
+            if (pos[1] <= y0 + m and v[1] < 0) or (pos[1] >= y1 - m and v[1] > 0):
+                v[1] = 0.0
         vh = math.hypot(v[0], v[1])
         if dist is None or grid is None:
             free = None

@@ -6,6 +6,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")))   # refnav
 from dh_core.safety_filter import (LIMIT, SAFE, STOP, UNKNOWN, SafetyEvaluator, SafetyGate, SafetyParams,
                                    SensorInputs, max_speed_for_distance, stopping_distance)
 from dh_core.timing import Trajectory

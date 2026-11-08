@@ -33,6 +33,7 @@ class OpeningParams:
     min_observed: float = 0.95          # share of envelope cells that must be observed FREE
     slice_step: float = 0.10            # spacing of cross-sections along the traversal
     verify_len: float = 1.2             # verify cross-sections this far before and after the opening point
+    turn_cost: float = 0.04             # m of free run a 1-degree turn away from the travel direction must buy
 
 
 @dataclass
@@ -106,11 +107,19 @@ def evaluate_opening(m: OnlineMap, p, n, loc_ok: bool = True, prm: OpeningParams
     rows, cols = np.nonzero(region)
     width = (cols.max() - cols.min() + 1) * prm.res
     height = (rows.max() - rows.min() + 1) * prm.res
-    fill = float(region.sum()) / max(1, (cols.ptp() + 1) * (rows.ptp() + 1))
+    fill = float(region.sum()) / max(1, (np.ptp(cols) + 1) * (np.ptp(rows) + 1))
     cs, cz = s[cols].mean(), s[rows].mean()
     centre = p + cs * np.array([-n[1], n[0], 0.0]) + cz * np.array([0, 0, 1.0])
-    if touches:
+    # an opening has OBSERVED structure above it (lintel, tunnel roof). Without one this is a corridor gap:
+    # the band grid already proves it free at flight height and forbids overflight, so nothing to verify.
+    col = sec[:, seed[1]]                      # rows = increasing height
+    j = seed[0]
+    while j < len(s) and col[j] == FREE:
+        j += 1
+    roofed = j < len(s) and col[j] == OCCUPIED
+    if touches or not roofed:
         return Opening("open", centre, n, width, height, fill, False, True, 1.0, math.inf, False,
+                       "no observed top: corridor gap, not an opening" if not touches else
                        "not enclosed: open space, no opening to verify")
     kind = "rectangular" if fill > 0.88 else ("elliptical" if fill > 0.6 else "irregular")
     # the flight height is fixed (no climbing through openings): centre only laterally
@@ -126,8 +135,10 @@ def evaluate_opening(m: OnlineMap, p, n, loc_ok: bool = True, prm: OpeningParams
         worst, occ_any = min(worst, f), occ_any or o
     fits = (width >= 2 * hw and height >= 2 * hh and not occ_any)
     reason = ""
-    if not fits:
-        reason = "envelope does not fit (%.2f x %.2f m opening, need %.2f x %.2f)" % (width, height, 2 * hw, 2 * hh)
+    if width < 2 * hw or height < 2 * hh:
+        reason = "too small (%.2f x %.2f m opening, need %.2f x %.2f)" % (width, height, 2 * hw, 2 * hh)
+    elif occ_any:
+        reason = "an occupied voxel lies inside the envelope along the traversal"
     elif worst < prm.min_observed:
         reason = "insufficiently observed (%.0f%% of the envelope seen free)" % (100 * worst)
     elif not loc_ok:
@@ -164,6 +175,7 @@ def _best_axis(m: OnlineMap, c, n, hw, prm: OpeningParams):
                     break
                 k += 1
             runs[sign] = k * v
-        if runs[1] + runs[-1] > best[0] + 1e-9:
-            best = (runs[1] + runs[-1], d, runs[-1], runs[1])
+        score = runs[1] + runs[-1] - prm.turn_cost * abs(deg)      # prefer square-on unless clearly longer
+        if score > best[0] + 1e-9:
+            best = (score, d, runs[-1], runs[1])
     return best[1], best[2], best[3]
