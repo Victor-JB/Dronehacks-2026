@@ -17,8 +17,9 @@ now optionally retains **observed** free cells with capture timestamps,
 exponential confidence decay, an explicit confidence threshold and a hard
 age cap (maximum configurable 60s). Fresh depth300ms/odom400ms/TF/map-update500ms
 checks remain independent. Stale free evidence becomes blocked unknown;
-positive occupied evidence stays blocked. This conservative occupancy policy
-can retain a removed obstacle longer than necessary; it never frees one on age.
+occupied confidence also decays to blocked unknown. Raw positive log-odds remain
+conservative until contradicted by fresh rays; age never frees an obstacle.
+The exploration mask excludes aged wall cells from fictitious frontier gain.
 
 Optional dense carving projects whole voxel bounding spheres into the
 capture-time calibrated depth image. A complete pixel rectangle must be valid
@@ -108,6 +109,7 @@ remain a separate hardware blocker, not be concealed by these simulated rates.
 $env:DH_TEAM_SOURCE='C:\path\to\verified-team-source'
 $env:OPENBLAS_NUM_THREADS='1'
 $env:OMP_NUM_THREADS='1'
+python tools/judge_demo/convert_course.py --step 'C:\path\FINAL Course v3.step' --out C:\path\to\course
 python tools/judge_demo/physics_scene.py --assets C:\path\to\course --out C:\path\to\scene --variant baseline
 python tools/judge_demo/continuous_run.py --scene C:\path\to\scene\baseline.xml --out C:\path\to\NEW-run --seconds 180 --record
 ```
@@ -118,6 +120,9 @@ after45s. Initial-place rejection is separate. Full uncut frames are rendered
 during physics execution at10fps, with live RGB/depth/map. Sensor delay remains
 visible; third-person view is labelled simulator truth with boundary-net cutaway.
 It is not a static image sequence or scripted path replay.
+The dashboard timestamp is the control step; the third-person render follows
+that50ms physics step, while RGB/depth show the latest delivered capture with
+the modelled sensor latency. These known offsets share one simulation clock.
 
 ## Physical status
 

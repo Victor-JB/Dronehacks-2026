@@ -3,6 +3,8 @@ numpy==1.26.4
 opencv-python-headless==4.10.0.84
 scipy==1.17.1
 trimesh==5.2.0
+gmsh==4.15.2
+rtree==1.4.1
 coacd==1.0.14
 mujoco==4.0.0
 imageio-ffmpeg==0.8.1

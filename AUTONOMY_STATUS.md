@@ -120,3 +120,66 @@ User authorized a complete local simulation/recording workflow, superseding prio
 Actual forward-depth course run: unchanged StationaryLocalPolicyNode processes native simulated Image/CameraInfo/odom/VO/TF, starts unknown, refuses /dh/start due full starting-volume observability.0m/0replans, no contacts at stationary pose (conservative sphere clearance .1109m), depth-loss also holds. Course mission did NOT complete. Existing ideal panoramic component diagnostic: actual mapper/A*/clothoid/follower/independent filter/DryRunBackend,2.644m/5replans/obstacle stop/0gradedcontacts, minimum configured cylindrical horizontal clearance .3942m. Kinematic Euler/noPX4 dynamics; not physical forward-camera equivalence and not a full-course success. Windows fakeROS, not actual DDS/Humble/Gazebo/PX4. Tunnel/window/blue-pad recognition/landing unvalidated.
 
 Produced outputs/judge_demo/main_demo.mp4 (30s,1920x1080,H264,20fps), highlight.mp4 (14s),7annotated1920x1080 screenshots, per-frame maps/plans/poses/images, command CSV, full decode verification and judge summary. Media explicitly labelled recorded-execution REPLAY and ideal-sensor diagnostic where applicable. Metrics reconciled to traces. Full source/reproduction/limitations in docs/JUDGE_DEMO.md; scripts under tools/judge_demo. Initial pybullet source dependency build cancelled; initial bulk mesh-ray allocation interrupted at~8.77GB; replaced with fast bounded Blender BVH. No safety guard weakened to produce movement. Full-course startup blocker remains NO-GO.
+
+## Continuous forward-camera policy — 2026-11-08
+
+Published source8e2a594d478f56ad071cbfdf4acb99ac49563c0a on saketh/autonomy;
+normal push and remote head verified through the authenticated team checkout.
+No main or teammate working-tree changes. Existing planner, clothoid smoother,
+trajectory follower, team voxel mapper and independent filter are retained.
+
+Startup fixes separate fresh live sensors from bounded decaying map evidence,
+add optional conservative whole-voxel depth-image carving, and permit an
+explicit physics-verified expiring launch-clearance certificate. Positive hits
+always veto it; it certifies no route. Guarded stationary yaw/route-heading
+observation, stalled-reference recovery and observed side targets are optional.
+Removed the redundant A* start-cell-centre stub that could point backwards and
+deadlock the live FOV gate; complete path validation remains. Swept cylinder
+clearance uses exact circular lateral geometry with the existing braking filter.
+Physical/default geometry, limits, launch/profile and dry lock remain unverified
+and unchanged; simulator-only bounds must not be copied to hardware.
+
+Actual tests:94 core pytest,11 existing fake-ROS policy checks,10 new focused
+evidence/startup/geometry checks,16 safety regressions,12 rendered OpenCV stereo
+cases all pass. Corrected existing obstacle regression passes original motion,
+stop and collision assertions:0.764m/3replans/0contacts with ideal panoramic
+fixture, not a forward-camera course claim. Actual DDS/Humble/Gazebo/PX4 and
+Jetson validation were NOT performed. WSL has no Linux distro; teammate Gazebo
+requires unavailable Docker/Linux/ROS. Local fallback is MuJoCo4.0 rigid-body
+force/torque servo with rendered forward z-depth, bounded noisy pose sensor and
+emulated ROS boundary, explicitly no SLAM reconstruction or PX4.
+
+Latest three bounded policy cases: original geometry3.686m/4replans/0contacts
+then navigation deadlock; north start3.313m/9replans/0contacts then deadlock;
+altered walls15.714m/19replans/0contacts over179.95s then timeout with sustained
+HOLD. Minimum hull clearances respectively.160m,.154m,.153m. Altered run
+geometrically crosses the complete tube (simulator grader only); semantic
+passage recognition/window traversal/blue-pad discovery/landing/full-maze
+success are not demonstrated. Modelled height remains.85m, below walls.
+
+The current-envelope unknown veto remains a real limitation after long pauses:
+for the original case the nearest unknown column is.418m away versus required
+inflated radius.433m; the policy cannot waive that missing evidence. This is
+safe failure, not completed navigation. Source8e2a594 adds occupied-confidence
+aging to blocked unknown while preserving the prior frontier mask and all
+collision masks. Final reproduction20 finished at184.25s with15.714m/19replans/
+0contacts and NAVIGATION_DEADLOCK. All five recorded source hashes match8e2a594;
+the shared1800-frame position AND command trace matches attempt19 exactly.
+
+All failed logs and recordings from attempt04 onward are preserved separately
+under outputs/continuous_demo; bootstrap attempts01–03 have traces/logs only.
+Original marker-band placement fails the conservative launch certificate;
+moving cases use an explicitly model-verified +.05m east,+.15m north placement.
+Stricter per-axis-error placement recheck passes with4.4mm model clearance;
+this is not a physical placement tolerance claim. Main120s, highlight25s with
+complete tube crossing, uncut184.3s and tracking/first-person MP4s pass full
+sequential decode.15 extracted1080p frames verified; actual sensor-map/physics
+track figure and all20attempt metrics saved locally. Final classified band
+coverage14.73%, cumulative sampled lower bound46.70%; not maze completion.
+See docs/CONTINUOUS_DEMO.md and docs/CONTINUOUS_DEMO_RESULTS.md.
+Frozen Phase2 f85c492 ZIP/TAR hashes are unchanged. NO-GO for physical flight:
+new-policy ROS execution, live timing/compute/TF/calibration, measured envelope/
+altitude/braking/launch clearance, representative robust navigation and approved
+landing authority remain gates. Latest main11280a8 still lists a depth/VIO
+latency issue to reconcile with the actual tested hardware configuration.
+No SSH, deployment, physical publishers, main/drone push or promotion occurred.

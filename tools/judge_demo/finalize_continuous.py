@@ -4,14 +4,16 @@ from pathlib import Path
 import numpy as np,cv2,imageio_ffmpeg
 
 
-def verify_video(path):
+def verify_video(path,shape=(1080,1920)):
     cap=cv2.VideoCapture(str(path));fps=cap.get(cv2.CAP_PROP_FPS);n=0;changed=0;old=None
     while True:
         good,frame=cap.read()
         if not good:break
-        if frame.shape[:2]!=(1080,1920):raise ValueError(f'Wrong dimensions {path}')
-        if old is not None and np.mean(abs(frame[140:930,:1260].astype(float)-old))>.05:changed+=1
-        old=frame[140:930,:1260].astype(float);n+=1
+        if frame.shape[:2]!=shape:raise ValueError(f'Wrong dimensions {path}')
+        region=frame[140:930,:1260] if shape==(1080,1920) else frame
+        sample=region[::8,::8]
+        if old is not None and cv2.absdiff(sample,old).mean()>.05:changed+=1
+        old=sample.copy();n+=1
     cap.release()
     if n<10 or fps<=0:raise ValueError(f'Unreadable {path}')
     return dict(path=str(path),frames=n,fps=fps,seconds=n/fps,changing_physics_frames=changed,
@@ -22,6 +24,8 @@ def finish(base):
     runs=[]
     for folder in sorted((base/'attempts').iterdir()):
         if not (folder/'result.json').exists():continue
+        console=Path(__file__).resolve().parents[2].parent/f'continuous_{folder.name[:2]}.log'
+        if console.is_file():shutil.copy2(console,folder/'console.log')
         result=json.loads((folder/'result.json').read_text());row=dict(attempt=folder.name,**result)
         trace=json.loads((folder/'trace.json').read_text()) if (folder/'trace.json').exists() else []
         if trace:
@@ -46,9 +50,18 @@ def finish(base):
                 seen[key]=trace[i]['time']
             row['repeated_reentry_distance_lower_bound']=repeat
             row['final_state']=trace[-1]['state']
+            times=np.array([r['time'] for r in trace])
+            if times[-1]>60:
+                recent=times>=times[-1]-60;old_cells=set(map(tuple,bins[~recent]));new_cells=set(map(tuple,bins[recent]))
+                novelty=len(new_cells-old_cells)/max(1,len(new_cells))
+                recent_p=p[recent];recent_length=np.linalg.norm(np.diff(recent_p,axis=0),axis=1).sum()
+                row['last_60s_new_track_cell_fraction']=novelty
+                if (result.get('collisions',0)==0 and recent_length>4 and novelty<.15
+                        and np.linalg.norm(recent_p[-1]-recent_p[0])<1.):
+                    row['interpreted_outcome']='EXPLORATION_LOOP'
             if result.get('collisions',0)==0 and trace[-1]['state'].startswith('HOLD'):
-                last=np.array(trace[-1]['position'])
-                if len(trace)>200 and np.linalg.norm(last-np.array(trace[-201]['position']))<.05:
+                stationary_length=float(np.linalg.norm(np.diff(p[-201:],axis=0),axis=1).sum())
+                if len(trace)>200 and stationary_length<.05:
                     row['interpreted_outcome']='NAVIGATION_DEADLOCK'
             if 'observed_columns' not in row:
                 snapshots=sorted(folder.glob('sensors_*.npz'))
@@ -58,6 +71,13 @@ def finish(base):
                         observed_columns=int(((states==0)|(states==1)).sum()),planning_grid_columns=int(states.size))
             if 'observed_columns' in row:
                 row['observed_planning_band_percent']=100*row['observed_columns']/row['planning_grid_columns']
+            cumulative=None
+            for snapshot in sorted(folder.glob('sensors_*.npz')):
+                with np.load(snapshot) as data:
+                    states=data['states'];observed=(states==0)|(states==1)
+                    cumulative=observed.copy() if cumulative is None else cumulative|observed
+            if cumulative is not None:
+                row['cumulative_observed_band_percent_lower_bound']=100*float(cumulative.mean())
         runs.append(row)
     (base/'metrics.json').write_text(json.dumps(runs,indent=2))
     choices=[r for r in runs if (base/'attempts'/r['attempt']/'uncut.mp4').exists() and r.get('collisions',0)==0]
@@ -71,15 +91,30 @@ def finish(base):
     positions=np.array([r['position'] for r in trace]);segments=np.linalg.norm(np.diff(positions,axis=0),axis=1)
     starts=np.arange(0,max(1,duration-25),1.)
     highlight_start=float(max(starts,key=lambda t:segments[(times[1:]>=t)&(times[1:]<t+25)].sum()))
+    # Prefer a complete verified passage over a faster fragment of one.
+    if best.get('geometric_tube_crossing_grader_only'):
+        inside=(positions[:,0]>1.875)&(positions[:,0]<2.748)
+        exits=np.flatnonzero(inside&(positions[:,1]<-.75))
+        if len(exits):
+            entry=np.flatnonzero(inside&(positions[:,1]>1.66)&(times<times[exits[0]]))
+            if len(entry) and times[exits[0]]-times[entry[-1]]<21:
+                highlight_start=float(max(0,min(duration-25,math.floor(times[entry[-1]]-2))))
+    main_seconds=min(120.,duration)
+    main_starts=np.arange(0,max(1,duration-main_seconds),1.)
+    main_start=float(max(main_starts,key=lambda t:segments[(times[1:]>=t)&(times[1:]<t+main_seconds)].sum()))
     # Cuts retain the original time scale and synchronized panels.
-    for name,start,seconds in [('main_demo.mp4',0.,min(120.,duration)),('highlight.mp4',highlight_start,min(25.,duration))]:
+    for name,start,seconds in [('main_demo.mp4',main_start,main_seconds),('highlight.mp4',highlight_start,min(25.,duration))]:
         subprocess.run([exe,'-y','-v','error','-ss',str(start),'-i',str(original),'-t',str(seconds),
             '-c:v','libx264','-preset','fast','-crf','19','-pix_fmt','yuv420p','-movflags','+faststart',str(base/name)],check=True)
-    shots=base/'screenshots';shots.mkdir(exist_ok=True)
+    label="drawtext=fontfile='C\\:/Windows/Fonts/segoeui.ttf':text='MuJoCo simulation - rendered camera - no PX4':fontsize=18:fontcolor=white:box=1:boxcolor=black@0.75:x=8:y=8"
+    for name,filters in [('tracking_view.mp4','crop=1280:936:0:0'),('first_person.mp4','crop=600:374:1296:139,'+label)]:
+        subprocess.run([exe,'-y','-v','error','-i',str(base/'main_demo.mp4'),'-vf',filters,
+            '-c:v','libx264','-preset','fast','-crf','19','-pix_fmt','yuv420p','-movflags','+faststart',str(base/name)],check=True)
+    shots=base/'screenshots_verified';shots.mkdir(exist_ok=True)
     cap=cv2.VideoCapture(str(original))
-    for i,t in enumerate(sorted(set([0.,10.,20.,25.,30.,*np.linspace(0,max(0,duration-1),10)]))):
+    for i,t in enumerate(sorted(set([0.,10.,20.,25.,30.,85.,*np.linspace(0,max(0,duration-1),10)]))):
         cap.set(cv2.CAP_PROP_POS_MSEC,t*1000);ok,frame=cap.read()
-        if ok:cv2.imwrite(str(shots/f'{i:02d}_{t:05.1f}s.png'),frame)
+        if ok:cv2.imwrite(str(shots/f'frame_{t:06.1f}s.png'),frame)
     cap.release()
     snapshots=sorted(folder.glob('sensors_*.npz'))
     if snapshots:
@@ -89,8 +124,8 @@ def finish(base):
         pixels=np.full((*states.shape,3),(28,47,65),np.uint8)
         pixels[states==0]=(40,128,119);pixels[states==1]=(234,133,103);pixels[states==2]=(155,109,212)
         plot=Image.new('RGB',(1800,1600),BG);plot.paste(Image.fromarray(pixels).resize((1360,1360),Image.Resampling.NEAREST),(30,170))
-        d=ImageDraw.Draw(plot);d.text((35,25),'ACTUAL OBSERVED MAP + ODOMETRY TRACK',font=font(38,True),fill=TEXT)
-        d.text((35,90),'Current planning-height classification / unknown stays blocked / no CAD overlay',font=font(25),fill=MUTED)
+        d=ImageDraw.Draw(plot);d.text((35,25),'SENSOR MAP + ACTUAL SIMULATOR TRACK',font=font(38,True),fill=TEXT)
+        d.text((35,90),'Sensor-derived height band / simulator-truth track / unknown blocked / no CAD overlay',font=font(25),fill=MUTED)
         def uv(p):return (30+(p[0]+4)/8*1360,170+(4-p[1])/8*1360)
         trace=json.loads((folder/'trace.json').read_text())
         points=[uv(r['position']) for r in trace]
@@ -105,8 +140,10 @@ def finish(base):
         d.text((1420,830),'Not a completed',font=font(25),fill=MUTED)
         d.text((1420,870),'maze mission',font=font(25),fill=MUTED)
         plot.save(base/'exploration.png')
-    checks=[verify_video(base/'main_demo.mp4'),verify_video(base/'highlight.mp4'),verify_video(original)]
-    (base/'MEDIA_VERIFICATION.json').write_text(json.dumps(dict(selected_attempt=best['attempt'],highlight_start=highlight_start,
+    checks=[verify_video(base/'main_demo.mp4'),verify_video(base/'highlight.mp4'),verify_video(original),
+        verify_video(base/'tracking_view.mp4',(936,1280)),verify_video(base/'first_person.mp4',(374,600))]
+    if best['distance']<.3 or checks[0]['changing_physics_frames']<10:raise ValueError('No meaningful moving-video evidence')
+    (base/'MEDIA_VERIFICATION.json').write_text(json.dumps(dict(selected_attempt=best['attempt'],main_start=main_start,highlight_start=highlight_start,
         full_uncut=str(original),checks=checks,method='sequential full decode; native timeline; screenshots extracted from video'),indent=2))
     lines=['# Actual continuous forward-camera runs','',
         '**No run is flight qualification. No mission completion is claimed.**','',
