@@ -102,8 +102,11 @@ Use isolated Windows Python3.12 and `tools/judge_demo/requirements-continuous.tx
 Set `DH_TEAM_SOURCE` to an exported team source containing `dronehacks_nav` and
 `refnav`; existing fake ROS installs only an in-process message boundary. The
 exported main5d416b5 mapper/depth sources are unchanged in inspected main11280a8.
-Latest main PICKUP.md still records a real VIO/depth latency concern; it must
-remain a separate hardware blocker, not be concealed by these simulated rates.
+Initial main11280a8 PICKUP.md records a VIO/depth latency concern; reconcile it
+with the actual tested configuration instead of inferring hardware failure
+from simulated rates. Final fetch06dcacf adds a separate recorded-flight route
+mission with an over-wall leg. Mapper/depth interfaces are unchanged. That
+mission is neither imported nor executed here; CAD-free/no-over-wall rules stand.
 
 ```powershell
 $env:DH_TEAM_SOURCE='C:\path\to\verified-team-source'

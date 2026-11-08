@@ -180,6 +180,10 @@ See docs/CONTINUOUS_DEMO.md and docs/CONTINUOUS_DEMO_RESULTS.md.
 Frozen Phase2 f85c492 ZIP/TAR hashes are unchanged. NO-GO for physical flight:
 new-policy ROS execution, live timing/compute/TF/calibration, measured envelope/
 altitude/braking/launch clearance, representative robust navigation and approved
-landing authority remain gates. Latest main11280a8 still lists a depth/VIO
-latency issue to reconcile with the actual tested hardware configuration.
+landing authority remain gates. Initial audit main11280a8 listed a depth/VIO latency issue. Final fetch found
+main06dcacf with a separate recorded-flight/walkthrough box_route_v2 mission,
+including an over-wall leg. It changes no mapper/depth interface files and was
+not merged or executed here; current CAD-free/no-over-wall requirements remain.
+README still repeats the older latency warning, which needs reconciliation
+with the actually tested configuration, not another assumed hardware failure.
 No SSH, deployment, physical publishers, main/drone push or promotion occurred.

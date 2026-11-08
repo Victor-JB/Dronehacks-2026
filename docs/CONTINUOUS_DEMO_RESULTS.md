@@ -29,7 +29,7 @@ Wall execution time 2,032.99 s and Python CPU time 1,863.44 s include physics, r
 2. Window approach is not robust. CAD-only offline grading measures a.9144m square opening. Sensor maps briefly certified its centre (.443m clearance versus.433m required), then dropped to.427m and disconnected; another.437m centre sample was not connected to the drone. These grader coordinates never enter autonomy. Robust observation/target selection through the actual opening remains unresolved; do not waive unknown cells or shrink the vehicle.
 3. Full-course robustness failed: two starts deadlock early; altered geometry reaches the tube and bottom/inner corridors but also deadlocks. Semantic passage recognition, the required window, blue goal and landing are unfinished at policy level.
 4. Actual ROS2 Humble/DDS and Sky Beta/PX4 closed-loop execution were not available. MuJoCo force/torque servo plus fake ROS and bounded noisy physics-derived odometry is not reconstructed VO, stereo disparity, PX4 dynamics or hardware qualification. Actual stereo-SGBM tests are separate fixtures.
-5. Physical dimensions/clearance, legal altitude and floor reference, camera/depth/RGB registration/TF, stopping/latency bounds, safe launch condition and real execution budget need verification. Latest main 11280a8 still documents a depth/VIO latency issue; reconcile it with the actual tested configuration. No autonomous landing authority is verified.
+5. Physical dimensions/clearance, legal altitude and floor reference, camera/depth/RGB registration/TF, stopping/latency bounds, safe launch condition and real execution budget need verification. Initial main 11280a8 documents a depth/VIO latency issue; reconcile it with the actual tested configuration. No autonomous landing authority is verified.
 
 ## Tests and preserved evidence
 
@@ -69,3 +69,5 @@ Using only simulated forward-depth observations and odometry, our existing A* an
 
 
 Evidence audit: all 20 result files, 1,573 sensor snapshots and the first/last frames of all 16 recorded development movies are readable. All five selected delivery videos were decoded completely, and all 15 delivery PNGs were verified. Movie/PNG SHA256 receipts and exact source-byte checks are saved with the local artifacts.
+
+Final team-context fetch: `origin/main` advanced to `06dcacf`, adding a separate recorded-flight/walkthrough waypoint mission (`box_route_v2`) and an over-wall leg. Mapper/depth interface files are unchanged. It was inspected read-only and neither merged nor executed. This branch retains the requested CAD-free and no-over-wall policy; its NO-GO assessment does not assess the separate team mission.
