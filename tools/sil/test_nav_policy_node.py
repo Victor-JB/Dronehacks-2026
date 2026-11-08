@@ -93,23 +93,29 @@ def test_live_endpoints_are_only_the_organizer_interface():
     assert not any(t.startswith("/fmu/in") for t in BUS.subs)
 
 
-def test_before_offboard_a_zero_twist_every_tick_and_nothing_else():
+def handover(m, pos=(0.0, 0.0, 0.75)):
+    p, q = m.pose.position, m.pose.orientation
+    return (abs(p.x - pos[0]) < 0.05 and abs(p.y - pos[1]) < 0.05 and abs(p.z - pos[2]) < 0.05
+            and (q.x, q.y, q.z, q.w) == (0.0, 0.0, 0.0, 0.0) and m.header.frame_id == "odom")
+
+
+def test_before_offboard_a_current_position_pose_every_tick_as_test_files():
+    """The flown test_files mission publishes a pose at the current position (no yaw) every tick before Offboard."""
     fresh(dry_run=False, geofence=FENCE)
     n = NavPolicyNode(); w = World(n)
     w.run(2.0)
-    tw = cmds()
-    assert 15 <= len(tw) <= 21                                         # 10 Hz
-    assert all(np.all(twist(m) == 0) for m in tw) and cmds("/skybeta/setpoint/pose") == []
-    assert all(m.header.frame_id == "odom" for m in tw)
+    poses = cmds("/skybeta/setpoint/pose")
+    assert 14 <= len(poses) <= 21                                      # 10 Hz (from the first fresh state)
+    assert all(handover(m) for m in poses) and cmds() == []            # no twist, no navigation
     assert n.phase == "WAIT"
 
 
 def test_unset_geofence_never_navigates():
     fresh(dry_run=False)                                               # geofence left unset
     n = NavPolicyNode(); w = World(n)
-    w.run(1.0); w.offboard = True; w.run(3.0)
-    assert n.phase == "WAIT" and cmds("/skybeta/setpoint/pose") == []
-    assert all(np.all(twist(m) == 0) for m in cmds())
+    w.run(1.0); w.offboard = True; t_on = BUS.t; w.run(3.0)
+    assert n.phase == "WAIT" and cmds("/skybeta/setpoint/pose", t_on + 0.25) == []   # no takeoff pose (state is 5 Hz)
+    assert cmds(since=t_on) and all(np.all(twist(m) == 0) for m in cmds(since=t_on))  # stays on the ground
 
 
 def test_takeoff_pose_then_bounded_nav_twists():
@@ -119,8 +125,9 @@ def test_takeoff_pose_then_bounded_nav_twists():
     w.run(14.0)
     poses = cmds("/skybeta/setpoint/pose", t_on)
     assert poses, "takeoff pose expected"
-    p0 = poses[0].pose.position
+    p0, q0 = poses[0].pose.position, poses[0].pose.orientation
     assert abs(p0.z - 0.75) < 1e-9 and abs(p0.x) < 0.05 and abs(p0.y) < 0.05     # start xy, cruise height (ENU)
+    assert (q0.x, q0.y, q0.z, q0.w) == (0.0, 0.0, 0.0, 0.0)                       # no yaw command, as test_files
     nav = [twist(m) for m in cmds(since=t_on)]
     assert nav and all(np.all(np.isfinite(v)) for v in nav)
     assert max(np.linalg.norm(v[:3]) for v in nav) <= 0.35 + 1e-9               # v_max, under the 1.5 m/s cap
@@ -154,8 +161,9 @@ def test_takeover_latches_until_disarm():
     n = NavPolicyNode(); w = World(n)
     w.run(1.0); w.offboard = True; w.run(5.0)
     w.offboard = False; t0 = BUS.t; w.run(2.0)
-    assert n.phase == "YIELDED" and cmds(since=t0 + 0.3) == [] and cmds("/skybeta/setpoint/pose", t0 + 0.3) == []
+    assert n.phase == "YIELDED" and cmds(since=t0 + 0.3) == []        # no navigation after the takeover
+    assert all(handover(m) for m in cmds("/skybeta/setpoint/pose", t0 + 0.3))   # only test_files' handover pose
     w.offboard = True; t1 = BUS.t; w.run(2.0)                          # Offboard again without re-arming: no
-    assert n.phase == "YIELDED" and cmds(since=t1) == []
+    assert n.phase == "YIELDED" and cmds(since=t1 + 0.3) == [] and cmds("/skybeta/setpoint/pose", t1 + 0.3) == []
     w.offboard, w.armed = False, False; w.run(1.0)
     assert n.phase == "WAIT"

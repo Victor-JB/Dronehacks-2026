@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>dh_nav_policy</name>
+  <version>0.1.0</version>
+  <description>
+    CAD-free exploration policy (nav_policy) for the skybeta drone. Same interface as the flown
+    test_files package: /skybeta/setpoint/pose and /skybeta/setpoint/twist out, /skybeta/state and
+    /visual_slam/tracking/odometry in; flight_interface owns /fmu/in/*. Also reads OAK depth + TF.
+  </description>
+  <maintainer email="sakethdesu@tamu.edu">DroneHacks team</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>isaac_ros_visual_slam_interfaces</exec_depend>
+  <exec_depend>skybeta_flight_interface</exec_depend>
+  <exec_depend>dronehacks_nav</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -142,6 +142,21 @@ class SkybetaBackend(BackendBase):
             m.pose.orientation.w = 0.0
         self.pub_pose.publish(m)
 
+    def send_handover_pose(self, x, y, z):
+        """Before Offboard: a pose at the vehicle's current position, orientation all-zero (no yaw command),
+        exactly what the flown test_files mission (backup/testFiles, 2026-11-07) publishes every tick so the
+        pilot's switch to Position finds a fresh setpoint. Refused once Offboard is active."""
+        if self.offboard_active() or not all(math.isfinite(v) for v in (x, y, z)):
+            return
+        if not (self.state_fresh() and self.state.get("offboard_active") is False and not self.frozen()):
+            return
+        m = PoseStamped()
+        m.header.stamp = self.node.get_clock().now().to_msg()
+        m.header.frame_id = "odom"
+        m.pose.position.x, m.pose.position.y, m.pose.position.z = float(x), float(y), float(z)
+        m.pose.orientation.w = 0.0          # all-zero quaternion: do not command yaw
+        self.pub_pose.publish(m)
+
     def hold(self) -> bool:
         if self._hold_cli is not None and self._hold_cli.service_is_ready():
             self._hold_cli.call_async(self._Trigger.Request())
@@ -237,6 +252,9 @@ class DryRunBackend(BackendBase):
 
     def send_position(self, x, y, z, yaw):
         self._event("position setpoint (not sent): %.2f %.2f %.2f" % (x, y, z))
+
+    def send_handover_pose(self, x, y, z):
+        self.n_handover = getattr(self, "n_handover", 0) + 1   # nothing is sent in a dry run
 
     def hold(self):
         self._event("hold requested (not sent)")

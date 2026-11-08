@@ -77,6 +77,7 @@ class NavPolicyNode(Node):
         d("map_lo_xy", [-7.0, -7.0])
         d("map_size", 14.0)
         d("takeoff_tol", 0.10)
+        d("takeoff_timeout_s", 15.0)
         d("brake_s", 1.5)
         d("brake_decel", 1.0)                               # PLACEHOLDER: measure on the drone
         d("latency_s", 0.8)                                 # PLACEHOLDER: measure on the drone
@@ -96,6 +97,8 @@ class NavPolicyNode(Node):
         self.backend = DryRunBackend(self) if self.dry else SkybetaBackend(self, g("state_topic").rsplit("/", 1)[0])
         self.base_frame = g("base_frame")
         self.takeoff_tol, self.brake_s = float(g("takeoff_tol")), float(g("brake_s"))
+        self.takeoff_timeout_s = float(g("takeoff_timeout_s"))
+        self.hold_pt = None
         self.phase, self.t_phase = "WAIT", 0.0
         self.start = None
         self.was_active = False
@@ -220,6 +223,11 @@ class NavPolicyNode(Node):
             r.append("depth %s" % ("stale" if self.mon.depth_status == "OK" else self.mon.depth_status))
         return r
 
+    def _handover_pose(self, o):
+        """A pose at the current position (no yaw) while Offboard is not active: test_files' flown behaviour."""
+        if o is not None and o.valid:
+            self.backend.send_handover_pose(float(o.pos[0]), float(o.pos[1]), float(o.pos[2]))
+
     def _armed(self):
         st = self.mon.state
         return None if st is None else st.armed
@@ -234,14 +242,17 @@ class NavPolicyNode(Node):
             if self._armed() is False:
                 self._set("WAIT", "disarmed: ready for the next arming")
                 self.ex = Explorer(self.mprm, self.eprm)
-                self.was_active, self.start = False, None
-            return                                          # never command after a takeover
+                self.was_active, self.start, self.hold_pt = False, None, None
+            elif not active:
+                self._handover_pose(o)                      # as test_files: fresh setpoint, never navigation
+            return                                          # never navigate again before a disarm
         if not active:
             if self.was_active:
                 self._set("YIELDED", "Offboard ended (pilot or failsafe): mission stopped until disarm")
+                self._handover_pose(o)
                 return
             self._set("WAIT")
-            self.backend.send_velocity(0.0, 0.0, 0.0, 0.0)  # keeps a fresh setpoint for the takeover
+            self._handover_pose(o)                          # the flown handover setpoint (test_files)
             return
         self.was_active = True
         if loc_mode not in ("OK", "DEGRADED") or o is None:
@@ -263,17 +274,29 @@ class NavPolicyNode(Node):
             self.start = (float(o.pos[0]), float(o.pos[1]), float(o.yaw))
             self._set("TAKEOFF")
         if self.phase == "TAKEOFF":
+            # as test_files: a pose straight above the Offboard start point, no yaw command
             z = self.mprm.cruise_z
-            self.backend.send_position(self.start[0], self.start[1], z, self.start[2])
+            self.backend.send_position(self.start[0], self.start[1], z, None)
             if abs(o.pos[2] - z) < self.takeoff_tol:
                 self._set("NAV")
+            elif now - self.t_phase > self.takeoff_timeout_s:
+                self.hold_pt = (float(o.pos[0]), float(o.pos[1]), float(o.pos[2]))
+                self._set("TAKEOFF_FAIL", "takeoff did not reach %.2f m within %.0f s: holding, PILOT" % (z, self.takeoff_timeout_s))
+            return
+        if self.phase == "TAKEOFF_FAIL":                    # no navigation: hold the fixed point, pilot lands
+            self.backend.send_position(*self.hold_pt, None)
             return
         # NAV / HOLD
         intent = self.ex.step(now, o.pos, o.yaw, o.vel_world, True)
         if intent.state in ("OVER_TARGET", "HOLD") and float(np.linalg.norm(intent.velocity[:2])) < 1e-6:
+            if self.phase != "HOLD" or self.hold_pt is None:
+                self.hold_pt = (float(o.pos[0]), float(o.pos[1]), self.mprm.cruise_z)   # a FIXED hold point
+                if intent.state == "OVER_TARGET":
+                    self.get_logger().info("mission done: complete (over the target; descent disabled, hovering)")
             self._set("HOLD", intent.note)
-            self.backend.send_position(float(o.pos[0]), float(o.pos[1]), self.mprm.cruise_z, None)
+            self.backend.send_position(*self.hold_pt, None)
             return
+        self.hold_pt = None
         self._set("NAV")
         cls = self.ex.map.classify()
         grid = self.ex.map.planning_grid(cls)

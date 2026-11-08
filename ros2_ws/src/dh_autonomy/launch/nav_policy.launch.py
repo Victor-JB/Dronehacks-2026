@@ -24,7 +24,11 @@ def generate_launch_description():
         DeclareLaunchArgument("with_flight_interface", default_value="true",
                               description="false only if another launch already runs THE flight_interface"),
         Node(package="skybeta_flight_interface", executable="flight_interface", name="flight_interface",
-             output="screen", emulate_tty=True, parameters=[{"auto_offboard_on_arm": True}],
+             output="screen", emulate_tty=True,
+             # exactly the flown test_files launch (backup/testFiles, 2026-11-07): auto_offboard_on_arm for the
+             # takeover, anchor_setpoints so poses are displacements re-anchored on PX4's local position
+             # (cancels the VIO-vs-PX4 height offset)
+             parameters=[{"auto_offboard_on_arm": True, "anchor_setpoints": True}],
              condition=IfCondition(LaunchConfiguration("with_flight_interface"))),
         Node(package="dh_autonomy", executable="nav_policy", name="nav_policy", output="screen", emulate_tty=True,
              parameters=[cfg, {"dry_run": dry}]),
