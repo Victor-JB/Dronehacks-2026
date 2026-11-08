@@ -220,18 +220,18 @@
           <diffuse>0.1412 0.3843 0.3765 1</diffuse>
         </material>
       </visual>
-      <!-- Walls, tube, boulders: from the 2026-11-06 point scan (sim/scan/fit_route_to_scan.py). Floor, nets, pad, launch mark and c2b (not in the scan) stay from the CAD. -->
+      <!-- Walls: from the 2026-11-07 hand-carried walk after the course change (sim/scan/walls_from_walk.py: OAK depth + VIO, bag 20261107-194115, up to 186 s; the tall wall and pad past it are not in it). The 2026-11-06 scan version is meshes/scan_walls.obj. Floor, nets, pad, launch mark and c2b stay from the CAD. -->
       <collision name="scan_walls">
         <geometry>
           <mesh>
-            <uri>model://course_v3/meshes/scan_walls.obj</uri>
+            <uri>model://course_v3/meshes/walk_walls.obj</uri>
           </mesh>
         </geometry>
       </collision>
       <visual name="scan_walls">
         <geometry>
           <mesh>
-            <uri>model://course_v3/meshes/scan_walls.obj</uri>
+            <uri>model://course_v3/meshes/walk_walls.obj</uri>
           </mesh>
         </geometry>
         <material>
