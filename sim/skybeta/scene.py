@@ -37,7 +37,9 @@ def main():
     world.find('physics/real_time_factor').text = str(rtf)
 
     model = world.find("model[@name='course_quad']")
-    model.find('include/uri').text = 'model://skybeta'
+    # an absolute path, not model://skybeta: with the ROS environment Gazebo also searches the working
+    # directory (/workspace), where skybeta/ is this folder of scripts, not the model (2026-11-07)
+    model.find('include/uri').text = 'file://' + str(Path(__file__).resolve().parents[1] / 'models' / 'skybeta')
     model.find('pose').text = f'{LAUNCH_XY[0]} {LAUNCH_XY[1]} 0 0 0 {LAUNCH_YAW}'
     for tag, name in (('link', 'down_camera_link'), ('joint', 'down_camera_joint')):
         element = model.find(f"{tag}[@name='{name}']")
