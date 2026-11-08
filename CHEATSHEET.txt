@@ -1,9 +1,8 @@
 DRONE CHEATSHEET  (on the drone: ssh dronehacks@skybeta-02.local)
 
-1. Choose whose code the drone runs, then restart the stack
+1. Point the stack at our mission, then restart it
      sudoedit /etc/skybeta/drone.env
-         ours:  COMPETITOR_PKG=dronehacks_nav   COMPETITOR_LAUNCH=mission.launch.py
-         his:   COMPETITOR_PKG=test_files       COMPETITOR_LAUNCH=my_mission.launch.py
+         COMPETITOR_PKG=dronehacks_nav   COMPETITOR_LAUNCH=mission.launch.py
      docker rm -f skybeta-stack        # ON THE GROUND, STILL: rebuilds + relaunches in ~10 s
 
 2. Ship new code (on the Mac, in the repo), then restart the stack as in 1
@@ -21,3 +20,188 @@ DRONE CHEATSHEET  (on the drone: ssh dronehacks@skybeta-02.local)
 
 5. Change what ours flies (on the Mac): modes.json "active_mode", then
      python3 apply_mode.py && git commit -am "mode N" && then 2
+
+
+FULL REFERENCE  (skybeta stack, Orin + Pixhawk/PX4)
+=======================================================
+"host" = the Orin shell after ssh.  "container" = inside skybeta-stack.
+ros2 commands only work in the CONTAINER.
+
+------------------------------------------------------------
+1. IMPORTANT FILES
+------------------------------------------------------------
+/etc/skybeta/drone.env                       Drone settings. COMPETITOR_PKG / COMPETITOR_LAUNCH
+                                             pick which mission the stack starts at power-up.
+~/team_ws/src                                Team workspace (= /root/team_ws/src in container).
+                                             EVERY package in here must build.
+~/team_ws/src/dronehacks/                    OUR package (package name: dronehacks_nav)
+  modes.json -> route.json                   What it flies (python3 apply_mode.py on the Mac).
+  launch/mission.launch.py                   Starts flight_interface (auto_offboard_on_arm True,
+                                             anchor_setpoints True) + the mission.
+  dronehacks_nav/skybeta_node.py, refnav/    The mission: climbs, hovers, waits for START ROUTE
+                                             (if the mode has a route), flies it, settles 2 s and
+                                             LANDS ITSELF (descends until PX4 disarms).
+  scripts/fly.sh                             Bag + live view + map: start/stop/status/attach/clean.
+  README.md, SYSTEM.md, PICKUP.md            Quick start, full picture, current blocking issue.
+~/team_ws/bags/<date-time>/                  Recorded bags (fly.sh).
+~/skybeta/docs/competitor_guide.md           Organisers' guide (§4 flying, §5 running, §6 debug).
+~/skybeta/host/run.sh                        Organisers' host launcher (shell, bag, build...).
+~/skybeta/container_scripts/run_full_stack.sh   Creates the tmux windows.
+~/skybeta/container_scripts/run_competitor.sh   competitor window: builds team_ws, then
+                                                ros2 launch $COMPETITOR_PKG $COMPETITOR_LAUNCH.
+
+------------------------------------------------------------
+2. GET INTO TMUX / THE CONTAINER
+------------------------------------------------------------
+Container: skybeta-stack.  tmux session: skybeta.
+Windows: agent, slam, bridge, competitor (the mission + flight_interface log).
+
+Is it running? (host)
+  docker ps
+  docker exec skybeta-stack tmux ls
+
+Watch the stack (host):
+  docker exec -it skybeta-stack tmux attach -t skybeta
+
+tmux keys (press Ctrl-b, let go, then the key):
+  Ctrl-b w     list windows, arrows + Enter to pick
+  Ctrl-b 3     jump to window 3 (competitor); 0 agent, 1 slam, 2 bridge
+  Ctrl-b d     DETACH - leaves everything running
+  !! NEVER press Ctrl-c or type exit in the competitor window unless you
+  !! mean to STOP the mission. It is NOT restarted automatically.
+
+Shell inside the container (host):
+  docker exec -it skybeta-stack bash
+  (or: cd ~/skybeta && NAME=skybeta-stack host/run.sh shell
+   plain "host/run.sh shell" looks for a container called "skybeta" first)
+Leave the shell with: exit   (safe here - it is a separate shell, not tmux)
+
+------------------------------------------------------------
+3. BUILD (after editing code)
+------------------------------------------------------------
+In the container:
+  team_build.sh --packages-select dronehacks_nav
+  team_build.sh                      (whole workspace)
+Python edits are symlinked; a stack restart re-runs the full build anyway.
+If ANY package in ~/team_ws fails to build, the competitor window launches
+NOTHING (it drops to a bash prompt with the error).
+
+------------------------------------------------------------
+4. EDIT drone.env (choose the mission)
+------------------------------------------------------------
+Check current values (host):
+  grep COMPETITOR /etc/skybeta/drone.env
+Backup first:
+  sudo cp /etc/skybeta/drone.env /etc/skybeta/drone.env.bak
+Edit:
+  SUDO_EDITOR=nano sudoedit /etc/skybeta/drone.env
+nano: save = Ctrl-o then Enter; exit = Ctrl-x.
+      quit WITHOUT saving = Ctrl-x then n.
+If vim opened instead: Esc then :q! then Enter (quit, no save).
+
+Must be:
+  COMPETITOR_PKG=dronehacks_nav
+  COMPETITOR_LAUNCH=mission.launch.py
+Only change those two lines. Do NOT touch ROS_DOMAIN_ID or CAMERA_*.
+Changes take effect ONLY after a stack restart (section 5).
+
+------------------------------------------------------------
+5. RESTART THE STACK
+------------------------------------------------------------
+ONLY on the ground, disarmed, drone still (re-zeros the VIO origin).
+  docker rm -f skybeta-stack
+Back in ~10 s (systemd restarts it); competitor window rebuilds team_ws.
+This does NOT restart the Pixhawk. If the drone was moved since power-on
+(e.g. table -> floor), power-cycle the whole drone at the takeoff spot instead.
+Check afterwards:
+  docker exec skybeta-stack tmux ls
+  docker exec -it skybeta-stack tmux attach -t skybeta     (window competitor)
+
+------------------------------------------------------------
+6. LOGS AND BAG RECORDING
+------------------------------------------------------------
+Live log: competitor window scrollback (Ctrl-b [ to scroll, q to stop).
+  The scrollback is LOST on stack restart.
+Bags + live view (host):
+  ~/team_ws/src/dronehacks/scripts/fly.sh start      start recording
+  ~/team_ws/src/dronehacks/scripts/fly.sh status     recording? + mission's last lines
+  ~/team_ws/src/dronehacks/scripts/fly.sh attach     watch recorder (Ctrl-b d leaves)
+  ~/team_ws/src/dronehacks/scripts/fly.sh stop       ON THE GROUND, so the bag closes
+  ~/team_ws/src/dronehacks/scripts/fly.sh clean      delete old bags (>15 GB) + build logs
+Bags land in:
+  ls ~/team_ws/bags/
+fly.sh start refuses if the competitor window is idle (build failed etc.).
+fly.sh never starts a mission.
+
+------------------------------------------------------------
+7. PRE-FLIGHT CHECKLIST
+------------------------------------------------------------
+[ ] Props OFF for the first run of new code.
+[ ] drone.env points at the right mission (grep COMPETITOR ...).
+[ ] Pixhawk USB cable UNPLUGGED (it will not arm otherwise).
+[ ] Drone placed AT the takeoff spot, on the ground, BEFORE power-on.
+[ ] Power on, keep it STILL ~1 min.
+[ ] Stack up: docker exec skybeta-stack tmux ls  -> 4 windows.
+[ ] Competitor window shows our mission running (no build error, no bare prompt).
+[ ] In container:  ros2 topic echo /skybeta/state --once
+      px4_link: true, local_enu not null,
+      odom_enu[2] and local_enu[2] (heights) within a few tenths of a metre.
+[ ] ros2 topic hz /visual_slam/tracking/odometry       (~30 Hz)
+[ ] ros2 topic hz /fmu/in/offboard_control_mode        (~10 Hz)
+[ ] Start bag: ~/team_ws/src/dronehacks/scripts/fly.sh start
+[ ] Safety pilot has the transmitter, stands clear, kill switch confirmed.
+
+------------------------------------------------------------
+8. THE FLIGHT
+------------------------------------------------------------
+1. Pilot ARMS with mode switch on ALTITUDE, throttle low.
+2. Within a few seconds pilot switches to POSITION, throttle still low.
+   (PX4 auto-disarms 10 s after arming with no takeoff.)
+3. Offboard starts -> drone climbs to height_m and hovers. With a route:
+   press START ROUTE in the live view (fly.sh start prints the link); no
+   START in 60 s -> it lands. It flies the route, settles 2 s, then LANDS
+   ITSELF (0.3 m/s down until PX4 disarms). No touchdown in 20 s -> it
+   hovers: pilot lands. Motion check failed -> it holds: pilot lands.
+4. TAKEOVER: raise throttle to centre, or move any stick (-> Position).
+   Flipping the switch with throttle low makes it descend.
+   Kill switch = channel 5 (motors stop, it falls).
+5. ONE run per arming: after it has landed and disarmed it is READY again;
+   re-arm (Altitude) and switch to Position to rerun.
+6. Stop the bag on the ground: ~/team_ws/src/dronehacks/scripts/fly.sh stop
+
+------------------------------------------------------------
+9. TROUBLESHOOTING
+------------------------------------------------------------
+Drone stays in Position after the switch (no takeoff):
+  - Look in the competitor window for:
+      auto offboard: staying out of Offboard: <reason>
+  - Common reasons: armed on Position instead of Altitude; switched in the
+    air; no VIO / no local position; mission not publishing (not running,
+    build failed); already used this arming's one attempt -> disarm, re-arm.
+  - ros2 topic echo /skybeta/state --once   (px4_link, offboard_active)
+Build failed:
+  - Competitor window shows the error and a bash prompt.
+  - Fix the code, then in that window (or a container shell):
+      team_build.sh && ros2 launch dronehacks_nav mission.launch.py
+    or just restart the stack (section 5) on the ground.
+  - Any broken package in ~/team_ws/src blocks everything.
+Script not running / competitor window idle:
+  - grep COMPETITOR /etc/skybeta/drone.env   (right package? restarted since edit?)
+  - "package 'X' not found" -> wrong COMPETITOR_PKG or not built.
+  - Someone pressed Ctrl-c? It does not come back: restart the stack.
+  - ~/team_ws/src/dronehacks/scripts/fly.sh status
+Height offset (climbs too high, e.g. ~3 m instead of 1 m):
+  - Cause seen before: powered on on a table, moved to the floor, restarted
+    only the stack -> PX4 height zero ~1.6 m off from VIO's.
+  - Fix: power on AT the takeoff spot. anchor_setpoints True is already set.
+  - Check before every flight: odom_enu vs local_enu heights in /skybeta/state.
+Yaw offset (drone flies the right distance in the wrong direction):
+  - odom_to_ned_yaw_offset_rad is NOT measured yet (default 0.0).
+  - Measure (container), compare the two yaws; a constant difference = offset:
+      ros2 topic echo /visual_slam/tracking/odometry --field pose.pose.orientation
+      ros2 topic echo /fmu/out/vehicle_attitude --qos-reliability best_effort --qos-durability transient_local
+Other:
+  - Disarms ~10 s after arming: it never took off (Offboard never started).
+  - Drifts/orbits: VIO lost tracking. ros2 topic echo /visual_slam/status (vo_state 2 = lost).
+    Fly over texture, good light, slowly.
+  - Panic hold (container): ros2 service call /skybeta/hold std_srvs/srv/Trigger
