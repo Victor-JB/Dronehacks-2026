@@ -163,18 +163,17 @@ square that returns to the start). `python3 set_speed.py <mode> <m/s>` sets one 
 | 2 `box_test_no_depth` | a 1 ft (0.30 m) square | not required |
 | 3 `box_test_with_depth` | a 1 m square, stopping for obstacles | required |
 | 4 `wall_vault` | climb over the wall ahead, cross, land | required |
-| 5 `walk_fused` | the full course from the 2026-11-07 hand-carried walk, scan-corrected (below) | required |
+| 5 `walk_1107` | the changed course, from the 2026-11-07 evening walk, to the foot of the tall wall (below) | required |
 | 6 `walkthrough` (active) | never flies (`record_only`): carry the drone along the course with `fly.sh start` running; the bag's VIO odometry becomes the next route | not required |
 
 `require_depth: false` is a blind fallback (Tanooj, `config-modes-switcher`): no depth gate and no
 obstacle stop, only PX4's position. Use it only with a route already verified.
 
-**Mode 5, `walk_fused`:** 15 legs from the launch mark through the maze, Gate A, the tunnel, the
-chicane and the window to the pad, at **1.08 m** and 0.4 m/s. The line comes from the 2026-11-07
-hand-carried walk (cuVSLAM odometry, bag 20261107-155647); the 2026-11-06 point scan only pushed legs off
-walls (<= 0.45 m) and centred the tunnel and window legs. It lands on the real pad. 1.08 m leaves ~0.15 m
-under the tunnel overhang and in the window (0.88-1.52 m); it climbs 0.15 m ahead of the mark
-(`climb_forward_m`) because a panel stands 0.31 m behind it. **Take off on the launch mark facing the
+**Mode 5, `walk_1107`:** 13 legs on the course as changed on 2026-11-07, from that evening's walk (bag
+20261107-194115, recorded in mode 6): forward 1.2 m, right along the now-open maze line, the tunnel, the
+chicane, through the window, to the foot of the tall wall, where it lands. The tall wall and the pad behind
+it are not in the route: cuVSLAM broke at 186 s while the drone was lifted over the wall. Flown at
+**1.08 m**, it climbs 0.15 m ahead of the mark (`climb_forward_m`). **Take off on the launch mark facing the
 course's +Y**: the route is in the takeoff frame, so a heading error rotates all of it.
 
 Its params (as the earlier scan-fitted modes) turn on three refnav options (all off by default): `slow_m` (the carrot slows near an obstacle

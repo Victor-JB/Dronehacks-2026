@@ -57,8 +57,8 @@
       "route": []
     },
     "5": {
-      "name": "walk_fused",
-      "_comment": "Route from the 2026-11-07 hand-carried walk (cuVSLAM odometry, 20261107-155647 bag), corrected by the 2026-11-06 scan. The walk sets the line and the pad; the scan moved a waypoint only where a leg came within 0.42 m of a scanned wall, by at most 0.45 m. Two overrides: the tunnel is a straight leg on its scanned centre (the walk ran 0.15 m off its right wall), and the window is a straight leg along its normal through the scanned opening's centre. Lands on the REAL pad (seen in the scan colours and where the walk set down, 9 cm apart): about 1.4 m from the CAD pad. Leg clearances 0.30-0.60 m; the tightest are the window (0.30) and Gate A (0.32, the north net). Settings as the earlier scan-fitted route (1.08 m, band 0.13, climb 0.15 m ahead). Take off on the launch mark facing the course's +Y.",
+      "name": "walk_1107",
+      "_comment": "Route from the 2026-11-07 evening walk after the course change (bag 20261107-194115, walkthrough mode, OAK depth + cuVSLAM): forward 1.2 m, right along the open maze line, the tunnel, the chicane, through the window (crossed at ~1.06 m), to the foot of the tall wall, where it lands. Skips the walk's detour back through the window. The tall wall and the pad behind it are NOT in it: VIO broke at 186 s while the drone was lifted over the wall. Settings as the earlier walk route (1.08 m, depth band 0.13, climb 0.15 m ahead). Take off on the launch mark facing the course's +Y.",
       "params_override": {
         "height_m": 1.08,
         "hover_s": 3.0,
@@ -75,21 +75,19 @@
         "require_depth": true
       },
       "route": [
-        [1.631, -0.113],
-        [1.713, -1.206],
-        [0.457, -1.653],
-        [0.122, -2.484],
-        [0.299, -2.938],
-        [1.81, -2.963],
-        [1.8, -4.594],
-        [0.4, -4.75],
-        [-2.0, -4.75],
-        [-3.4, -4.437],
-        [-3.348, -3.236],
-        [-3.243, -2.608],
-        [-2.867, -1.575],
-        [-3.342, -0.608],
-        [-3.059, -0.321]
+        [1.18, -0.26],
+        [1.45, -4.1],
+        [1.19, -4.81],
+        [0.86, -5.04],
+        [0.09, -4.82],
+        [-1.34, -5.09],
+        [-2.73, -4.68],
+        [-2.96, -3.52],
+        [-3.16, -3.29],
+        [-3.24, -1.98],
+        [-2.87, -1.53],
+        [-3.03, -0.93],
+        [-1.3, -0.11]
       ]
     },
     "6": {
