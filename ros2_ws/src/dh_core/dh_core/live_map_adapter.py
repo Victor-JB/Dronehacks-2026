@@ -14,6 +14,18 @@ from .tracker import TrajectoryFollower,FollowerParams
 from .safety_filter import SafetyGate,SafetyEvaluator,SafetyParams
 
 
+def clearance_at_current_pose(points,capture_position,capture_yaw,position,yaw):
+    """Captured level-FRD points -> current level-FRD, through odom ENU.
+
+    The policy's trajectory/velocity stays in ENU world axes. This transform
+    is only for querying a depth corridor after vehicle translation/yaw.
+    """
+    def basis(a):
+        c,s=math.cos(a),math.sin(a)
+        return np.array([[c,s,0.],[s,-c,0.],[0.,0.,-1.]])
+    return (np.asarray(points)@basis(capture_yaw).T+capture_position-position)@basis(yaw)
+
+
 @dataclass
 class PlanningSlice:
     planner: ClearancePlanner

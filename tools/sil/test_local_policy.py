@@ -130,11 +130,16 @@ def test_real_team_depth_tf_adapter_rejects_uncertified_start_volume():
 
 def test_actual_node_skybeta_handshake_and_takeover_fake_bus_only():
     F.BUS.t=1.; F.BUS.subs.clear(); F.BUS.published.clear(); F.BUS.service_calls.clear()
-    F.Node.PARAM_OVERRIDES=dict(dry_run=False,voxel_m=.2,size_xy_m=6.)
+    F.Node.PARAM_OVERRIDES=dict(dry_run=False,voxel_m=.2,size_xy_m=6.,physical_configuration_reviewed=True)
     node=LocalPolicyNode(); node.pose=(np.array([0.,0.,1.]),0.)
+    node.get_node_names=lambda:['flight_interface','dh_local_policy']
+    node.get_name=lambda:'dh_local_policy'; node.get_namespace=lambda:'/'
+    node.get_publishers_info_by_topic=lambda topic:[types.SimpleNamespace(node_name='dh_local_policy',node_namespace='/')]
+    node.geometry_verified=True; node.rules_verified=True; node.cruise=1.
     node.policy.update_map(view_fixture()); node.K=(100.,100.,50.,50.)
     node.current_msg=types.SimpleNamespace(width=100); node.clearance_points=np.tile([3.,0.,0.],(10,1))
     node.last_capture=1.; node.tf_ok=True; node.valid_fraction=1.
+    node.clearance_origin=node.pose[0].copy(); node.capture_yaw=0.
     def update(active,t):
         F.BUS.t=t; node.health.on_odom(t,t,node.pose[0],.03,yaw=0.); node.health.on_vo_status(t,1)
         node.odom_valid=True
@@ -148,6 +153,62 @@ def test_actual_node_skybeta_handshake_and_takeover_fake_bus_only():
     assert node.policy.aborted and len(cmds)==count
     update(True,1.15); node.control_tick(); assert len(cmds)==count
     assert not F.BUS.service_calls and not any(t.startswith('/fmu/in') for t in F.BUS.published)
+    node.policy.aborted=False; node.policy.had_authority=False
+    node.get_publishers_info_by_topic=lambda topic:[types.SimpleNamespace(node_name='another_mission',node_namespace='/')]
+    node.control_tick()
+    assert not node.startup_ready and 'EXCLUSIVE' in node.startup_reason and len(cmds)==count
+
+
+def test_capture_heading_and_translation_are_not_current_heading():
+    from dh_core.live_map_adapter import clearance_at_current_pose
+    from refnav import depth as D
+    # Obstacle was2m east. Vehicle translated .5m east and turned north.
+    current=clearance_at_current_pose(np.array([[2.,0.,0.]]),np.array([0.,0.,1.]),0.,
+        np.array([.5,0.,1.]),math.pi/2)
+    assert np.allclose(current,[[0.,1.5,0.]],atol=1e-8)
+    assert abs(D.clearance(current,bearing_rad=math.pi/2,half_width_m=.3,band_m=.3,min_hits=1)-1.5)<1e-8
+
+
+def test_velocity_is_enu_world_not_body_at_ninety_degree_yaw():
+    p=LocalPolicy(); p.update_map(view_fixture()); position=np.array([0.,0.,1.])
+    assert p.plan(position,math.pi/2,1.)
+    end=p.gate.follower.traj.p[-1]
+    assert end[1]>abs(end[0])  # selected destination is north in odom world
+    # Isolate the command-frame contract from the planner's first cell-centre leg.
+    from dh_core.timing import time_parameterize
+    from dh_core.tracker import TrajectoryFollower
+    p.gate.follower=TrajectoryFollower(time_parameterize(np.array([[0.,0.,1.],[0.,.5,1.],[0.,1.,1.]]),.3,.4,.4))
+    commands=[p.step(position,math.pi/2,.05,inputs(1+i*.05),True)[0] for i in range(1,9)]
+    velocity=commands[-1]
+    assert velocity[1]>abs(velocity[0]) and velocity[2]==0,velocity
+    sink=DryRunBackend(F.Node('enu_contract')); sink.send_velocity(*map(float,velocity),0.)
+    message=F.BUS.published['/dh/dry_run/cmd_vel'][-1][1]
+    assert message.header.frame_id=='odom' and message.twist.linear.y==velocity[1]
+
+
+def test_startup_is_passive_and_refuses_unknown_volume():
+    F.Node.PARAM_OVERRIDES=dict(voxel_m=.2,size_xy_m=6.)
+    node=StationaryLocalPolicyNode(); node.geometry_verified=True; node.rules_verified=True; node.cruise=1.
+    node.policy.update_map(view_fixture(unknown=True))
+    before=node.map.grid.copy()
+    ready,reason=node.startup_check(np.array([0.,0.,1.]),inputs())
+    assert not ready and reason=='WAIT_MEASURED_FULL_START_VOLUME'
+    node.startup_ready=ready; node.startup_reason=reason; node.on_start(None)
+    assert not node.armed_start and not node.backend.offboard_active()
+    assert np.array_equal(before,node.map.grid)
+
+
+def test_physical_constructor_requires_review_before_command_endpoints():
+    names=[]; original=F.Node.create_publisher
+    def record(self,kind,topic,qos):
+        names.append(topic); return original(self,kind,topic,qos)
+    F.Node.create_publisher=record
+    F.Node.PARAM_OVERRIDES=dict(dry_run=False,voxel_m=.2,size_xy_m=6.)
+    try:
+        try: LocalPolicyNode(); raise AssertionError('Physical review gate missing')
+        except ValueError as e: assert 'reviewed configuration' in str(e)
+    finally: F.Node.create_publisher=original
+    assert not any(name.startswith(('/skybeta','/fmu')) for name in names)
 
 
 def test_short_obstacle_scenario():
@@ -157,7 +218,15 @@ def test_short_obstacle_scenario():
     sink=DryRunBackend(F.Node('test_command_sink')); sink.grant_authority()
     for step in range(130):
         now=1.+step*.1; F.BUS.t=now
-        if step==40: world.add_box(p+[.9,-.6,-1.],p+[1.1,.6,2.])
+        if step==40:
+            assert policy.gate is not None
+            follower=policy.gate.follower
+            anchor=follower.traj.sample(min(follower.tau+2.5,follower.traj.duration))[0]
+            assert np.linalg.norm(anchor[:2]-p[:2])>.7,'Fixture must not spawn a collision inside the drone'
+            world.add_box(anchor+[-.12,-.12,-2.],anchor+[.12,.12,2.])
+            # Prove this obstacle actually intersects the currently commanded route.
+            assert np.any(np.linalg.norm(follower.traj.p[:,:2]-anchor[:2],axis=1)<.15)
+            assert not world.collision(p)
         origin,dirs,ranges=world.observe(p,yaw,panoramic=True)
         m.stamp=now; m.integrate(origin,dirs,ranges,4.)
         policy.update_map(from_team_map(m,m.observed_at,now,now,1.,(.35,1.5),True,revision=m.frames))

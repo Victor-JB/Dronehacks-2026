@@ -13,7 +13,7 @@ from std_msgs.msg import Empty,String
 from dronehacks_nav.map_node import MapNode
 from dronehacks_nav.mapping import VoxelMap
 from refnav import depth as D
-from dh_core.live_map_adapter import LocalPolicy,from_team_map
+from dh_core.live_map_adapter import LocalPolicy,from_team_map,clearance_at_current_pose
 from dh_core.online_geometry import RigidHistory,validate_mount
 from dh_core.camera_geom import quat_to_rot
 from dh_core.health import LocalizationHealth,LocHealthParams,stamp_to_sec
@@ -58,12 +58,19 @@ class LocalPolicyNode(MapNode):
         self.cruise=float(p('cruise_z',.85)); self.radius=float(p('robot_radius',.27))
         self.half_height=float(p('robot_half_height',.12)); self.margin=float(p('safety_margin',.10))
         self.policy.ev.prm.vehicle_radius=self.radius; self.policy.ev.prm.uncertainty_margin=self.margin
+        self.policy.ev.prm.latency_s=float(p('sensor_to_actuation_latency_s',.8))
+        self.policy.ev.prm.brake_decel=float(p('guaranteed_braking_decel',.6))
         requested_dry=bool(p('dry_run',True)); self.dry_run=self.force_dry or requested_dry
+        reviewed=bool(p('physical_configuration_reviewed',False))
+        if not self.dry_run and not reviewed:
+            raise ValueError('Physical policy requires a separately reviewed configuration')
         self.backend=DryRunBackend(self) if self.dry_run else SkybetaBackend(self)
         self.armed_start=False; self.pose=None; self.pos_std=.03
         self.odom_valid=False
         self.last_capture=None; self.tf_ok=False; self.current_msg=None; self.info=None
         self.clearance_points=None; self.valid_fraction=0.
+        self.clearance_origin=None; self.capture_yaw=None
+        self.startup_ready=False; self.startup_reason='WAIT_FRESH_SENSORS'
         self.prev_tick=self.now(); self.hold_requested=False; self.last_plan=-math.inf
         self.pub_policy=self.create_publisher(String,'/dh/local_policy/status',10)
         self.create_subscription(Empty,'/dh/start',self.on_start,10)
@@ -154,6 +161,8 @@ class LocalPolicyNode(MapNode):
             level=np.diag([1.,-1.,-1.])@np.array([[c,s,0],[-s,c,0],[0,0,1]])@Rwb
             _,R,t=self.extrinsic
             self.clearance_points=D.level_points(depth,self.K,R,t,level,stride=4)
+            _,capture_position,_=self._pose_at(self.last_capture)
+            self.clearance_origin=capture_position.copy(); self.capture_yaw=yaw
             # Conservative central ROI validity, independent of occupied returns.
             cy,cx=depth.shape[0]//2,depth.shape[1]//2
             roi=depth[max(0,cy-depth.shape[0]//4):cy+depth.shape[0]//4,
@@ -170,6 +179,9 @@ class LocalPolicyNode(MapNode):
             self.policy.view=None; self.get_logger().warning(str(e),throttle_duration_sec=2.)
 
     def on_start(self,_):
+        if not self.startup_ready or self.policy.aborted:
+            self.get_logger().warning('Start refused: '+self.startup_reason)
+            return
         self.armed_start=True
         if self.dry_run: self.backend.grant_authority()
 
@@ -179,14 +191,17 @@ class LocalPolicyNode(MapNode):
         if not self.odom_valid and mode!='ABORT': mode,reason='HOVER','invalid or missing latest odometry'
         if mode=='ABORT': self.policy.aborted=True; self.policy.abort_reason='LOCALIZATION'
         rng,rs,rr=None,None,None
-        if self.clearance_points is not None and self.pose is not None:
+        if (self.clearance_points is not None and self.pose is not None
+                and self.clearance_origin is not None and self.capture_yaw is not None):
             bearing=0.
             if self.policy.gate is not None:
                 reference=self.policy.gate.follower.traj.sample(self.policy.gate.follower.tau)[1]
                 if np.linalg.norm(reference[:2])>.01:
                     bearing=math.atan2(reference[1],reference[0])-self.pose[1]
-            if D.in_view(bearing,self.K,self.current_msg.width):
-                rng=float(D.clearance(self.clearance_points,bearing_rad=-bearing,
+            capture_bearing=(bearing+self.pose[1]-self.capture_yaw+math.pi)%(2*math.pi)-math.pi
+            points=clearance_at_current_pose(self.clearance_points,self.clearance_origin,self.capture_yaw,*self.pose)
+            if D.in_view(capture_bearing,self.K,self.current_msg.width):
+                rng=float(D.clearance(points,bearing_rad=-bearing,
                     half_width_m=self.radius+self.margin+3*self.pos_std,
                     band_m=self.half_height+self.margin+3*self.pos_std,min_hits=1))
                 rs=rr=self.last_capture
@@ -198,6 +213,20 @@ class LocalPolicyNode(MapNode):
         active=self.backend.offboard_active()
         if self.pose is not None:
             position,yaw=self.pose
+            ownership_ok=True
+            if not self.dry_run:
+                ownership_ok=self.get_node_names().count('flight_interface')==1
+                for topic in ('/skybeta/setpoint/twist','/skybeta/setpoint/pose'):
+                    publishers=self.get_publishers_info_by_topic(topic)
+                    ownership_ok &= len(publishers)==1 and all(
+                        info.node_name==self.get_name() and info.node_namespace==self.get_namespace() for info in publishers)
+            if not ownership_ok:
+                if self.policy.had_authority:
+                    self.policy.aborted=True; self.policy.abort_reason='COMMAND_OWNERSHIP'
+                self.startup_ready=False; self.startup_reason='WAIT_EXCLUSIVE_POLICY_AND_ONE_FLIGHT_INTERFACE'
+                self.pub_policy.publish(String(data='{"startup_ready":false,"startup_reason":"WAIT_EXCLUSIVE_POLICY_AND_ONE_FLIGHT_INTERFACE"}'))
+                return
+            self.startup_ready,self.startup_reason=self.startup_check(position,inp)
             if self.armed_start and not self.policy.aborted and (self.policy.gate is None or self.policy.gate.follower.done) and now-self.last_plan>=1.:
                 self.last_plan=now; self.policy.plan(position,yaw,now)
             v,yr=self.policy.step(position,yaw,dt,inp,authority=active and self.armed_start)
@@ -211,7 +240,19 @@ class LocalPolicyNode(MapNode):
                 self.backend.hold(); self.hold_requested=True
         import json
         self.pub_policy.publish(String(data=json.dumps(dict(state=self.policy.state,health=mode,reason=reason,
+            startup_ready=self.startup_ready,startup_reason=self.startup_reason,
             replans=self.policy.replans,dry_run=self.dry_run,cad_required=False))))
+
+    def startup_check(self,position,inputs):
+        """Passive evidence gate. Never seed free voxels or move to collect data."""
+        if not self.geometry_verified: return False,'WAIT_VERIFIED_CAMERA_GEOMETRY'
+        if not self.rules_verified: return False,'WAIT_VERIFIED_BELOW_WALL_ALTITUDE'
+        if abs(position[2]-self.cruise)>=.03: return False,'WAIT_REVIEWED_CRUISE_HEIGHT'
+        view=self.policy.view
+        if view is None or not 0<=inputs.now-view.stamp<=.5: return False,'WAIT_FRESH_MAP'
+        if not view.safe([position])[0]: return False,'WAIT_MEASURED_FULL_START_VOLUME'
+        if not self.policy.ev.evaluate(inputs,.3).allows_motion: return False,'WAIT_FRESH_CLEARANCE_AND_LOCALIZATION'
+        return True,'READY_FOR_START'
 
 
 class StationaryLocalPolicyNode(LocalPolicyNode): force_dry=True

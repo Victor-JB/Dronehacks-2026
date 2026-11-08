@@ -1,0 +1,23 @@
+# REVIEW TEMPLATE ONLY. Not deployed, activated or flight-qualified.
+# Physical constructor refuses this profile until separately reviewed.
+dh_local_policy:
+  ros__parameters:
+    dry_run: false
+    physical_configuration_reviewed: false
+    depth_geometry_verified: false
+    below_wall_height_verified: false
+    legal_min_altitude: 0.0
+    legal_max_altitude: 0.0
+    cruise_z: 0.85                 # Proposal only; relative to current odom origin.
+    robot_radius: 0.27             # Placeholder incl. props; MEASURE.
+    robot_half_height: 0.12        # Placeholder incl. gear/sensor offsets; MEASURE.
+    safety_margin: 0.10
+    sensor_to_actuation_latency_s: 0.8  # Placeholder upper budget; MEASURE.
+    guaranteed_braking_decel: 0.6      # Placeholder conservative minimum; MEASURE.
+    voxel_m: 0.10
+    size_xy_m: 12.0
+    integrate_hz: 10.0
+    depth_topic: /oak/stereo/image_raw
+    depth_info_topic: /oak/stereo/camera_info
+    odometry_topic: /visual_slam/tracking/odometry
+    vo_status_topic: /visual_slam/status
