@@ -55,7 +55,8 @@ class World:
             BUS.t = round(BUS.t + 0.01, 6)
             k = int(round(BUS.t * 100))
             if k % 3 == 0 and self.odom_on:
-                BUS.publish("/visual_slam/tracking/odometry", odom_msg(BUS.t - 0.05, self.pos, quat_from_rpy(0, 0, self.yaw), [0, 0, 0]))
+                lag = getattr(self, "odom_lag", 0.05)        # capture -> delivery (0.5 s like cuVSLAM vs depth)
+                BUS.publish("/visual_slam/tracking/odometry", odom_msg(BUS.t - lag, self.pos, quat_from_rpy(0, 0, self.yaw), [0, 0, 0]))
             if k % 3 == 0:
                 BUS.publish("/visual_slam/status", types.SimpleNamespace(vo_state=self.vo))
                 BUS.publish("/oak/stereo/camera_info", info_msg(BUS.t - 0.01))
@@ -86,7 +87,7 @@ def test_dry_run_is_default_and_isolated():
 
 
 def test_live_endpoints_are_only_the_organizer_interface():
-    fresh(dry_run=False, geofence=FENCE)
+    fresh(dry_run=False, geofence=FENCE, motion_check=False)
     n = NavPolicyNode()
     assert {p.topic_name for p in n.publishers} == {"/skybeta/setpoint/twist", "/skybeta/setpoint/pose"}
     assert all(not c.srv_name.startswith("/fmu") for c in n.clients)
@@ -101,11 +102,11 @@ def handover(m, pos=(0.0, 0.0, 0.75)):
 
 def test_before_offboard_a_current_position_pose_every_tick_as_test_files():
     """The flown test_files mission publishes a pose at the current position (no yaw) every tick before Offboard."""
-    fresh(dry_run=False, geofence=FENCE)
+    fresh(dry_run=False, geofence=FENCE, motion_check=False)
     n = NavPolicyNode(); w = World(n)
     w.run(2.0)
     poses = cmds("/skybeta/setpoint/pose")
-    assert 14 <= len(poses) <= 21                                      # 10 Hz (from the first fresh state)
+    assert 10 <= len(poses) <= 21                                      # 10 Hz once preflight passes
     assert all(handover(m) for m in poses) and cmds() == []            # no twist, no navigation
     assert n.phase == "WAIT"
 
@@ -113,13 +114,15 @@ def test_before_offboard_a_current_position_pose_every_tick_as_test_files():
 def test_unset_geofence_never_navigates():
     fresh(dry_run=False)                                               # geofence left unset
     n = NavPolicyNode(); w = World(n)
-    w.run(1.0); w.offboard = True; t_on = BUS.t; w.run(3.0)
+    w.run(1.0)
+    assert cmds("/skybeta/setpoint/pose") == [] and cmds() == []        # not ready: NO setpoint, so no Offboard
+    w.offboard = True; t_on = BUS.t; w.run(3.0)
     assert n.phase == "WAIT" and cmds("/skybeta/setpoint/pose", t_on + 0.25) == []   # no takeoff pose (state is 5 Hz)
     assert cmds(since=t_on) and all(np.all(twist(m) == 0) for m in cmds(since=t_on))  # stays on the ground
 
 
 def test_takeoff_pose_then_bounded_nav_twists():
-    fresh(dry_run=False, geofence=FENCE)
+    fresh(dry_run=False, geofence=FENCE, motion_check=False)
     n = NavPolicyNode(); w = World(n)
     w.run(1.0); w.offboard = True; t_on = BUS.t
     w.run(14.0)
@@ -135,7 +138,7 @@ def test_takeoff_pose_then_bounded_nav_twists():
 
 
 def test_stale_depth_gives_zero_motion():
-    fresh(dry_run=False, geofence=FENCE)
+    fresh(dry_run=False, geofence=FENCE, motion_check=False)
     n = NavPolicyNode(); w = World(n)
     w.run(1.0); w.offboard = True; w.run(12.0)
     w.depth_on = False; w.run(0.5); t0 = BUS.t; w.run(2.0)
@@ -144,7 +147,7 @@ def test_stale_depth_gives_zero_motion():
 
 
 def test_localization_loss_brakes_then_stops_commanding_and_never_resumes():
-    fresh(dry_run=False, geofence=FENCE)
+    fresh(dry_run=False, geofence=FENCE, motion_check=False)
     n = NavPolicyNode(); w = World(n)
     w.run(1.0); w.offboard = True; w.run(10.0)
     w.vo = 2; t0 = BUS.t; w.run(4.0)
@@ -157,7 +160,7 @@ def test_localization_loss_brakes_then_stops_commanding_and_never_resumes():
 
 
 def test_takeover_latches_until_disarm():
-    fresh(dry_run=False, geofence=FENCE)
+    fresh(dry_run=False, geofence=FENCE, motion_check=False)
     n = NavPolicyNode(); w = World(n)
     w.run(1.0); w.offboard = True; w.run(5.0)
     w.offboard = False; t0 = BUS.t; w.run(2.0)
@@ -167,3 +170,29 @@ def test_takeover_latches_until_disarm():
     assert n.phase == "YIELDED" and cmds(since=t1 + 0.3) == [] and cmds("/skybeta/setpoint/pose", t1 + 0.3) == []
     w.offboard, w.armed = False, False; w.run(1.0)
     assert n.phase == "WAIT"
+
+
+def test_motion_check_freezes_when_commanded_motion_is_not_followed():
+    """main's motion check: the takeoff pose is commanded but the vehicle never leaves the ground (motors/props
+    producing no motion, or a frozen VIO). It must freeze at a fixed point and stop navigating."""
+    fresh(dry_run=False, geofence=FENCE, motion_window_s=3.0, motion_err_m=0.5)
+    n = NavPolicyNode(); w = World(n, pos=(0.0, 0.0, 0.0))             # on the ground, never climbs
+    w.run(1.0); w.offboard = True; w.run(6.0)
+    assert n.phase == "TAKEOFF" and n.frozen is not None
+    t_f = BUS.t
+    w.run(2.0)
+    assert cmds(since=t_f) == []                                       # no navigation after the freeze
+    poses = cmds("/skybeta/setpoint/pose", t_f)
+    assert poses and all(abs(m.pose.position.z - n.frozen[2]) < 1e-9 for m in poses)   # the freeze point
+
+
+def test_depth_waiting_for_late_odometry_is_still_used():
+    """On the drone cuVSLAM's pose arrives ~0.5 s after the depth frame (main's map_node); the policy must not
+    reject every frame for lack of a stamp-matched pose."""
+    fresh(dry_run=False, geofence=FENCE, motion_check=False)
+    n = NavPolicyNode()
+    w = World(n)
+    w.odom_lag = 0.5
+    w.run(3.0)
+    assert n.mon.depth_status == "OK" and n.preflight(BUS.t) == []
+    assert n.ex.map.frames > 0                                          # frames mapped once odometry caught up

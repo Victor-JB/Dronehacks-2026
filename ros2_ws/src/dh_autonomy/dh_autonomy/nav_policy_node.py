@@ -35,6 +35,11 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Empty, String
 
+from collections import deque
+
+from dronehacks_nav.motion_check import MotionCheck            # main's proven safeguard, reused unchanged
+
+from dh_core.health import LocHealthParams
 from dh_core.nav.explorer import Explorer, ExplorerParams
 from dh_core.nav.online_map import MapParams
 from dh_core.nav.safety3d import CommandSafety, CommandSafetyParams
@@ -78,6 +83,14 @@ class NavPolicyNode(Node):
         d("map_size", 14.0)
         d("takeoff_tol", 0.10)
         d("takeoff_timeout_s", 15.0)
+        # same names and drone values as main's config/drone.yaml (flown): odometry staleness and motion check
+        d("odom_stale_s", 1.0)                              # main raised 0.3 -> 0.5 -> 1.0 after real 0.30-0.35 s gaps
+        d("motion_check", True)
+        d("motion_err_m", 1.0)
+        d("motion_window_s", 5.0)
+        d("motion_min_progress_m", 0.1)
+        d("motion_z_mismatch_m", 0.8)
+        d("max_pose_dt_s", 0.05)                            # main's map_node: depth waits for odometry within this
         d("brake_s", 1.5)
         d("brake_decel", 1.0)                               # PLACEHOLDER: measure on the drone
         d("latency_s", 0.8)                                 # PLACEHOLDER: measure on the drone
@@ -89,10 +102,21 @@ class NavPolicyNode(Node):
                               stride=4)
         self.eprm = ExplorerParams(v_explore=float(g("v_max")))
         self.ex = Explorer(self.mprm, self.eprm)
-        sp = SafetyParams(v_max=float(g("v_max")), brake_decel=float(g("brake_decel")), latency_s=float(g("latency_s")))
+        stale = float(g("odom_stale_s"))
+        sp = SafetyParams(v_max=float(g("v_max")), brake_decel=float(g("brake_decel")), latency_s=float(g("latency_s")),
+                          odom_timeout_s=stale)
         self.safety = CommandSafety(CommandSafetyParams(safety=sp, band=self.mprm.band, robot_radius=self.mprm.robot_radius,
                                                         geofence=self.geofence))
-        self.mon = ShadowMonitor(ShadowConfig())
+        self.mon = ShadowMonitor(ShadowConfig(safety=SafetyParams(odom_timeout_s=stale),
+                                              loc=LocHealthParams(odom_timeout_s=stale, require_vo_status=True)))
+        self.motion_on = bool(g("motion_check"))
+        self.motion = MotionCheck(err_m=float(g("motion_err_m")), window_s=float(g("motion_window_s")),
+                                  min_progress_m=float(g("motion_min_progress_m")),
+                                  z_mismatch_m=float(g("motion_z_mismatch_m")))
+        self.cmd_pos = None                                 # commanded track for the motion check
+        self.frozen = None                                  # fixed point held after a motion-check failure
+        self.max_pose_dt = float(g("max_pose_dt_s"))
+        self.depth_buf = deque(maxlen=60)                   # ~2 s of accepted depth, waiting for its odometry
         self.dry = bool(g("dry_run"))
         self.backend = DryRunBackend(self) if self.dry else SkybetaBackend(self, g("state_topic").rsplit("/", 1)[0])
         self.base_frame = g("base_frame")
@@ -180,20 +204,28 @@ class NavPolicyNode(Node):
         self._integrate(now)
 
     def _integrate(self, now):
-        """Map the newest ACCEPTED depth frame at the odometry pose nearest its capture stamp."""
+        """Queue the newest ACCEPTED depth frame; map the newest queued frame whose odometry has arrived.
+        cuVSLAM's pose for an instant arrives ~0.5 s after the depth frame (main's map_node does the same)."""
         mon = self.mon
-        if mon.depth_status != "OK" or mon.depth_obs is None or mon.depth_obs is self._last_depth_used:
+        if mon.depth_status == "OK" and mon.depth_obs is not None and mon.depth_obs is not self._last_depth_used:
+            self._last_depth_used = mon.depth_obs
+            self.depth_buf.append((mon.depth_obs, mon.extr, mon.intr.K))
+        if not mon.odom_hist or not self.depth_buf:
             return
-        dep = mon.depth_obs
-        self._last_depth_used = dep
-        pose = min(mon.odom_hist, key=lambda o: abs(o.stamp - dep.stamp), default=None)
-        loc_mode = mon.loc.evaluate(now)[0]
-        if pose is None or loc_mode not in ("OK", "DEGRADED"):
+        t_odom = mon.odom_hist[-1].stamp + self.max_pose_dt
+        ready = [i for i, (dep, _, _) in enumerate(self.depth_buf) if dep.stamp <= t_odom]
+        if not ready:
             return
+        dep, extr, K = self.depth_buf[ready[-1]]
+        for _ in range(ready[-1] + 1):
+            self.depth_buf.popleft()
+        pose = min(mon.odom_hist, key=lambda o: abs(o.stamp - dep.stamp))
+        if abs(pose.stamp - dep.stamp) > self.max_pose_dt or mon.loc.evaluate(now)[0] not in ("OK", "DEGRADED"):
+            return                                          # no pose for it: never map with a guessed pose
         R_wb = pose.R
-        R_wc = R_wb @ mon.extr.R_body_cam
-        o_w = pose.pos + R_wb @ mon.extr.t_body_cam
-        self.ex.on_frame(now, dep.depth_m, None, mon.intr.K, R_wc, o_w, True)   # colour arrives via _on_rgb
+        R_wc = R_wb @ extr.R_body_cam
+        o_w = pose.pos + R_wb @ extr.t_body_cam
+        self.ex.on_frame(now, dep.depth_m, None, K, R_wc, o_w, True)   # colour arrives via _on_rgb
 
     # ------------------------------------------------------------------ helpers
     def _say(self, key, text, every=5.0, warn=False):
@@ -223,10 +255,39 @@ class NavPolicyNode(Node):
             r.append("depth %s" % ("stale" if self.mon.depth_status == "OK" else self.mon.depth_status))
         return r
 
-    def _handover_pose(self, o):
-        """A pose at the current position (no yaw) while Offboard is not active: test_files' flown behaviour."""
-        if o is not None and o.valid:
-            self.backend.send_handover_pose(float(o.pos[0]), float(o.pos[1]), float(o.pos[2]))
+    def _handover_pose(self, o, check=True):
+        """A pose at the current position (no yaw) while Offboard is not active: test_files' flown behaviour.
+        Only while preflight passes: with no fresh setpoint flight_interface stays out of Offboard and the
+        drone remains in Position under the pilot (autonomy_pipeline.md), so unhealthy sensors never lift off."""
+        if o is None or not o.valid:
+            return
+        if check:
+            why = self.preflight(self._now())
+            if why:
+                self._say("pre", "NOT READY (no setpoint published, Offboard will not start): %s" % "; ".join(why), warn=True)
+                return
+        self.backend.send_handover_pose(float(o.pos[0]), float(o.pos[1]), float(o.pos[2]))
+
+    def _motion_failed(self, now, o, sp) -> bool:
+        """main's motion check (dronehacks_nav.motion_check), run while Offboard is ours and nothing is clamped:
+        a commanded displacement the vehicle does not follow, or VIO height disagreeing with PX4's
+        rangefinder-based height, freezes the vehicle at a fixed point and hands it to the pilot."""
+        st = self.mon.state
+        clamped = bool(st and st.clamped)
+        if not self.motion_on or clamped or sp is None:
+            self.motion.reset()
+            return False
+        local = (st.raw.get("local_enu") if st else None) or None
+        z_px4 = float(local[2]) if isinstance(local, (list, tuple)) and len(local) == 3 else None
+        why = self.motion.step(now, tuple(float(c) for c in sp), tuple(float(c) for c in o.pos), z_px4)
+        if why:
+            self.frozen = (float(o.pos[0]), float(o.pos[1]), float(o.pos[2]))
+            self.get_logger().error("MOTION CHECK FAILED: %s. FREEZING at (%.2f, %.2f, %.2f): PILOT, TAKE OVER AND LAND"
+                                    % (why, *self.frozen))
+            self.get_logger().info("mission done: motion check failed (%s)" % why)
+            self.backend.send_position(*self.frozen, None)
+            return True
+        return False
 
     def _armed(self):
         st = self.mon.state
@@ -235,6 +296,7 @@ class NavPolicyNode(Node):
     # ------------------------------------------------------------------ control loop
     def _tick(self):
         now = self._now()
+        self._integrate(now)                                # buffered depth whose odometry has now arrived
         active = self.backend.offboard_active()
         loc_mode = self.mon.loc.evaluate(now)[0]
         o = self.mon.odom
@@ -243,13 +305,15 @@ class NavPolicyNode(Node):
                 self._set("WAIT", "disarmed: ready for the next arming")
                 self.ex = Explorer(self.mprm, self.eprm)
                 self.was_active, self.start, self.hold_pt = False, None, None
+                self.frozen, self.cmd_pos = None, None
+                self.motion.reset()
             elif not active:
-                self._handover_pose(o)                      # as test_files: fresh setpoint, never navigation
+                self._handover_pose(o, check=False)         # as test_files: fresh setpoint, never navigation
             return                                          # never navigate again before a disarm
         if not active:
             if self.was_active:
                 self._set("YIELDED", "Offboard ended (pilot or failsafe): mission stopped until disarm")
-                self._handover_pose(o)
+                self._handover_pose(o, check=False)
                 return
             self._set("WAIT")
             self._handover_pose(o)                          # the flown handover setpoint (test_files)
@@ -265,6 +329,10 @@ class NavPolicyNode(Node):
         if self.phase == "LOC_LOST":
             self._say("loc2", "localization back, but the mission stays stopped: pilot has control", warn=True)
             return                                          # no automatic resumption after a loss
+        if self.frozen is not None:                         # motion check failed: hold the freeze point only
+            self.backend.send_position(*self.frozen, None)
+            self._say("frozen", "MOTION CHECK FAILED: holding the freeze point. PILOT, TAKE OVER AND LAND", warn=True)
+            return
         if self.phase == "WAIT":
             why = self.preflight(now)
             if why:
@@ -276,6 +344,8 @@ class NavPolicyNode(Node):
         if self.phase == "TAKEOFF":
             # as test_files: a pose straight above the Offboard start point, no yaw command
             z = self.mprm.cruise_z
+            if self._motion_failed(now, o, (self.start[0], self.start[1], z)):
+                return
             self.backend.send_position(self.start[0], self.start[1], z, None)
             if abs(o.pos[2] - z) < self.takeoff_tol:
                 self._set("NAV")
@@ -284,6 +354,8 @@ class NavPolicyNode(Node):
                 self._set("TAKEOFF_FAIL", "takeoff did not reach %.2f m within %.0f s: holding, PILOT" % (z, self.takeoff_timeout_s))
             return
         if self.phase == "TAKEOFF_FAIL":                    # no navigation: hold the fixed point, pilot lands
+            if self._motion_failed(now, o, self.hold_pt):
+                return
             self.backend.send_position(*self.hold_pt, None)
             return
         # NAV / HOLD
@@ -294,6 +366,9 @@ class NavPolicyNode(Node):
                 if intent.state == "OVER_TARGET":
                     self.get_logger().info("mission done: complete (over the target; descent disabled, hovering)")
             self._set("HOLD", intent.note)
+            self.cmd_pos = None
+            if self._motion_failed(now, o, self.hold_pt):
+                return
             self.backend.send_position(*self.hold_pt, None)
             return
         self.hold_pt = None
@@ -306,6 +381,16 @@ class NavPolicyNode(Node):
                                             o.stamp, o.rx, c.get("stamp"), c.get("rx"), loc_mode,
                                             pos_std=o.pos_std)
         self.last_verdict = verdict
+        # motion check on the motion actually commanded: integrate the outgoing twist into a commanded track
+        # (capped, so a vehicle that follows with a lag stays inside err_m and one that does not move trips it)
+        p = np.asarray(o.pos, float)
+        self.cmd_pos = p.copy() if self.cmd_pos is None else self.cmd_pos + np.asarray(v, float) * 0.1
+        gap = self.cmd_pos - p
+        cap = 1.5 * self.motion.err_m
+        if np.linalg.norm(gap) > cap:
+            self.cmd_pos = p + gap * (cap / np.linalg.norm(gap))
+        if self._motion_failed(now, o, tuple(self.cmd_pos)):
+            return
         self.backend.send_velocity(float(v[0]), float(v[1]), float(v[2]), float(yr))
 
 

@@ -51,7 +51,9 @@ class ShadowConfig:
     twist_in_child_frame: bool = True
     probe_speed: float = 0.5          # judge the verdict at max(approach speed, this)
     moving_speed: float = 0.10        # above this the corridor follows the velocity, else the heading
-    max_pose_skew_s: float = 0.10     # depth frame needs an odometry sample within this of its stamp
+    max_pose_skew_s: float = 0.10     # stamp-matched odometry for a depth frame ...
+    attitude_fallback: bool = True    # ... else level with the latest attitude (main's skybeta_node does)
+    max_attitude_lag_s: float = 1.0   # ... if that attitude is at most this far from the frame's stamp
     state_stale_s: float = 1.0
     jump_v_max: float = 1.5           # organizer twist cap, used for odometry-jump detection
     vo_tracking_state: int = 1
@@ -154,7 +156,14 @@ class ShadowMonitor:
             return self._reject_depth("depth_odom_time_domain_mismatch")
         pose = min(self.odom_hist, key=lambda o: abs(o.stamp - stamp), default=None)
         if pose is None or abs(pose.stamp - stamp) > self.cfg.max_pose_skew_s:
-            return self._reject_depth("depth_no_pose_at_capture")
+            # On the drone cuVSLAM's pose for an instant arrives ~0.5 s after the depth frame (main's
+            # map_node), so the newest frame never has its pose yet. The forward check is body-relative and
+            # only needs attitude: like main's skybeta_node, level it with the LATEST odometry attitude.
+            latest = self.odom
+            if (not self.cfg.attitude_fallback or latest is None
+                    or abs(latest.stamp - stamp) > self.cfg.max_attitude_lag_s):
+                return self._reject_depth("depth_no_pose_at_capture")
+            pose = latest
         R_lb = level_rotation_enu_flu(pose.quat)
         v = pose.vel_world
         moving = math.hypot(v[0], v[1]) > self.cfg.moving_speed

@@ -16,5 +16,13 @@ nav_policy:
     v_max: 0.35
     map_lo_xy: [-7.0, -7.0]
     map_size: 14.0
+    # same names and values as main's config/drone.yaml (flown on the drone)
+    odom_stale_s: 1.0                           # odometry older than this = unhealthy (real gaps 0.30-0.35 s)
+    motion_check: true                          # main's motion check (commanded motion followed, VIO vs PX4 height)
+    motion_err_m: 1.0
+    motion_window_s: 5.0
+    motion_min_progress_m: 0.1
+    motion_z_mismatch_m: 0.8
+    max_pose_dt_s: 0.05                         # map a depth frame only with odometry within this of its stamp
     brake_decel: 1.0                            # PLACEHOLDER until measured
     latency_s: 0.8                              # PLACEHOLDER until measured

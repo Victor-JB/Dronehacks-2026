@@ -13,7 +13,7 @@ the package that flew on 2026-11-07 (`test_files`, branch `backup/testFiles`):
 ## Flight behaviour copied from test_files
 | | test_files (flown) | nav_policy |
 |---|---|---|
-| Before Offboard | pose at current position, no yaw, 10 Hz | same (`send_handover_pose`) |
+| Before Offboard | pose at current position, no yaw, 10 Hz | same (`send_handover_pose`), **only while preflight passes**; otherwise nothing, so Offboard cannot start |
 | Offboard starts | pose = start + 1 m up, no yaw | pose = start xy, `cruise_z` (0.75 m), no yaw; 15 s timeout → hold |
 | Moving | pose waypoints | world-frame twist, **with yaw rate (not yet proven on hardware)** |
 | Offboard ends | stop, keep publishing current-position pose | same; never navigates again until disarm |
@@ -23,8 +23,14 @@ the package that flew on 2026-11-07 (`test_files`, branch `backup/testFiles`):
 **Additions that test_files did not have:**
 - The Stage 4 gate acts on every navigation twist: stopping distance, a 0.28 m body floor, unknown space
   counts as blocked, stale data or lost localization means 0 m/s, plus the flight band and the geofence.
-- If sensors are not healthy when Offboard starts, it sends a zero twist and stays on the ground; PX4
-  auto-disarms after 10 s.
+- **Pre-Offboard setpoint only when healthy.** The pose is sent only while preflight passes (geofence
+  set, fresh odometry, VO tracking, fresh depth). Otherwise nothing is published, so `flight_interface`
+  stays out of Offboard and the drone remains in Position under the pilot (`autonomy_pipeline.md`).
+- **Motion check.** `main`'s `dronehacks_nav.motion_check` runs unchanged on every outgoing command, with
+  the same parameters as `drone.yaml`. A failure freezes the drone at a fixed point and hands it to the pilot.
+- **Timing.** Odometry staleness is 1.0 s, as in `main`'s `drone.yaml`. Depth frames wait for their
+  odometry before mapping, as in `main`'s `map_node`; the forward check uses the latest attitude, as in
+  `main`'s `skybeta_node`.
 - On localization loss it sends a zero twist for 1.5 s, then stops commanding; `flight_interface` holds and
   the pilot takes over.
 
@@ -60,6 +66,8 @@ the package that flew on 2026-11-07 (`test_files`, branch `backup/testFiles`):
   - there is no `px4_msgs` and no PX4 backend;
   - its launch equals `test_files`' `flight_interface` parameters, with exactly one `flight_interface`.
 - **Not done:** `colcon build`, a `ros2 launch` dry parse, and any hardware.
+
+First physical test procedure: `integration/FIRST_TEST.md`.
 
 ## Installing it later (team decision; not done here)
 On the drone (team approval, props off):
