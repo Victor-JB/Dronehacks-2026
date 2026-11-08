@@ -660,3 +660,29 @@ def test_skybeta_self_landing_ends_complete_when_disarmed_on_the_floor():
         t += 0.05
     assert m.result == "complete", m.result
     assert px4.pos[2] >= 0.0 and not px4.armed
+
+
+def test_moved_after_ready_the_route_starts_where_offboard_takes_over():
+    """As test_files: until Offboard, the setpoint follows the vehicle; home and the route are
+    captured at the takeover, so carrying the drone after READY leaves no stale target."""
+    m = C.Mission(C.Params(route=[(2.0, 0.0)], require_depth=False))
+
+    def veh(n, armed=False, nav=4):
+        return C.Vehicle(pos=(n, 0.0, 0.0), heading=0.0, pos_ok=True, q=q_yaw(0.0),
+                         armed=armed, nav_state=nav, landed=True)
+    t = 0.0
+    while m.phase != "arm" and t < 10.0:
+        m.on_health(t, True)
+        m.step(t, veh(0.0))
+        t += 0.05
+    assert m.phase == "arm"
+    t_ready = t
+    while t - t_ready < 1.5:                              # carried 5 m north after READY
+        m.on_health(t, True)
+        out = m.step(t, veh(5.0))
+        t += 0.05
+    assert out.setpoint[0] == pytest.approx(5.0)          # the held setpoint follows it
+    m.on_health(t, True)
+    m.step(t, veh(5.0, armed=True, nav=C.NAV_OFFBOARD))   # pilot arms, Offboard takes over
+    assert m.phase == "climb"
+    assert m.home[0] == pytest.approx(5.0) and m.targets[0][0] == pytest.approx(7.0)

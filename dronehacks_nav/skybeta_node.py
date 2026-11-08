@@ -109,6 +109,7 @@ class SkybetaNav(Node):
         self.frozen = None              # (x, y, z, yaw) ENU the node holds after a motion-check failure
         # Self-landing (as test_files' my_mission): the 0.3 m floor applies only to pose setpoints, so the
         # descent is a twist. Nothing here disarms: PX4 does, COM_DISARM_LAND after it detects the landing.
+        self.land_settle_s = float(self.declare_parameter("land_settle_s", 2.0).value)
         self.land_mps = float(self.declare_parameter("land_descent_mps", 0.3).value)
         self.land_timeout_s = float(self.declare_parameter("land_descent_timeout_s", 20.0).value)
         self.land_t = None              # when this run's descent began
@@ -302,13 +303,20 @@ class SkybetaNav(Node):
                                     f"PILOT, TAKE OVER AND LAND")
             self.mission.request_land(f"motion check: {why}")
 
-    def _descend(self, now):
-        """The mission is landing: push down at land_descent_mps (ENU world axes) until PX4 disarms,
-        including after touchdown (as test_files does) so the land detector completes. No touchdown
-        within land_descent_timeout_s: hold where the odometry says it is and tell the pilot."""
+    def _descend(self, now, out):
+        """The mission is landing, as test_files does: hold the mission's setpoint for land_settle_s,
+        then push down at land_descent_mps (ENU world axes) until PX4 disarms, including after
+        touchdown so the land detector completes. No touchdown within land_descent_timeout_s of
+        descending: hold where the odometry says it is and tell the pilot."""
         if self.land_t is None:
             self.land_t = now
-        if self.land_hold is None and now - self.land_t > self.land_timeout_s and not self.v.landed:
+        if now - self.land_t < self.land_settle_s and out.setpoint is not None:
+            self._send(*out.setpoint)
+            return
+        s = self.sky or {}
+        landed = bool(self.v.landed) or bool(s.get("landed"))
+        if (self.land_hold is None and now - self.land_t > self.land_settle_s + self.land_timeout_s
+                and not landed):
             self.land_hold = (*self.odom_enu, self.odom_yaw_enu)
             self.get_logger().warning(f"no touchdown after {self.land_timeout_s:.0f} s of descent: holding. "
                                       f"PILOT, TAKE OVER AND LAND")
@@ -356,7 +364,7 @@ class SkybetaNav(Node):
         if out.events:
             self._publish_status()
         if out.stream and out.phase == "land" and self.frozen is None:
-            self._descend(now)
+            self._descend(now, out)
         elif out.stream and out.setpoint is not None:
             self._send(*out.setpoint)
         for c in out.commands:

@@ -179,7 +179,7 @@ class Mission:
         self.phase = "wait"
         self.why = ""
         self.sp = None
-        self.home = None              # (n, e, d, heading) at the arm request
+        self.home = None              # (n, e, d, heading) where Offboard took over (provisional before)
         self.targets = []             # NED (n, e) of each leg's end
         self.leg = 0
         self.legs_done = 0
@@ -321,6 +321,14 @@ class Mission:
             return True
         return False
 
+    def _capture_home(self, v):
+        """home, setpoint and the route's targets from the vehicle's position and heading right now."""
+        n, e, d = v.pos
+        self.home = (n, e, d, v.heading)
+        self.sp = [n, e, d, v.heading]
+        c, s = math.cos(v.heading), math.sin(v.heading)
+        self.targets = [(n + f * c + l * s, e + f * s - l * c) for f, l in self.p.route]
+
     def _requalify(self, now, out, why):
         # Cancel the old priming interval and its held position. The original
         # preflight deadline remains t_started; this cannot renew its budget.
@@ -397,14 +405,15 @@ class Mission:
             elif p.require_depth and not self.depth_ready_for_arm(now):
                 self.why = f"waiting for {p.health_quiet_s:g} s of continuously usable depth"
             else:
-                n, e, d = v.pos
-                self.home = (n, e, d, v.heading)
-                self.sp = [n, e, d, v.heading]
-                c, s = math.cos(v.heading), math.sin(v.heading)
-                self.targets = [(n + f * c + l * s, e + f * s - l * c) for f, l in p.route]
+                self._capture_home(v)
                 self._set("arm", now, out)
         elif ph == "arm":
             ok, why = self.health.arm_ok(now)
+            # as test_files: until Offboard takes over, the setpoint is wherever the vehicle is now
+            # (moving it after READY does not leave a stale target behind)
+            if v.pos is not None and v.heading is not None and not (v.armed and v.nav_state == NAV_OFFBOARD):
+                n, e, d = v.pos
+                self.sp = [n, e, d, v.heading]
             if not ok:
                 if self.t_cmd is None and v.armed is False:
                     self._requalify(now, out, f"{why}; requalifying before any control request")
@@ -421,6 +430,7 @@ class Mission:
                 self._end(now, out, f"refused: not armed in Offboard after {p.arm_wait_s:.0f} s")
             elif v.armed and v.nav_state == NAV_OFFBOARD:
                 self.offboard_seen = True
+                self._capture_home(v)                     # the route starts where Offboard took over
                 self._set("climb", now, out)
             elif now - self.t_phase >= p.stream_lead_s and self._resend(now):
                 out.commands += ["offboard", "arm"]

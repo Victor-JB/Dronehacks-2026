@@ -35,6 +35,9 @@ ARGUMENTS = [
     ('auto_offboard_on_arm', 'true',
      'enter Offboard once when the pilot arms, then switches to Position. false: the vehicle '
      'stays in Position under the pilot'),
+    ('anchor_setpoints', 'true',
+     'setpoints become displacements from the vision origin, re-anchored on PX4 local position: '
+     'cancels the VIO-vs-PX4 height offset (as test_files, flown 2026-11-07)'),
     ('odometry_topic', '/visual_slam/tracking/odometry',
      'source of the ENU pose the altitude band is measured against'),
     ('route_file', PathJoinSubstitution([SHARE, 'route.json']),
@@ -64,6 +67,7 @@ def generate_launch_description():
             'setpoint_rate_hz': LaunchConfiguration('setpoint_rate_hz'),
             'allow_mode_request': LaunchConfiguration('allow_mode_request'),
             'auto_offboard_on_arm': LaunchConfiguration('auto_offboard_on_arm'),
+            'anchor_setpoints': LaunchConfiguration('anchor_setpoints'),
             'odometry_topic': LaunchConfiguration('odometry_topic'),
         }],
     )
