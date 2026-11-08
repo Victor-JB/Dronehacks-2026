@@ -7,6 +7,7 @@
   <license>MIT</license>
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <!-- python3-scipy is optional (faster distance transform); not declared so nothing is installed for it -->
   <test_depend>python3-pytest</test_depend>
   <export><build_type>ament_python</build_type></export>
