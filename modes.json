@@ -35,79 +35,6 @@
       "box_size_m": 1.0,
       "route": []
     },
-    "4": {
-      "name": "hardcode_maze",
-      "params_override": {
-        "require_depth": true,
-        "corridor_half_m": 0.4,
-        "band_m": 0.4,
-        "stop_m": 0.35,
-        "lead_max_m": 0.2,
-        "min_corridor_coverage": 0.15,
-        "speed_mps": 0.6
-      },
-      "_comment": "26-leg A*-derived route, launch->Gate B, no window bonus. Tightest point ~33cm raw clearance at leg 17 (C1 chicane corner) vs 25cm placeholder drone radius used in sim -- re-verify against real airframe span before flying. Camera note: team found a level camera gets little depth return down open stretches of this course; consider angling it down slightly (rule 3.2 allows) rather than relying solely on the lowered min_corridor_coverage.",
-      "route": [
-        [1.303, 0.008],
-        [1.543, -0.232],
-        [1.543, -0.952],
-        [1.513, -0.982],
-        [0.553, -0.982],
-        [0.193, -1.342],
-        [0.193, -2.062],
-        [0.223, -2.092],
-        [1.183, -2.092],
-        [1.543, -2.452],
-        [1.543, -3.172],
-        [1.513, -3.202],
-        [1.123, -3.202],
-        [-0.107, -4.432],
-        [-2.357, -4.432],
-        [-2.387, -4.402],
-        [-2.387, -3.142],
-        [-2.297, -3.052],
-        [-1.127, -3.052],
-        [-1.097, -3.022],
-        [-1.097, -1.972],
-        [-1.127, -1.942],
-        [-1.847, -1.912],
-        [-1.877, -1.882],
-        [-1.877, -0.862],
-        [-1.697, -0.472]
-      ]
-    },
-    "6": {
-      "name": "course_scan",
-      "_comment": "Full course (maze, Gate A, tunnel, chicane, window, pad) fitted to the 2026-11-06 point scan at 1.15 m (sim branch: sim/scan/fit_route_to_scan.py). Legs 2-12 and 14 clear real walls by 0.33-0.54 m; the Sky Beta reaches ~0.29 m. Take off on the launch mark facing the course's +Y. Check on site first: SYSTEM.md section 4.",
-      "params_override": {
-        "height_m": 1.15,
-        "hover_s": 3.0,
-        "speed_mps": 0.4,
-        "arrive_m": 0.15,
-        "corridor_half_m": 0.3,
-        "stop_m": 0.45,
-        "slow_m": 0.9,
-        "blocked_wait_s": 4.0,
-        "clear_past_leg_m": 0.25,
-        "require_depth": true
-      },
-      "route": [
-        [1.67, -0.0],
-        [1.67, -1.143],
-        [0.617, -1.423],
-        [0.057, -2.541],
-        [1.79, -2.541],
-        [1.79, -3.825],
-        [1.566, -4.906],
-        [0.666, -4.766],
-        [-1.654, -4.766],
-        [-2.634, -4.825],
-        [-2.834, -2.795],
-        [-3.243, -2.608],
-        [-2.867, -1.575],
-        [-1.857, -0.322]
-      ]
-    },
     "7": {
       "name": "wall_vault",
       "_comment": "Climb out of any gap beneath the wall ahead, lock onto the wall face, approach to standoff, climb until above the top edge of the wall, fly forward over it, descend on the far side, and land.",
@@ -129,44 +56,9 @@
       },
       "route": []
     },
-    "8": {
-      "name": "aryan_waypoints",
-      "_comment": "Aryan's hardcoded waypoints: the full course (maze, Gate A, tunnel, chicane, window, pad) as 14 fixed legs on the 2026-11-06 scan, flown at 1.08 m so the tunnel overhang (from 1.30 m) and the window (0.88-1.52 m) both leave ~0.15 m. Climbs 0.15 m ahead of the mark (the rear props reach 0.24 m and the scan has a panel 0.31 m behind it) at 0.25 m/s; depth band 0.13 m so the overhang does not stop the tunnel leg. Completes in the sim (sim branch + aryan/sim-fixes). Take off on the launch mark facing the course's +Y. Check on site first: SYSTEM.md section 4.",
-      "params_override": {
-        "height_m": 1.08,
-        "hover_s": 3.0,
-        "speed_mps": 0.4,
-        "arrive_m": 0.15,
-        "corridor_half_m": 0.3,
-        "band_m": 0.13,
-        "stop_m": 0.45,
-        "slow_m": 0.9,
-        "blocked_wait_s": 4.0,
-        "clear_past_leg_m": 0.25,
-        "climb_forward_m": 0.15,
-        "climb_rate_mps": 0.25,
-        "require_depth": true
-      },
-      "route": [
-        [1.67, 0.0],
-        [1.67, -1.143],
-        [0.617, -1.423],
-        [0.057, -2.541],
-        [1.79, -2.541],
-        [1.79, -3.825],
-        [1.566, -4.906],
-        [0.666, -4.766],
-        [-1.654, -4.766],
-        [-2.634, -4.825],
-        [-2.834, -2.795],
-        [-3.243, -2.608],
-        [-2.867, -1.575],
-        [-1.857, -0.322]
-      ]
-    },
     "9": {
       "name": "walk_fused",
-      "_comment": "Route from the 2026-11-07 hand-carried walk (cuVSLAM odometry, 20261107-155647 bag), corrected by the 2026-11-06 scan. The walk sets the line and the pad; the scan moved a waypoint only where a leg came within 0.42 m of a scanned wall, by at most 0.45 m. Two overrides: the tunnel is a straight leg on its scanned centre (the walk ran 0.15 m off its right wall), and the window is a straight leg along its normal through the scanned opening's centre. Lands on the REAL pad (seen in the scan colours and where the walk set down, 9 cm apart): about 1.4 m from the CAD pad that modes 6 and 8 fly to. Leg clearances 0.30-0.60 m; the tightest are the window (0.30) and Gate A (0.32, the north net). Settings as mode 8. Take off on the launch mark facing the course's +Y.",
+      "_comment": "Route from the 2026-11-07 hand-carried walk (cuVSLAM odometry, 20261107-155647 bag), corrected by the 2026-11-06 scan. The walk sets the line and the pad; the scan moved a waypoint only where a leg came within 0.42 m of a scanned wall, by at most 0.45 m. Two overrides: the tunnel is a straight leg on its scanned centre (the walk ran 0.15 m off its right wall), and the window is a straight leg along its normal through the scanned opening's centre. Lands on the REAL pad (seen in the scan colours and where the walk set down, 9 cm apart): about 1.4 m from the CAD pad. Leg clearances 0.30-0.60 m; the tightest are the window (0.30) and Gate A (0.32, the north net). Settings as the earlier scan-fitted route (1.08 m, band 0.13, climb 0.15 m ahead). Take off on the launch mark facing the course's +Y.",
       "params_override": {
         "height_m": 1.08,
         "hover_s": 3.0,

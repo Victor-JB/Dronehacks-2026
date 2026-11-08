@@ -159,24 +159,24 @@ square that returns to the start). `python3 set_speed.py <mode> <m/s>` sets one 
 
 | Mode | What it flies | Depth |
 |---|---|---|
-| 1 `hover_test` (active) | takeoff, 5 s hover at 1.2 m; the pilot lands | not required |
+| 1 `hover_test` | takeoff, 5 s hover at 1.2 m, lands itself | not required |
 | 2 `box_test_no_depth` | a 1 ft (0.30 m) square | not required |
 | 3 `box_test_with_depth` | a 1 m square, stopping for obstacles | required |
-| 4 `hardcode_maze` | 26-leg A* route from the CAD, launch to Gate B | required |
-| 6 `course_scan` | the full course fitted to the point scan (below) | required |
+| 7 `wall_vault` | climb over the wall ahead, cross, land | required |
+| 9 `walk_fused` (active) | the full course from the 2026-11-07 hand-carried walk, scan-corrected (below) | required |
 
 `require_depth: false` is a blind fallback (Tanooj, `config-modes-switcher`): no depth gate and no
 obstacle stop, only PX4's position. Use it only with a route already verified.
 
-**Mode 6, `course_scan`:** 14 legs from the launch mark through the maze, Gate A,
-the tunnel, the chicane and the window to the pad, at **1.15 m** and 0.4 m/s. The waypoints are fitted to
-the **2026-11-06 point scan** of the real course (`sim/scan/fit_route_to_scan.py` on `sim`),
-not the CAD: in the real course m2, m3 and a1 sit 0.3-0.8 m from their CAD positions, and the CAD route
-would hit walls on legs 3-7. The window opening is 0.88-1.52 m high (CAD: 0.30-1.22), hence 1.15 m.
-**Take off on the launch mark facing the course's +Y**: the route is in the takeoff frame, so a heading
-error rotates all of it.
+**Mode 9, `walk_fused`:** 15 legs from the launch mark through the maze, Gate A, the tunnel, the
+chicane and the window to the pad, at **1.08 m** and 0.4 m/s. The line comes from the 2026-11-07
+hand-carried walk (cuVSLAM odometry, bag 20261107-155647); the 2026-11-06 point scan only pushed legs off
+walls (<= 0.45 m) and centred the tunnel and window legs. It lands on the real pad. 1.08 m leaves ~0.15 m
+under the tunnel overhang and in the window (0.88-1.52 m); it climbs 0.15 m ahead of the mark
+(`climb_forward_m`) because a panel stands 0.31 m behind it. **Take off on the launch mark facing the
+course's +Y**: the route is in the takeoff frame, so a heading error rotates all of it.
 
-Its params turn on three refnav options (all off by default): `slow_m` (the carrot slows near an obstacle
+Its params (as the earlier scan-fitted modes) turn on three refnav options (all off by default): `slow_m` (the carrot slows near an obstacle
 and never enters `stop_m`), `blocked_wait_s` (hold up to 4 s for an obstacle to clear before ending), and
 `clear_past_leg_m` (a wall just past a corner waypoint is planned geometry; the nearest one is 0.34 m past
 its waypoint). `corridor_half_m` 0.30 and `stop_m` 0.45 are sized for the Sky Beta (props reach ~0.29 m
