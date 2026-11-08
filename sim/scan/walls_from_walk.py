@@ -167,16 +167,22 @@ def write_mesh(C, out, V=0.05):
     if cur:
         boxes.append(cur)
     quads = ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
+    # Gazebo's physics (dartsim + ODE) drops a mesh without normals and then aborts on the empty shape:
+    # one normal per box face, in the same order as quads (-x, +x, -y, +y, -z, +z)
+    normals = ((-1, 0, 0), (1, 0, 0), (0, -1, 0), (0, 1, 0), (0, 0, -1), (0, 0, 1))
     with open(out, 'w') as f:
         f.write('# Course walls from a hand-carried walk (sim/scan/walls_from_walk.py): 5 cm voxels merged into boxes\n')
+        for nv in normals:
+            f.write('vn %d %d %d\n' % nv)
         for b, (iy, s, e, x0, x1) in enumerate(boxes):
             lo = np.array([x0, iy, s]) * V
             hi = np.array([x1 + 1, iy + 1, e + 1]) * V
             for c in range(8):
                 f.write('v %.3f %.3f %.3f\n' % tuple(hi[j] if c >> (2 - j) & 1 else lo[j] for j in range(3)))
-            for q in quads:
+            for k, q in enumerate(quads):
                 i = [8 * b + v + 1 for v in q]
-                f.write(f'f {i[0]} {i[1]} {i[2]}\nf {i[0]} {i[2]} {i[3]}\n')
+                n = k + 1
+                f.write(f'f {i[0]}//{n} {i[1]}//{n} {i[2]}//{n}\nf {i[0]}//{n} {i[2]}//{n} {i[3]}//{n}\n')
     print(f'3. walls: {len(C)} voxels, {len(boxes)} boxes -> {out}')
 
 
