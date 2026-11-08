@@ -2,7 +2,7 @@
 its sources, import only main's refnav / dronehacks_nav, run its node on fake ROS, and own no PX4 path.
 Needs git (origin/main is extracted with `git archive`). No DDS, no hardware."""
 import ast
-import filecmp
+
 import glob
 import io
 import os
@@ -34,15 +34,16 @@ def main_tree(tmp_path_factory):
 def test_committed_package_is_in_sync_with_sources(tmp_path):
     out = tmp_path / "pkg"
     B.build(str(out))
-    cmp = filecmp.dircmp(str(out), PKG)
-    stale = []
 
-    def walk(c, rel=""):
-        stale.extend(os.path.join(rel, f) for f in c.left_only + c.right_only + c.diff_files)
-        for name, sub in c.subdirs.items():
-            if name != "__pycache__":
-                walk(sub, os.path.join(rel, name))
-    walk(cmp)
+    def files(base):
+        return {os.path.relpath(os.path.join(d, f), base) for d, ds, fs in os.walk(base)
+                if "__pycache__" not in d for f in fs}
+
+    def text(p):                                    # line endings normalized (Windows checkouts use CRLF)
+        return open(p, "rb").read().replace(b"\r\n", b"\n")
+    built, committed = files(str(out)), files(PKG)
+    stale = sorted(built ^ committed) + sorted(f for f in built & committed
+                                               if text(os.path.join(str(out), f)) != text(os.path.join(PKG, f)))
     assert stale == [], "re-run tools/integration/build_nav_policy_pkg.py: stale %s" % stale
 
 
