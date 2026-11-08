@@ -1,5 +1,5 @@
 {
-  "active_mode": 6,
+  "active_mode": 5,
   "global_params": {
     "height_m": 1.2,
     "speed_mps": 0.6,
@@ -72,7 +72,10 @@
         "clear_past_leg_m": 0.25,
         "climb_forward_m": 0.15,
         "climb_rate_mps": 0.25,
-        "require_depth": true
+        "require_depth": true,
+        "yaw_rate_dps": 90.0,
+        "face_tol_deg": 12.0,
+        "hold_s": 0.3
       },
       "route": [
         [1.18, -0.26],
