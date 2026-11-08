@@ -60,7 +60,7 @@
     "yaw_rate_dps": 90.0,
     "arrive_m": 0.15,
     "tolerant_arming": true,
-    "health_bad_land_s": 3.0,
+    "health_bad_land_s": 5.0,
     "hover_s": 3.0,
     "corridor_half_m": 0.3,
     "band_m": 0.13,

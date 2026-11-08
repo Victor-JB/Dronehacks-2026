@@ -741,3 +741,17 @@ def test_without_tolerant_arming_an_early_arm_yields():
             px4.armed = True
         out = m.step(t, px4.vehicle()); px4.apply(t, out, 0.05); t += 0.05
     assert m.result.startswith("yielded: vehicle armed before"), m.result
+
+
+def test_a_short_position_dropout_in_the_air_is_ridden_through():
+    """fix 8 (2026-11-07): PX4 position invalid for 1.5 s mid-route holds, then continues (grace 5 s)."""
+    p = C.Params(route=[(3.0, 0.0)], require_depth=False, health_bad_land_s=5.0)
+    m, px4 = C.Mission(p), FakePX4()
+    t, dt = 0.0, 0.05
+    while t < 90.0 and m.phase != "done":
+        m.on_health(t, True)
+        v = px4.vehicle()
+        if 12.0 <= t < 13.5:
+            v.pos_ok = False                              # odometry stall in the air
+        out = m.step(t, v); px4.apply(t, out, dt); t += dt
+    assert m.result == "complete", (m.result, m.why)

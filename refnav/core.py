@@ -217,6 +217,7 @@ class Mission:
         self.clr_hist = []            # [(depth stamp, clearance)] along the current leg, newest last
         self.last_clearance = None
         self.land_request = None      # why an outside landing request was made (request_land), until acted on
+        self.pos_bad_since = None     # airborne: when PX4's position/heading went invalid (health_bad_land_s grace)
         self.start_requested = False  # request_start() accepted while hovering in await_start
         self.started = False          # past the start gate (or no gate): the route / vault is running
         self.depth_reject = None      # (key, detail): why the latest refused depth frame was refused
@@ -391,9 +392,19 @@ class Mission:
             if bad > p.health_bad_land_s:
                 self._land(now, out, f"estimator unhealthy or silent for {bad:.1f} s")
             elif not v.pos_ok or v.pos is None:
-                self._land(now, out, "PX4 position or heading invalid")
+                # the same grace as an unhealthy estimator: a short odometry stall is ridden through,
+                # holding the current setpoint (nothing advances on a position it does not have)
+                self.pos_bad_since = now if self.pos_bad_since is None else self.pos_bad_since
+                if now - self.pos_bad_since > p.health_bad_land_s:
+                    self._land(now, out, f"PX4 position or heading invalid for {now - self.pos_bad_since:.1f} s")
+                else:
+                    self.why = f"position invalid for {now - self.pos_bad_since:.1f} s: holding"
+                    out.phase, out.setpoint, out.stream = self.phase, tuple(self.sp) if self.sp else None, True
+                    return out
             elif p.require_depth and (self.depth_t is None or now - self.depth_t > p.depth_lost_land_s):
                 self._land(now, out, f"depth silent for more than {p.depth_lost_land_s:.0f} s")
+            if v.pos_ok and v.pos is not None:
+                self.pos_bad_since = None
 
         ph = self.phase
         if ph == "wait":

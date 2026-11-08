@@ -7,7 +7,7 @@
     "yaw_rate_dps": 45.0,
     "arrive_m": 0.3,
     "tolerant_arming": true,
-    "health_bad_land_s": 3.0
+    "health_bad_land_s": 5.0
   },
   "modes": {
     "1": {
