@@ -23,8 +23,8 @@
     # link); no START within start_wait_s ends the mission (it lands itself). Modes with
     # no route (hover_test) are not gated.
     start_gate: true
-    # 2026-11-07 21:30: no START within 7 s of reaching the hover -> it lands itself (the pilot does not have to)
-    start_wait_s: 7.0
+    # 2026-11-07: no START within 10 s of the button turning on -> it lands itself (the pilot does not have to)
+    start_wait_s: 10.0
     # Odometry older than this = estimator unhealthy. 0.3 s tripped on the drone (bags of 2026-11-07):
     # cuVSLAM's odometry has gaps of 0.30-0.35 s (dropped camera frames), 16 in 68 s without depth and
     # 118 in 264 s with it, while it kept tracking and PX4 kept its position; each gap ended the
