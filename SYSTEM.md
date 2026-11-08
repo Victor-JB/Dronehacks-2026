@@ -173,8 +173,8 @@ obstacle stop, only PX4's position. Use it only with a route already verified.
 20261107-194115, recorded in mode 6): forward 1.2 m, right along the now-open maze line, the tunnel, the
 chicane, through the window, and lands 0.5 m past it, ~1.9 m from the tall wall (a ladder is expected there).
 The tall wall and what is past it are not in the route: cuVSLAM broke at 186 s while the drone was lifted over the wall. Flown at
-**1.08 m**, it climbs 0.15 m ahead of the mark (`climb_forward_m`). **Take off on the launch mark facing the
-course's +Y**: the route is in the takeoff frame, so a heading error rotates all of it.
+**1.08 m**, it climbs 0.15 m ahead of the mark (`climb_forward_m`). **Take off 1 ft (0.3048 m) ahead of the walkthrough's start, facing the same way**: the route
+is in the takeoff frame, so a heading error rotates all of it. Flown hardcoded (`require_depth: false`).
 
 Its params (as the earlier scan-fitted modes) turn on three refnav options (all off by default): `slow_m` (the carrot slows near an obstacle
 and never enters `stop_m`), `blocked_wait_s` (hold up to 4 s for an obstacle to clear before ending), and

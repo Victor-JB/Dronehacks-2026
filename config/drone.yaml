@@ -28,13 +28,16 @@
     # cuVSLAM's odometry has gaps of 0.30-0.35 s (dropped camera frames), 16 in 68 s without depth and
     # 118 in 264 s with it, while it kept tracking and PX4 kept its position; each gap ended the
     # mission before the pilot could arm. 0.5 s still fails closed on a real dropout.
-    odom_stale_s: 0.5
+    # 2026-11-07 21:00: a 0.6 s stall of the whole stack ended a run before takeoff; 1.0 s rides through it.
+    odom_stale_s: 1.0
     # Motion check (dronehacks_nav/motion_check.py): while Offboard is ours, a setpoint more than
     # motion_err_m away for motion_window_s must move the vehicle motion_min_progress_m toward it,
     # and VIO's height change must match PX4's rangefinder within motion_z_mismatch_m. Otherwise
     # the node freezes where the odometry says it is and asks the pilot to take over.
     motion_check: true
-    motion_err_m: 0.3
-    motion_window_s: 3.0
+    # Loosened 2026-11-07 21:00: it froze a good takeoff (VIO +0.43 m vs rangefinder +0.74 m over 3 s of climb).
+    # Still trips on a VIO blow-up (metres off), which is what it is for.
+    motion_err_m: 1.0
+    motion_window_s: 5.0
     motion_min_progress_m: 0.1
-    motion_z_mismatch_m: 0.3
+    motion_z_mismatch_m: 0.8

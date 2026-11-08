@@ -712,3 +712,32 @@ def test_a_blocked_leg_looks_around_then_lands():
     m, px4, log = fly(C.Params(route=[(3.0, 0.0), (3.0, 3.0)], blocked_wait_s=2.0, look_around_deg=20.0,
                                corridor_half_m=0.3), walls=wall)
     assert m.result.startswith("landed: route blocked"), m.result
+
+
+def test_tolerant_arming_survives_an_early_arm_and_a_health_blip():
+    """tolerant_arming (the drone, 2026-11-07): the pilot arms while the mission is not READY (a 0.6 s
+    stall made the estimator unhealthy), then health comes back: it becomes READY and flies the route."""
+    p = C.Params(route=[(2.0, 0.0)], require_depth=False, tolerant_arming=True)
+    m, px4 = C.Mission(p), FakePX4()
+    t, dt = 0.0, 0.05
+    while t < 90.0 and m.phase != "done":
+        healthy = not (4.0 <= t < 6.0)                  # READY at ~3 s, then a blip
+        m.on_health(t, healthy)
+        if 5.0 <= t < 5.05:
+            px4.armed = True                            # the pilot arms during the blip
+        out = m.step(t, px4.vehicle())
+        px4.apply(t, out, dt)
+        t += dt
+    assert m.result == "complete", (m.result, m.why)
+
+
+def test_without_tolerant_arming_an_early_arm_yields():
+    p = C.Params(route=[(2.0, 0.0)], require_depth=False)
+    m, px4 = C.Mission(p), FakePX4()
+    t = 0.0
+    while t < 30.0 and m.phase != "done":
+        m.on_health(t, True)
+        if t >= 0.5:
+            px4.armed = True
+        out = m.step(t, px4.vehicle()); px4.apply(t, out, 0.05); t += 0.05
+    assert m.result.startswith("yielded: vehicle armed before"), m.result

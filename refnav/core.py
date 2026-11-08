@@ -53,6 +53,8 @@ AIRBORNE = ("climb", "hover", "await_start", "turn", "check", "go", "hold",
 
 @dataclass
 class Params:
+    tolerant_arming: bool = False        # the pilot arming before READY, or a health blip before takeoff, does not
+                                         # end the mission: it waits (healthy again -> READY), and only climbs when healthy
     record_only: bool = False            # walkthrough: never asks to fly (stays in wait); the stack records the walk
     require_depth: bool = True           # false: pure dead-reckoning on PX4 position only — no depth gating, no obstacle stop
     route: list = field(default_factory=list)   # [(forward_m, left_m)] from the takeoff point and heading
@@ -353,7 +355,9 @@ class Mission:
             return out
 
         if self.phase in ("wait", "arm") and self.t_cmd is None:
-            if v.armed is True:
+            if v.armed is True and p.tolerant_arming:
+                self.why = "armed before READY: waiting to be READY, then switch to Position"
+            elif v.armed is True:
                 self._end(now, out, "yielded: vehicle armed before this mission requested control")
             elif p.wait_s > 0 and now - self.t_started > p.wait_s:
                 self._end(now, out, f"refused: {self.why or 'not ready'} after {p.wait_s:.0f} s")
@@ -398,7 +402,7 @@ class Mission:
                 self.why = "walkthrough mode: recording only, this mode never asks to fly"
             elif p.wait_s > 0 and now - self.t_started > p.wait_s:
                 self._end(now, out, f"refused: {self.why or 'not ready'} after {p.wait_s:.0f} s")
-            elif v.armed is not False:
+            elif v.armed is None or (v.armed and not p.tolerant_arming):
                 self.why = "waiting for an explicit disarmed PX4 report"
             elif not v.pos_ok or v.pos is None or v.heading is None:
                 self.why = "waiting for PX4 position and heading"
@@ -422,7 +426,11 @@ class Mission:
                 n, e, d = v.pos
                 self.sp = [n, e, d, v.heading]
             if not ok:
-                if self.t_cmd is None and v.armed is False:
+                if p.tolerant_arming and v.armed is not True:
+                    self._requalify(now, out, f"{why}; requalifying")
+                elif p.tolerant_arming:
+                    self.why = f"{why}: holding on the ground until healthy"
+                elif self.t_cmd is None and v.armed is False:
                     self._requalify(now, out, f"{why}; requalifying before any control request")
                 else:
                     self._end(now, out, f"refused: {why} before arming")

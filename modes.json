@@ -5,7 +5,9 @@
     "speed_mps": 0.6,
     "stop_m": 0.9,
     "yaw_rate_dps": 45.0,
-    "arrive_m": 0.3
+    "arrive_m": 0.3,
+    "tolerant_arming": true,
+    "health_bad_land_s": 3.0
   },
   "modes": {
     "1": {
@@ -58,7 +60,7 @@
     },
     "5": {
       "name": "walk_1107",
-      "_comment": "Route from the 2026-11-07 evening walk after the course change (bag 20261107-194115, walkthrough mode, OAK depth + cuVSLAM): forward 1.2 m, right along the open maze line, the tunnel, the chicane, through the window (crossed at ~1.06 m), then 0.5 m on to land just past the window, 0.43 m clear of anything the walk saw and ~1.9 m from the tall wall (a ladder is expected at that wall), near where the previous walk set down on the pad. Skips the walk's detour back through the window. The tall wall and anything past it are NOT in it: VIO broke at 186 s while the drone was lifted over the wall. Settings as the earlier walk route (1.08 m, depth band 0.13, climb 0.15 m ahead). Take off on the launch mark facing the course's +Y.",
+      "_comment": "Route from the 2026-11-07 evening walk after the course change (bag 20261107-194115, walkthrough mode, OAK depth + cuVSLAM): forward 1.2 m, right along the open maze line, the tunnel, the chicane, through the window (crossed at ~1.06 m), then 0.5 m on to land just past the window, 0.43 m clear of anything the walk saw and ~1.9 m from the tall wall (a ladder is expected at that wall), near where the previous walk set down on the pad. Skips the walk's detour back through the window. The tall wall and anything past it are NOT in it: VIO broke at 186 s while the drone was lifted over the wall. Settings as the earlier walk route (1.08 m, depth band 0.13, climb 0.15 m ahead). Take off 1 ft (0.3048 m) AHEAD of the walkthrough's start (every waypoint is 0.3048 m less forward than the walk), facing the same way as the walkthrough. Flown with require_depth false (2026-11-07 21:15): a hardcoded route, no depth gates and no obstacle stops.",
       "params_override": {
         "height_m": 1.08,
         "hover_s": 3.0,
@@ -72,7 +74,7 @@
         "clear_past_leg_m": 0.25,
         "climb_forward_m": 0.15,
         "climb_rate_mps": 0.25,
-        "require_depth": true,
+        "require_depth": false,
         "yaw_rate_dps": 90.0,
         "face_tol_deg": 12.0,
         "hold_s": 0.3,
@@ -80,19 +82,19 @@
         "look_around_deg": 20.0
       },
       "route": [
-        [1.18, -0.26],
-        [1.45, -4.1],
-        [1.19, -4.81],
-        [0.86, -5.04],
-        [0.09, -4.82],
-        [-1.34, -5.09],
-        [-2.73, -4.68],
-        [-2.96, -3.52],
-        [-3.16, -3.29],
-        [-3.24, -1.98],
-        [-2.87, -1.53],
-        [-3.03, -0.93],
-        [-3.05, -0.45]
+        [0.875, -0.26],
+        [1.145, -4.1],
+        [0.885, -4.81],
+        [0.555, -5.04],
+        [-0.215, -4.82],
+        [-1.645, -5.09],
+        [-3.035, -4.68],
+        [-3.265, -3.52],
+        [-3.465, -3.29],
+        [-3.545, -1.98],
+        [-3.175, -1.53],
+        [-3.335, -0.93],
+        [-3.355, -0.45]
       ]
     },
     "6": {
