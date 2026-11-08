@@ -1,0 +1,32 @@
+# Local-development candidate ONLY. Not deployed or ROS/Humble-qualified.
+dh_mission:
+  ros__parameters:
+    planner: clothoid
+    dry_run: true
+    backend: skybeta
+    autostart_on_offboard: false
+    speed: 0.5
+    voxel_resolution: 0.2
+    map_size: 16.0
+    robot_radius: 0.27          # Must be measured on the actual aircraft before qualification.
+    robot_half_height: 0.12
+    legal_altitude_verified: false  # Clamp limits are NOT competition altitude rules.
+    legal_min_altitude: 0.0         # UNSET: reviewed odom-frame centre-height limits required.
+    legal_max_altitude: 0.0
+    floor_height_verified: false
+    floor_z: 0.0                # UNSET reference, not assumed equal to odom zero.
+    require_tunnel: true
+    require_window: true
+    safety_margin: 0.05
+    expected_camera_tilt_deg: 0.0   # Validation target only, never applied as a fake TF.
+    mount_tolerance_deg: 3.0
+    depth_geometry_verified: false  # Actual depth frame/units/rectification still need verification.
+    depth_topic: /oak/stereo/image_raw
+    depth_info_topic: /oak/stereo/camera_info
+    color_topic: /oak/rgb/image_raw  # Required interface, NOT observed on the existing stack.
+    color_info_topic: /oak/rgb/camera_info
+    odom_topic: /visual_slam/tracking/odometry
+    vo_status_topic: /visual_slam/status
+    depth_std: 0.03             # Assumption for local tests, not a measured device error.
+    pad_approach_height: 0.65
+    publish_map: false
