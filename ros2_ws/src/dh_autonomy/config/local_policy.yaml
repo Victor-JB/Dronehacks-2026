@@ -1,0 +1,21 @@
+dh_local_policy:
+  ros__parameters:
+    dry_run: true
+    use_sim_time: false
+    integrate_hz: 10.0
+    publish_hz: 1.0
+    voxel_m: 0.10
+    size_xy_m: 12.0
+    max_range_m: 3.0
+    depth_geometry_verified: false
+    below_wall_height_verified: false
+    legal_min_altitude: 0.0   # Unset, not the organizer's setpoint clamp.
+    legal_max_altitude: 0.0
+    cruise_z: 0.85           # Proposed, not verified legal.
+    robot_radius: 0.27       # Must include actual propeller envelope.
+    robot_half_height: 0.12
+    safety_margin: 0.10
+    depth_topic: /oak/stereo/image_raw
+    depth_info_topic: /oak/stereo/camera_info
+    odometry_topic: /visual_slam/tracking/odometry
+    vo_status_topic: /visual_slam/status

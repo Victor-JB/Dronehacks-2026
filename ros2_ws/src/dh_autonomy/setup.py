@@ -21,6 +21,8 @@ setup(
         "stationary_mission = dh_autonomy.mission_node:stationary_main",
         "online_stationary = dh_autonomy.online_node:stationary_main",
         "online_mission = dh_autonomy.online_node:main",
+        "local_policy = dh_autonomy.local_policy_node:main",
+        "local_policy_stationary = dh_autonomy.local_policy_node:stationary_main",
         "localizer = dh_autonomy.localizer_node:main",
         "stereo_scan = dh_autonomy.stereo_scan_node:main",
         "line = dh_autonomy.line_node:main",
