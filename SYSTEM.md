@@ -162,13 +162,14 @@ square that returns to the start). `python3 set_speed.py <mode> <m/s>` sets one 
 | 1 `hover_test` | takeoff, 5 s hover at 1.2 m, lands itself | not required |
 | 2 `box_test_no_depth` | a 1 ft (0.30 m) square | not required |
 | 3 `box_test_with_depth` | a 1 m square, stopping for obstacles | required |
-| 7 `wall_vault` | climb over the wall ahead, cross, land | required |
-| 9 `walk_fused` (active) | the full course from the 2026-11-07 hand-carried walk, scan-corrected (below) | required |
+| 4 `wall_vault` | climb over the wall ahead, cross, land | required |
+| 5 `walk_fused` | the full course from the 2026-11-07 hand-carried walk, scan-corrected (below) | required |
+| 6 `walkthrough` (active) | never flies (`record_only`): carry the drone along the course with `fly.sh start` running; the bag's VIO odometry becomes the next route | not required |
 
 `require_depth: false` is a blind fallback (Tanooj, `config-modes-switcher`): no depth gate and no
 obstacle stop, only PX4's position. Use it only with a route already verified.
 
-**Mode 9, `walk_fused`:** 15 legs from the launch mark through the maze, Gate A, the tunnel, the
+**Mode 5, `walk_fused`:** 15 legs from the launch mark through the maze, Gate A, the tunnel, the
 chicane and the window to the pad, at **1.08 m** and 0.4 m/s. The line comes from the 2026-11-07
 hand-carried walk (cuVSLAM odometry, bag 20261107-155647); the 2026-11-06 point scan only pushed legs off
 walls (<= 0.45 m) and centred the tunnel and window legs. It lands on the real pad. 1.08 m leaves ~0.15 m

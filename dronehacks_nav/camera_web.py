@@ -4,7 +4,7 @@ where VIO thinks the drone is (track, heading, setpoint, planned route), the mis
 Offboard, and the camera, depth and map images.
 
 Two buttons drive the mission (start_gate): START ROUTE (leave the hover after takeoff and fly the
-route) and STOP (end the mission: it holds, the pilot lands). They publish "start" / "stop" on
+route) and STOP (end the mission: it lands itself; the pilot can take over). They publish "start" / "stop" on
 /refnav/command and work only with the key this node makes at startup (written to key_file; fly.sh
 start prints the link with it), because anyone on the WiFi can open the page. Without the key the
 page is view-only. Arming and the switch to Position stay with the pilot: no button can take off.
@@ -61,7 +61,7 @@ img{width:100%;image-rendering:pixelated;background:#000}
 <div>
 <figure><img src="/camera.mjpg"><figcaption>camera (left)</figcaption><div class="s" id="camera">-</div></figure>
 <figure><img src="/depth.mjpg"><figcaption>depth (black = no return; + = centre)</figcaption><div class="s" id="depth">-</div></figure>
-<figure><img src="/map.mjpg"><figcaption>map from above, north up (grey = unknown, light = free, red = occupied; green + = start, yellow = drone)</figcaption><div class="s" id="map">-</div></figure>
+<figure><img src="/map.mjpg"><figcaption>map from above, north up (grey = unknown, light = free, red = occupied; green + = start, green line = track, yellow = drone, blue = planned route, pink = setpoint)</figcaption><div class="s" id="map">-</div></figure>
 </div><script>
 function f(x){if(!x||!x.fps&&x.fps!==0)return "no messages";
  let t=x.fps.toFixed(1)+" Hz   "+x.width+"x"+x.height+" "+x.encoding;
@@ -111,6 +111,7 @@ if(!KEY){go.style.display=sp.style.display="none";msg.textContent="view only: us
 const FLY=["turn","check","go","hold"],AIR=["climb","hover","await_start"].concat(FLY);
 function words(d){const m=d.mission||{},sk=d.skybeta||{},ph=m.phase;
  if(d.stale||!ph)return["#f44","NO DATA from the mission"];
+ if(ph=="wait"&&(m.why||"").startsWith("walkthrough"))return["#4af","WALKTHROUGH: recording only, this mode never flies"];
  if(ph=="wait")return["#fd5","NOT READY: "+(m.why||"")];
  if(ph=="arm")return sk.armed?["#4af","ARMED: pilot, switch to Position now"]:["#3c3","READY: pilot, arm on Altitude, then switch to Position"];
  if(ph=="climb")return["#4af","TAKING OFF to "+(m.setpoint?(-m.setpoint[2]).toFixed(2):"?")+" m"];

@@ -53,6 +53,7 @@ AIRBORNE = ("climb", "hover", "await_start", "turn", "check", "go", "hold",
 
 @dataclass
 class Params:
+    record_only: bool = False            # walkthrough: never asks to fly (stays in wait); the stack records the walk
     require_depth: bool = True           # false: pure dead-reckoning on PX4 position only — no depth gating, no obstacle stop
     route: list = field(default_factory=list)   # [(forward_m, left_m)] from the takeoff point and heading
     height_m: float = 1.2
@@ -391,7 +392,9 @@ class Mission:
         ph = self.phase
         if ph == "wait":
             ok, why = self.health.arm_ok(now)
-            if p.wait_s > 0 and now - self.t_started > p.wait_s:
+            if p.record_only:
+                self.why = "walkthrough mode: recording only, this mode never asks to fly"
+            elif p.wait_s > 0 and now - self.t_started > p.wait_s:
                 self._end(now, out, f"refused: {self.why or 'not ready'} after {p.wait_s:.0f} s")
             elif v.armed is not False:
                 self.why = "waiting for an explicit disarmed PX4 report"

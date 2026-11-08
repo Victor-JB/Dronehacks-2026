@@ -4,9 +4,11 @@ Read-only towards the flight stack: it subscribes, and publishes only map produc
 
   in   depth_topic (16UC1 mm or 32FC1 m) + its camera_info, odometry_topic (base_link in odom, ENU/FLU),
        TF base_link <- the depth frame (static, from the stack's URDF)
+       status_topic (/refnav/status, the mission's JSON): its planned route and current setpoint
   out  /map/occupied   sensor_msgs/PointCloud2, occupied voxel centres in odom (Foxglove 3D panel)
-       /map/image      sensor_msgs/Image bgr8, top-down slice of the slice_z band with the drone and its
-                       trail (camera_web shows it as the "map" stream)
+       /map/image      sensor_msgs/Image bgr8, top-down slice of the slice_z band with the drone, its
+                       trail, the planned route (blue) and the setpoint (pink) drawn over it
+                       (camera_web shows it as the "map" stream)
 
 Compute budget: depth arrives at 30 Hz; integrate_hz (2) times a second ONE frame is integrated with
 every stride-th pixel (8: ~1000 rays at 320x200). Products are published at publish_hz (1).
@@ -20,6 +22,7 @@ Run:  ros2 run dronehacks_nav map_node
 """
 from __future__ import annotations
 
+import json
 import math
 import sys
 import time
@@ -33,10 +36,11 @@ from rclpy.qos import qos_profile_sensor_data
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2
 from sensor_msgs_py import point_cloud2
-from std_msgs.msg import Header
+from std_msgs.msg import Header, String
 
 from refnav import depth as D
 
+from . import frames as F
 from . import mapping as M
 
 COLOURS = {M.UNKNOWN: (45, 45, 45), M.FREE: (205, 205, 205), M.OCCUPIED: (40, 40, 230)}   # BGR
@@ -73,10 +77,12 @@ class MapNode(Node):
         self.poses = deque(maxlen=90)   # (stamp, p_world (3,), R_world_body (3,3)) ~3 s of odometry
         self.trail = deque(maxlen=600)  # (x, y) every integrated frame
         self.skipped = {}
+        self.plan = None                # (route [(x, y)] ENU from home, setpoint (x, y) or None)
 
         self.create_subscription(CameraInfo, info_topic, self._on_info, qos_profile_sensor_data)
         self.create_subscription(Image, depth_topic, self._on_depth, qos_profile_sensor_data)
         self.create_subscription(Odometry, odom_topic, self._on_odom, 10)
+        self.create_subscription(String, p("status_topic", "/refnav/status"), self._on_status, 10)
         self.pub_cloud = self.create_publisher(PointCloud2, "/map/occupied", 1)
         self.pub_image = self.create_publisher(Image, "/map/image", 1)
         self.create_timer(1.0 / integrate_hz, self._integrate)
@@ -95,6 +101,18 @@ class MapNode(Node):
     def _on_odom(self, m):
         p, o = m.pose.pose.position, m.pose.pose.orientation
         self.poses.append((stamp_s(m.header), np.array([p.x, p.y, p.z]), D.quat_to_mat(o.w, o.x, o.y, o.z)))
+
+    def _on_status(self, m):
+        """The mission's plan, NED in its status; drawn here in the odometry frame (ENU)."""
+        try:
+            st = json.loads(m.data)
+        except ValueError:
+            return
+        home, targets, sp = st.get("home"), st.get("targets") or [], st.get("setpoint")
+        route = []
+        if home:
+            route = [F.ned_to_enu(home[0], home[1], 0.0)[:2]] + [F.ned_to_enu(n, e, 0.0)[:2] for n, e in targets]
+        self.plan = (route, F.ned_to_enu(*sp[:3])[:2] if sp else None)
 
     def _skip(self, why):
         self.skipped[why] = self.skipped.get(why, 0) + 1
@@ -186,6 +204,15 @@ class MapNode(Node):
         px = lambda x, y: tuple(int((c + 0.5) * k) for c in reversed(self.map.pixel(x, y)))  # (col, row)
         r0 = px(0.0, 0.0)
         cv2.drawMarker(img, r0, (0, 160, 0), cv2.MARKER_CROSS, 4 * k, 1)                      # the origin
+        if self.plan:                                                                          # the plan
+            route, sp = self.plan
+            pts = [px(x, y) for x, y in route]
+            if len(pts) > 1:
+                cv2.polylines(img, [np.array(pts, np.int32)], False, (255, 170, 68), 1)
+            for q in pts[1:]:
+                cv2.circle(img, q, max(2, k), (255, 170, 68), -1)
+            if sp is not None:
+                cv2.circle(img, px(*sp), 2 * k, (255, 68, 255), 2)
         trail = [px(x, y) for x, y, _ in self.trail]
         if len(trail) > 1:
             cv2.polylines(img, [np.array(trail, np.int32)], False, (60, 180, 60), 1)

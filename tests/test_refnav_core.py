@@ -697,3 +697,11 @@ def test_moved_after_ready_the_route_starts_where_offboard_takes_over():
     m.step(t, veh(5.0, armed=True, nav=C.NAV_OFFBOARD))   # pilot arms, Offboard takes over
     assert m.phase == "climb"
     assert m.home[0] == pytest.approx(5.0) and m.targets[0][0] == pytest.approx(7.0)
+
+
+def test_walkthrough_mode_never_asks_to_fly():
+    """record_only (mode walkthrough): healthy for minutes, it never streams, never asks to arm."""
+    m, px4, log = fly(C.Params(route=[], record_only=True, require_depth=False), seconds=60.0)
+    assert {p for _, p, *_ in log} == {"wait"}
+    assert not any(s for _, _, s, *_ in log) and not any(c for _, _, _, c, _ in log)
+    assert not px4.armed and m.why.startswith("walkthrough")

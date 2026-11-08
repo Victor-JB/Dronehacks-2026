@@ -1,5 +1,5 @@
 {
-  "active_mode": 9,
+  "active_mode": 6,
   "global_params": {
     "height_m": 1.2,
     "speed_mps": 0.6,
@@ -35,7 +35,7 @@
       "box_size_m": 1.0,
       "route": []
     },
-    "7": {
+    "4": {
       "name": "wall_vault",
       "_comment": "Climb out of any gap beneath the wall ahead, lock onto the wall face, approach to standoff, climb until above the top edge of the wall, fly forward over it, descend on the far side, and land.",
       "params_override": {
@@ -56,7 +56,7 @@
       },
       "route": []
     },
-    "9": {
+    "5": {
       "name": "walk_fused",
       "_comment": "Route from the 2026-11-07 hand-carried walk (cuVSLAM odometry, 20261107-155647 bag), corrected by the 2026-11-06 scan. The walk sets the line and the pad; the scan moved a waypoint only where a leg came within 0.42 m of a scanned wall, by at most 0.45 m. Two overrides: the tunnel is a straight leg on its scanned centre (the walk ran 0.15 m off its right wall), and the window is a straight leg along its normal through the scanned opening's centre. Lands on the REAL pad (seen in the scan colours and where the walk set down, 9 cm apart): about 1.4 m from the CAD pad. Leg clearances 0.30-0.60 m; the tightest are the window (0.30) and Gate A (0.32, the north net). Settings as the earlier scan-fitted route (1.08 m, band 0.13, climb 0.15 m ahead). Take off on the launch mark facing the course's +Y.",
       "params_override": {
@@ -91,6 +91,15 @@
         [-3.342, -0.608],
         [-3.059, -0.321]
       ]
+    },
+    "6": {
+      "name": "walkthrough",
+      "_comment": "Hand-carried walk to record the route: the mission never asks to fly (record_only), so arming does nothing. Power on at the launch mark facing the course's +Y, fly.sh start, carry it along the line at flight height, set it down on the pad, fly.sh stop. The bag's /visual_slam/tracking/odometry becomes the next route.",
+      "params_override": {
+        "record_only": true,
+        "require_depth": false
+      },
+      "route": []
     }
   }
 }
